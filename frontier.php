@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.8
+ * Version: 1.7.9
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -97,6 +97,7 @@ final class Frontier {
         add_filter('wp_nav_menu_objects', [self::class, 'filterClassicNavigation']);
         add_shortcode('frontier_view', [self::class, 'shortcode']);
         add_action('admin_menu', [self::class, 'menu']);
+        add_action('admin_enqueue_scripts', [self::class, 'adminDropdownSearch']);
         add_action('admin_post_frontier_template', [self::class, 'downloadTemplate']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
@@ -275,6 +276,18 @@ final class Frontier {
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
         wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],self::PAGE_VERSION);
+        self::enqueueDropdownSearch();
+    }
+
+    public static function adminDropdownSearch() {
+        $page = isset($_GET['page']) && is_string($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+        if ($page === 'frontier' || strpos($page,'frontier-') === 0) {
+            self::enqueueDropdownSearch();
+        }
+    }
+
+    private static function enqueueDropdownSearch() {
+        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.7.9',true);
     }
 
     public static function workspaceTemplate($template) {
@@ -735,7 +748,8 @@ final class Frontier {
         } elseif (isset(self::FIELDS[$field])) {
             echo '<select name="'.esc_attr($field).'"'.(self::optionalField($kind,$field) ? '' : ' required').'><option value="">Select</option>';
             foreach (self::eligible($rows,$kind,$field) as $row) {
-                echo '<option value="'.esc_attr($row['id']).'" '.selected($value,$row['id'],false).'>'.esc_html(self::label($row,$rows)).'</option>';
+                $optionLabel = $field === 'employee' ? $row['data']['name'] : self::label($row,$rows);
+                echo '<option value="'.esc_attr($row['id']).'" '.selected($value,$row['id'],false).'>'.esc_html($optionLabel).'</option>';
             }
             echo '</select>';
         } elseif ($field === 'reorder') {
