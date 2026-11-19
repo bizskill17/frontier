@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.4
+ * Version: 1.9.5
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.1');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.5');
         self::enqueueDropdownSearch();
     }
 
@@ -356,7 +356,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.1');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.5');
         }
     }
 
@@ -840,6 +840,13 @@ final class Frontier {
         if (self::$screen === 'pending_po') {
             $fields['pending_quantity'] = 'Pending To Order';
         }
+        if (self::$screen === 'pending_indent') {
+            $fields = [
+                'indent_number'=>'Indent No.','indent_date'=>'Indent Date','site_name'=>'Site Number with Name',
+                'requested_name'=>'Requested By','line_number'=>'Sl No.','approval_item'=>'Item',
+                'qty'=>'Quantity Requested','unit'=>'Unit','excess'=>'Excess Quantity','due'=>'Target Date',
+            ];
+        }
         $indentItems = self::$screen === 'indent_items';
         if ($indentItems) {
             $fields = self::indentItemColumns();
@@ -1071,7 +1078,9 @@ final class Frontier {
             }
             if ($status === 'pending' && self::can('approve')) {
                 self::button($row,'approve','Approve');
-                self::button($row,'return','Return',true);
+                echo '<details class="frontier-return-action"><summary class="button">Return</summary>';
+                self::button($row,'return','Confirm Return',true);
+                echo '</details>';
             }
         }
         if ($kind === 'quote' && $mode === 'choose' && self::can('quote') && $status !== 'selected') {
@@ -1144,6 +1153,14 @@ final class Frontier {
         }
         if (in_array($kind,['supplier','site'],true) && !empty($data['ref'])) {
             $values['combined_name'] = $data['ref'].' - '.$data['name'];
+        }
+        if (self::$screen === 'pending_indent' && $kind === 'indent') {
+            $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
+            $values['approval_item'] = $boq['name'] ?? '';
+            $values['indent_number'] = $data['indent_number'] ?? '#'.$row['id'];
+            $values['site_name'] = self::siteNumberWithName($rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? []);
+            $values['line_number'] = $data['line_number'] ?? 1;
+            $values['unit'] = $data['unit'] ?? ($boq['unit'] ?? '');
         }
         if (self::$screen === 'pending_po' && isset($rows[$data['indent'] ?? 0])) {
             $values['pending_quantity'] = self::available($rows,$rows[$data['indent']]);
