@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.10
+ * Version: 1.9.0
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -326,7 +326,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.10');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.0');
         self::enqueueDropdownSearch();
     }
 
@@ -338,11 +338,12 @@ final class Frontier {
     }
 
     private static function enqueueDropdownSearch() {
-        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.8.3',true);
+        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.0',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.0',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.8.6',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.10');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.0');
         }
     }
 
@@ -616,6 +617,13 @@ final class Frontier {
             }
         }
         $edit = $rows[absint($_GET['edit'] ?? 0)] ?? null;
+        if (self::$screen === 'indent' && !isset($_GET['edit'])) {
+            if (self::can('indent')) {
+                self::indentForm($rows);
+            }
+            echo '</div>';
+            return;
+        }
         $editing = $edit && $edit['kind'] === $kind && ((isset(self::MASTERS[$kind]) || $kind === 'site')
             || ($kind === 'indent' && in_array($edit['status'],['draft','returned','approved'],true)));
         if (isset(self::IMPORT_TEMPLATES[$kind]) && isset($_GET['upload']) && self::can($kind)) {
@@ -731,7 +739,8 @@ final class Frontier {
         $fields += [
             'site'=>['combined_name'=>'Site Number with Name','status_date'=>'Status Date','status_remark'=>'Remark','updated_by'=>'Updated By'],
             'supplier'=>['combined_name'=>'Suppliers Name with Code'],
-            'indent'=>['reason'=>'Reason'],
+            'indent'=>['indent_number'=>'Indent No.','indent_date'=>'Indent Date','site_name'=>'Site Number with Name',
+                'requested_name'=>'Requested By','line_number'=>'Sl No.','unit'=>'Unit','excess'=>'Excess Quantity','reason'=>'Reason'],
             'quote'=>['reason'=>'Selection Reason','attachment'=>'Quotation File'],
             'po'=>['supplier'=>'Supplier Name with Code','reason'=>'Reason','received'=>'Received','waiting'=>'Pending GRN Approval','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'follow'=>['ordered'=>'Order Quantity','expected'=>'Expected Delivery','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
@@ -839,6 +848,9 @@ final class Frontier {
 
     private static function formStart($kind,$action,$id=0) {
         $class = in_array($action,['create','edit','complete_site','cancel_site'],true) ? ' class="frontier-entry"' : '';
+        if ($action === 'create_indent') {
+            $class = ' class="frontier-entry frontier-indent-form"';
+        }
         if (in_array($action,['create_boq','edit_boq'],true)) {
             $class = ' class="frontier-entry frontier-boq-form"';
         }
@@ -1017,6 +1029,13 @@ final class Frontier {
             $values['combined_name'] = $data['ref'].' - '.$data['name'];
         }
         $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
+        if ($kind === 'indent' && !empty($data['indent_number'])) {
+            foreach (['indent_number','requested_name','line_number','unit','excess'] as $key) {
+                $values[$key] = $data[$key] ?? '';
+            }
+            $values['indent_date'] = implode('/',array_reverse(explode('-',$data['indent_date'])));
+            $values['site_name'] = self::siteNumberWithName($rows[$data['site']]['data'] ?? []);
+        }
         if ($kind === 'site' && !empty($data['status_date'])) {
             $values['status_date'] = implode('/',array_reverse(explode('-',$data['status_date'])));
             $values['status_remark'] = $data['status_remark'] ?? '';
@@ -1247,15 +1266,28 @@ final class Frontier {
         }
     }
 
-    private static function validateIndent($rows,$data,$id) {
+    private static function validateIndent($rows,&$data,$id) {
         $used = 0;
         foreach ($rows as $row) {
-            if ($row['kind'] === 'indent' && (int)$row['id'] !== (int)$id
-                && (int)$row['data']['boq'] === $data['boq'] && in_array($row['status'],['pending','approved'],true)) {
+            if ($row['kind'] !== 'indent' || (int)$row['id'] === (int)$id || (int)$row['data']['boq'] !== (int)$data['boq']) {
+                continue;
+            }
+            if (!empty($data['indent_number'])) {
+                self::requireRule((int)($row['data']['indent_number'] ?? 0) !== (int)$data['indent_number'],
+                    'This BOQ item is already on the same indent.');
+            }
+            if (in_array($row['status'],['pending','approved'],true)) {
                 $used += $row['data']['qty'];
             }
         }
-        self::requireRule(round($used + $data['qty'],3) <= $rows[$data['boq']]['data']['qty'],'This exceeds the available BOQ quantity.');
+        $boq = $rows[$data['boq']]['data'];
+        if (!empty($data['indent_number'])) {
+            self::requireRule((int)$boq['site'] === (int)$data['site'],'Select a BOQ item from the same site.');
+            $data['unit'] = $boq['unit'];
+            $data['excess'] = max(0,round($data['qty'] - max(0,$boq['qty']-$used),3));
+        } else {
+            self::requireRule(round($used + $data['qty'],3) <= $boq['qty'],'This exceeds the available BOQ quantity.');
+        }
     }
 
     private static function transition($rows,$row,$action) {
@@ -1291,11 +1323,17 @@ final class Frontier {
                 }
                 self::requireRule($kind === 'indent' && in_array($status,['draft','returned','approved'],true),'This indent cannot be edited.');
                 $newData = self::readFields($rows,$kind);
+                if (!empty($data['indent_number'])) {
+                    $newData += $data;
+                    self::validateIndent($rows,$newData,$row['id']);
+                }
                 if ($status === 'approved') {
                     foreach ($rows as $record) {
                         self::requireRule(!in_array($record['kind'],['po','quote'],true) || (int)$record['data']['indent'] !== (int)$row['id'],'An indent linked to purchasing records is locked.');
                     }
-                    self::validateIndent($rows,$newData,$row['id']);
+                    if (empty($data['indent_number'])) {
+                        self::validateIndent($rows,$newData,$row['id']);
+                    }
                     $status = 'pending';
                 }
                 $data = $newData;
@@ -1993,6 +2031,92 @@ final class Frontier {
         }
     }
 
+    private static function indentForm($rows) {
+        $used = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'indent' && in_array($row['status'],['pending','approved'],true)) {
+                $id = $row['data']['boq'];
+                $used[$id] = ($used[$id] ?? 0) + $row['data']['qty'];
+            }
+        }
+        $sites = [];
+        $catalog = [];
+        foreach ($rows as $row) {
+            $data = $row['data'];
+            if ($row['kind'] !== 'boq' || empty($data['site']) || ($rows[$data['site']]['kind'] ?? '') !== 'site') {
+                continue;
+            }
+            $site = $rows[$data['site']];
+            $sites[$site['id']] = $site;
+            $catalog[$site['id']][] = [
+                'id'=>(int)$row['id'],'name'=>$data['name'],'number'=>$data['boq_number'] ?? '#'.$row['id'],
+                'line'=>$data['line_number'] ?? 1,'unit'=>$data['unit'],'qty'=>(float)$data['qty'],
+                'used'=>round($used[$row['id']] ?? 0,3),
+            ];
+        }
+        self::formStart('indent','create_indent');
+        echo '<input type="hidden" name="indent_lines"><input type="hidden" name="indent_token" value="'.esc_attr(wp_generate_uuid4()).'">';
+        echo '<div class="frontier-fields">';
+        self::field($rows,'indent','due','Indent Date',current_time('Y-m-d'));
+        self::field($rows,'indent','employee','Requested By','');
+        self::field($sites,'indent','site','Site Number with Name','');
+        echo '</div><div class="frontier-master-toolbar"><h2>Indent Items</h2><button type="button" class="button frontier-indent-add" disabled>＋ Add More</button></div>';
+        echo '<p class="frontier-indent-message" role="status">Select a site to load its BOQ items.</p>';
+        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
+        foreach (['Sl No.','Item Name','Unit','Quantity Required','Already Indented','Pending to Indent','Indent Now','Action'] as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '</tr></thead><tbody></tbody></table></div>';
+        echo '<script type="application/json" class="frontier-indent-data">'.wp_json_encode($catalog,
+            JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
+        echo '<p><a class="button" href="'.esc_url(self::url('indent_master')).'">Cancel</a> ';
+        echo '<button class="button button-primary frontier-indent-submit" type="submit" disabled>Submit Indent</button></p>';
+        echo '<noscript><p>Enable JavaScript to add indent items.</p></noscript></form>';
+    }
+
+    private static function saveIndent($rows) {
+        $site = $rows[absint(self::input('site'))] ?? null;
+        $employee = $rows[absint(self::input('employee'))] ?? null;
+        $dateText = self::input('due');
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d',$dateText);
+        self::requireRule($site && $site['kind'] === 'site','Select a site.');
+        self::requireRule($employee && $employee['kind'] === 'employee','Select Requested By.');
+        self::requireRule($date && $date->format('Y-m-d') === $dateText,'Enter a valid indent date.');
+        $raw = $_POST['indent_lines'] ?? '';
+        $lines = is_string($raw) && strlen($raw) <= 100000 ? json_decode(wp_unslash($raw),true) : null;
+        self::requireRule(is_array($lines) && count($lines) > 0 && count($lines) <= 100,'Add between 1 and 100 indent items.');
+        $token = self::input('indent_token');
+        self::requireRule(wp_is_uuid($token,4),'Reopen the Indent Form and try again.');
+        $last = 0;
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'indent') {
+                if (($row['data']['indent_token'] ?? '') === $token) {
+                    return;
+                }
+                $last = max($last,(int)($row['data']['indent_number'] ?? 0));
+            }
+        }
+        $header = ['indent_number'=>$last+1,'indent_date'=>$dateText,'indent_token'=>$token,
+            'requested_by'=>(int)$employee['id'],'requested_name'=>$employee['data']['name'],'site'=>(int)$site['id']];
+        $selected = [];
+        global $wpdb;
+        foreach (array_values($lines) as $index=>$line) {
+            $number = $index+1;
+            $id = is_array($line) && is_int($line['boq'] ?? null) ? $line['boq'] : 0;
+            $qty = is_array($line) && is_string($line['qty'] ?? null) ? $line['qty'] : '';
+            self::requireRule(($rows[$id]['kind'] ?? '') === 'boq' && !isset($selected[$id]),
+                'Choose a distinct BOQ item on row '.$number.'.');
+            self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0,
+                'Enter a valid quantity on row '.$number.'.');
+            $selected[$id] = true;
+            $data = $header + ['boq'=>$id,'qty'=>(float)$qty,'line_number'=>$number];
+            self::validateIndent($rows,$data,0);
+            if ($wpdb->insert(self::table(),['kind'=>'indent','status'=>'pending','details'=>wp_json_encode($data)]) !== 1) {
+                throw new RuntimeException('Indent could not be saved.');
+            }
+        }
+    }
+
     public static function save() {
         global $wpdb;
         check_admin_referer('frontier_save');
@@ -2015,13 +2139,17 @@ final class Frontier {
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
                 || ($kind === 'supplier' && $action === 'import_suppliers')
+                || ($kind === 'indent' && $action === 'create_indent')
                 || ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true))) {
                 if ($wpdb->query('START TRANSACTION') === false) {
                     throw new RuntimeException('Database transaction could not start.');
                 }
                 $transaction = true;
             }
-            if ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true)) {
+            if ($kind === 'indent' && $action === 'create_indent') {
+                self::saveIndent($rows);
+                $result = true;
+            } elseif ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true)) {
                 $id = absint(self::input('id'));
                 self::requireRule($action === 'create_boq' || $id,'BOQ not found.');
                 if ($action === 'delete_boq') {
@@ -2115,6 +2243,9 @@ final class Frontier {
         $screen = sanitize_key(self::input('screen'));
         $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
         $destination = $action !== 'create_boq' && $sameKind && self::canView($screen) ? $screen : $kind;
+        if ($action === 'create_indent') {
+            $destination = 'indent_master';
+        }
         $query = $imported === null ? [in_array($action,['delete_master','delete_boq'],true) ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
         wp_safe_redirect(add_query_arg($query,self::url($destination)));
         exit;

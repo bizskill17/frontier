@@ -121,3 +121,15 @@ body.frontier-workspace {
 .frontier-pages .button.frontier-download:hover { background-color: #cbE2ff; }
 .frontier-pages .button.frontier-upload { background-color: #dcf4ef; border-color: #a8d9cf; color: #14584c; }
 .frontier-pages .button.frontier-upload:hover { background-color: #c7ebe2; }
+
+.frontier-indent-form .frontier-master-toolbar { align-items: center; justify-content: space-between; }
+.frontier-indent-form .frontier-master-toolbar h2 { margin: 0; }
+.frontier-indent-form .frontier-table { overflow: visible; }
+.frontier-indent-form td:nth-child(2) { min-width: 190px; }
+.frontier-indent-form td:nth-child(7) { min-width: 125px; }
+.frontier-indent-form .frontier-indent-warning td { background: #ffe8e8; }
+.frontier-indent-form .frontier-indent-excess { display: block; color: #a32121; margin-top: 4px; }
+.frontier-indent-form .frontier-indent-add:disabled, .frontier-indent-form .frontier-indent-submit:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 850px) {
+    .frontier-indent-form .frontier-table { overflow: auto; min-height: 180px; }
+}

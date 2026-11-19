@@ -1,10 +1,15 @@
-document.querySelectorAll('.frontier-pages select:not([multiple])').forEach((select, index) => {
+(() => {
+let nextDropdownId = 0;
+function enhanceDropdown(select) {
+    if (select.hidden || select.multiple) return;
+    const index = nextDropdownId++;
+
     if (select.disabled) return;
     const options = Array.from(select.options).filter((option) => !option.disabled && (option.value || !select.required));
     if (!options.some((option) => option.value)) return;
 
     const label = select.closest('label');
-    const name = label ? label.firstChild.textContent.replace(/\s*\*$/, '').trim() : select.name;
+    const name = label ? label.firstChild.textContent.replace(/\s*\*$/, '').trim() : (select.getAttribute('aria-label') || select.name);
     const root = document.createElement('span');
     root.className = 'frontier-combobox';
     const input = document.createElement('input');
@@ -141,4 +146,10 @@ document.querySelectorAll('.frontier-pages select:not([multiple])').forEach((sel
             if (active >= 0 || matches.length === 1) choose(Math.max(0, active));
         }
     });
+}
+
+document.querySelectorAll('.frontier-pages select').forEach(enhanceDropdown);
+document.addEventListener('frontier:enhance-dropdown', (event) => {
+    if (event.target instanceof HTMLSelectElement) enhanceDropdown(event.target);
 });
+})();
