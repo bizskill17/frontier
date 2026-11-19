@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.28
+ * Version: 1.9.29
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -351,7 +351,7 @@ final class Frontier {
     }
 
     private static function enqueueDropdownSearch() {
-        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.0',true);
+        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.29',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.16',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
@@ -2940,7 +2940,7 @@ final class Frontier {
                     $quoteData = $choices[$index]['data'] ?? [];
                     echo '<td>'.esc_html(self::supplierDisplay($quoteData,$rows)).'</td><td>'.esc_html((string)($quoteData['rate'] ?? '')).'</td>';
                 }
-                echo '<td><select data-supplier-choice data-no-search aria-label="'.esc_attr('Supplier finalized for '.$name).'" name="supplier_choices['.esc_attr($indentId).']" disabled><option value="">Select supplier</option>';
+                echo '<td><select data-supplier-choice data-dropdown-overlay aria-label="'.esc_attr('Supplier finalized for '.$name).'" name="supplier_choices['.esc_attr($indentId).']" disabled><option value="">Select supplier</option>';
                 foreach ($choices as $quote) {
                     echo '<option value="'.esc_attr($quote['id']).'" data-rate="'.esc_attr($quote['data']['rate']).'">'.esc_html(self::supplierDisplay($quote['data'],$rows)).'</option>';
                 }
@@ -2963,6 +2963,7 @@ final class Frontier {
             const visible = row.dataset.choiceGroup === group.value;
             row.style.display = visible ? '' : 'none';
             choice.disabled = !visible;
+            if (visible && !choice.hidden) choice.dispatchEvent(new Event('frontier:enhance-dropdown', { bubbles: true }));
             row.querySelector('output').textContent = choice.selectedOptions[0]?.dataset.rate ?? '';
             hasSelection ||= visible && choice.value !== '';
         }

@@ -41,6 +41,9 @@ function enhanceDropdown(select) {
     select.hidden = true;
     select.required = false;
 
+    const overlay = select.hasAttribute('data-dropdown-overlay');
+    if (overlay) input.placeholder = 'Select supplier';
+
     let matches = [];
     let active = -1;
 
@@ -57,6 +60,28 @@ function enhanceDropdown(select) {
         const row = list.children[active];
         row.classList.add('is-active');
         input.setAttribute('aria-activedescendant', row.id);
+    }
+
+    function positionOverlay() {
+        const rect = input.getBoundingClientRect();
+        const width = Math.min(Math.max(rect.width, 260), window.innerWidth - 16);
+        const below = window.innerHeight - rect.bottom - 8;
+        const above = rect.top - 8;
+        const openAbove = below < 180 && above > below;
+        Object.assign(list.style, {
+            position: 'fixed',
+            left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + 'px',
+            right: 'auto',
+            top: openAbove ? 'auto' : rect.bottom + 3 + 'px',
+            bottom: openAbove ? window.innerHeight - rect.top + 3 + 'px' : 'auto',
+            width: width + 'px',
+            maxHeight: Math.min(220, Math.max(24, (openAbove ? above : below) - 3)) + 'px',
+            zIndex: '1000',
+        });
+    }
+
+    function closeOnScroll(event) {
+        if (event.target !== list) close();
     }
 
     function show(query) {
@@ -81,6 +106,12 @@ function enhanceDropdown(select) {
             empty.textContent = 'No matching options';
             list.append(empty);
         }
+        if (overlay) {
+            if (list.parentNode !== document.body) document.body.append(list);
+            positionOverlay();
+            window.addEventListener('scroll', closeOnScroll, true);
+            window.addEventListener('resize', close);
+        }
         list.hidden = false;
         input.setAttribute('aria-expanded', 'true');
         highlight(matches.findIndex((option) => option.selected));
@@ -88,6 +119,10 @@ function enhanceDropdown(select) {
 
     function close() {
         list.hidden = true;
+        if (overlay) {
+            window.removeEventListener('scroll', closeOnScroll, true);
+            window.removeEventListener('resize', close);
+        }
         input.setAttribute('aria-expanded', 'false');
         input.removeAttribute('aria-activedescendant');
         syncSelection();
