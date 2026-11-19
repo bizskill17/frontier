@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.50
+ * Version: 1.9.51
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3012,13 +3012,9 @@ final class Frontier {
     }
 
     private static function purchaseInvoiceView($rows,$master) {
-        $id = absint($_GET['invoice_po'] ?? 0);
-        if (!$master && $id && self::can('match')) {
-            $po = $rows[$id] ?? [];
-            if (($po['kind'] ?? '') === 'po' && $po['status'] !== 'cancelled' && self::pendingInvoiceQuantity($rows,$po) > 0) {
-                self::purchaseInvoiceForm($rows,$po);
-                return;
-            }
+        $editable = !$master && self::can('match');
+        if ($editable) {
+            self::formStart('match','link_po_invoice');
         }
         $listing = array_filter($rows,static function ($row) use ($master) {
             return $master ? $row['kind'] === 'match' : $row['kind'] === 'po';
@@ -3027,7 +3023,7 @@ final class Frontier {
         $columns = ['PO No. with Supplier Name','PO Date',$master ? 'Indent Number with Site Name' : 'Indent Number',
             'PO No.','Indent Date','Site Name','Item Name','Order Quantity','Supplier Finalized','Rate Finalized','Pending for Invoice'];
         $columns = array_merge($columns,$master ? ['Quantity Invoiced','Rate as per Invoice','Invoice Identifier',
-            'Invoice No.','Invoice Date','Invoice Copy','Invoice Amount'] : ['Actions']);
+            'Invoice No.','Invoice Date','Invoice Copy','Invoice Amount'] : ['Invoice Qty','Invoice Rate','Invoice Identifier']);
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="PO item invoices"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $column) {
             echo '<th scope="col">'.esc_html($column).'</th>';
@@ -3063,11 +3059,11 @@ final class Frontier {
                 }
                 echo '</td><td>'.esc_html(number_format((float)$data['qty'] * (float)$data['rate'],2)).'</td>';
             } else {
-                echo '<td>';
-                if ($pending > 0 && self::can('match')) {
-                    echo '<a class="button frontier-add" href="'.esc_url(add_query_arg('invoice_po',$po['id'],self::url('match'))).'">Update</a>';
+                if ($editable && $pending > 0) {
+                    self::purchaseInvoiceInputs($rows,$po,$pending);
+                } else {
+                    echo '<td></td><td></td><td></td>';
                 }
-                echo '</td>';
             }
             echo '</tr>';
         }
@@ -3075,6 +3071,14 @@ final class Frontier {
             echo '<tr><td colspan="'.count($columns).'">No records yet.</td></tr>';
         }
         echo '</tbody></table></div>';
+        if ($editable) {
+            if ($total) {
+                echo '<p>';
+                self::submitButton('Save Invoice Links',true);
+                echo '</p>';
+            }
+            echo '</form>';
+        }
         self::pagination($page,$pages,$total);
     }
 
@@ -3084,52 +3088,62 @@ final class Frontier {
         return implode(' - ',array_filter([$data['ref'] ?? '',self::indentDisplayDate($data['due'] ?? ''),$supplier],'strlen'));
     }
 
-    private static function purchaseInvoiceForm($rows,$po) {
-        $order = self::purchaseOrderValues($rows,$po);
-        echo '<h2>'.esc_html($order['po_supplier'].' · '.$order['item_name']).'</h2>';
-        echo '<p>Pending for Invoice: '.esc_html((string)self::pendingInvoiceQuantity($rows,$po)).'</p>';
+    private static function purchaseInvoiceInputs($rows,$po,$pending) {
         $invoices = array_filter($rows,static function ($invoice) use ($rows,$po) {
             return $invoice['kind'] === 'invoice' && self::sameSupplier($po['data'],$invoice['data'])
                 && (!isset($invoice['data']['qty']) || $invoice['data']['qty'] > self::sum($rows,'match','invoice',$invoice['id']));
         });
         if (!$invoices) {
-            echo '<p>No uploaded invoices with a remaining quantity for this supplier.</p>';
-            echo '<p><a class="button" href="'.esc_url(self::url('match')).'">Back</a></p>';
+            echo '<td></td><td></td><td>No available invoice</td>';
             return;
         }
-        self::formStart('match','link_po_invoice',$po['id']);
-        echo '<div class="frontier-fields">';
-        echo '<p><label>'.self::requiredLabel('Invoice Identifier').'<select name="invoice" required><option value="">Select invoice</option>';
+        $prefix = 'invoice_links['.esc_attr($po['id']).']';
+        echo '<td><input type="number" min="0.001" max="'.esc_attr($pending).'" step="0.001" style="min-width:96px" aria-label="Invoice Qty" name="'.$prefix.'[qty]"></td>';
+        echo '<td><input type="number" min="0" step="0.001" style="min-width:96px" aria-label="Invoice Rate" name="'.$prefix.'[rate]"></td>';
+        echo '<td style="min-width:260px"><select name="'.$prefix.'[invoice]" aria-label="Invoice Identifier"><option value="">Select invoice</option>';
         foreach ($invoices as $invoice) {
             echo '<option value="'.esc_attr($invoice['id']).'">'.esc_html(self::invoiceIdentifier($invoice,$rows)).'</option>';
         }
-        echo '</select></label></p>';
-        self::field($rows,'match','qty','Invoice Qty','');
-        self::field($rows,'match','rate','Invoice Rate',$order['rate']);
-        echo '</div><p>';
-        self::submitButton('Save',true);
-        echo ' <a class="button" href="'.esc_url(self::url('match')).'">Cancel</a></p></form>';
+        echo '</select></td>';
     }
 
-    private static function savePurchaseInvoice($rows) {
+    private static function savePurchaseInvoiceLinks($rows) {
         global $wpdb;
-        $po = $rows[absint(self::input('id'))] ?? [];
-        $invoice = $rows[absint(self::input('invoice'))] ?? [];
+        $links = $_POST['invoice_links'] ?? [];
+        self::requireRule(is_array($links) && count($links) <= 25,'Check the invoice links.');
+        $saved = false;
+        foreach ($links as $id=>$line) {
+            self::requireRule(is_array($line) && is_string($line['qty'] ?? null)
+                && is_string($line['rate'] ?? null) && is_string($line['invoice'] ?? null),'Check the invoice fields.');
+            if ($line['qty'] === '' && $line['rate'] === '' && $line['invoice'] === '') {
+                continue;
+            }
+            $data = self::purchaseInvoiceLinkData($rows,$id,$line);
+            if ($wpdb->insert(self::table(),['kind'=>'match','status'=>'recorded','details'=>wp_json_encode($data)]) !== 1) {
+                throw new RuntimeException('Invoice link could not be saved.');
+            }
+            $newId = (int)$wpdb->insert_id;
+            $rows[$newId] = ['id'=>$newId,'kind'=>'match','status'=>'recorded','data'=>$data];
+            $saved = true;
+        }
+        self::requireRule($saved,'Enter invoice details on at least one row.');
+    }
+
+    private static function purchaseInvoiceLinkData($rows,$id,$line) {
+        $po = $rows[absint($id)] ?? [];
+        $invoice = $rows[absint($line['invoice'])] ?? [];
         self::requireRule(($po['kind'] ?? '') === 'po' && $po['status'] !== 'cancelled','Select a valid PO item.');
         self::requireRule(($invoice['kind'] ?? '') === 'invoice' && self::sameSupplier($po['data'],$invoice['data']),
             'The invoice and PO suppliers must match.');
-        $qty = self::input('qty');
-        $rate = self::input('rate');
+        $qty = trim($line['qty']);
+        $rate = trim($line['rate']);
         self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0
             && (float)$qty <= self::pendingInvoiceQuantity($rows,$po),'Invoice Qty exceeds the PO item balance or is invalid.');
         self::requireRule(!isset($invoice['data']['qty']) || (float)$qty <= round($invoice['data']['qty'] - self::sum($rows,'match','invoice',$invoice['id']),3),
             'Invoice Qty exceeds the unmatched invoice quantity.');
         self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$rate),'Enter a valid Invoice Rate.');
-        $data = ['po'=>(int)$po['id'],'invoice'=>(int)$invoice['id'],'qty'=>(float)$qty,'rate'=>(float)$rate,
+        return ['po'=>(int)$po['id'],'invoice'=>(int)$invoice['id'],'qty'=>(float)$qty,'rate'=>(float)$rate,
             'invoice_identifier'=>self::invoiceIdentifier($invoice,$rows)];
-        if ($wpdb->insert(self::table(),['kind'=>'match','status'=>'recorded','details'=>wp_json_encode($data)]) !== 1) {
-            throw new RuntimeException('Invoice link could not be saved.');
-        }
     }
 
     private static function goodsReceiptNumberId($row) {
@@ -4045,6 +4059,7 @@ HTML;
             $rows = self::rows();
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
+                || ($kind === 'match' && $action === 'link_po_invoice')
                 || ($kind === 'grn' && in_array($action,['create','create_goods_receipt','approve_grn'],true))
                 || ($kind === 'po' && in_array($action,['create_purchase_orders','issue','delete','cancel_po'],true))
                 || ($kind === 'quote' && in_array($action,['save_quotations','save_supplier_selection'],true))
@@ -4060,7 +4075,7 @@ HTML;
                 self::saveQuotations($rows);
                 $result = true;
             } elseif ($kind === 'match' && $action === 'link_po_invoice') {
-                self::savePurchaseInvoice($rows);
+                self::savePurchaseInvoiceLinks($rows);
                 $result = true;
             } elseif ($kind === 'grn' && $action === 'approve_grn') {
                 $receipt = $rows[absint(self::input('id'))] ?? [];
