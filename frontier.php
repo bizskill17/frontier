@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.1
+ * Version: 1.6.2
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -450,6 +450,17 @@ final class Frontier {
             echo '<div class="notice notice-success" role="status"><p>Saved.</p></div>';
         }
         self::$screen = $kind;
+        if ($kind === 'employee' && !isset($_GET['add']) && !isset($_GET['edit'])) {
+            if (isset($_GET['imported'])) {
+                echo '<p role="status">'.esc_html(absint($_GET['imported']).' employee records added.').'</p>';
+            }
+            echo '<details><summary>Bulk Add Employees</summary>';
+            self::formStart('employee','import');
+            echo '<p><label>Employee names <textarea name="employee_names" rows="10" cols="44" required></textarea></label></p>';
+            echo '<p>Enter one name per line or paste a single-column table.</p>';
+            self::submitButton('Import Employees',true);
+            echo '</form></details>';
+        }
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
         $edit = $rows[absint($_GET['edit'] ?? 0)] ?? null;
@@ -1045,6 +1056,55 @@ final class Frontier {
         return (int)$id;
     }
 
+    private static function importEmployees($rows) {
+        global $wpdb;
+        $raw = $_POST['employee_names'] ?? '';
+        self::requireRule(is_string($raw) && strlen($raw) <= 30000,'Enter up to 250 employee names.');
+        $lines = preg_split('/\R/',wp_unslash($raw));
+        self::requireRule(count($lines) <= 255,'Enter up to 250 employee names.');
+        $usedNames = [];
+        $usedLogins = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'employee') {
+                $name = preg_replace('/\s+/u',' ',trim($row['data']['name']));
+                $usedNames[strtolower($name)] = true;
+                $usedLogins[strtolower($row['data']['login'] ?? '')] = true;
+            }
+        }
+        $count = 0;
+        $hasNames = false;
+        foreach ($lines as $line) {
+            $line = html_entity_decode($line, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $name = trim(preg_replace('/[\s\p{Z}]+/u',' ',sanitize_text_field(trim($line," \t|"))) ?? '');
+            if ($name === '' || preg_match('/^:?-{3,}:?$/D',$name)) {
+                continue;
+            }
+            $hasNames = true;
+            $nameKey = strtolower($name);
+            if (isset($usedNames[$nameKey])) {
+                continue;
+            }
+            $base = strtolower(sanitize_user(explode(' ',$name,2)[0],true));
+            self::requireRule(strlen($name) <= 200 && $base !== '' && strlen($base) <= 55,'Check the employee name '.$name.'.');
+            $login = $base;
+            for ($suffix = 2; isset($usedLogins[$login]) || username_exists($login); $suffix++) {
+                $login = $base.$suffix;
+            }
+            $result = $wpdb->insert(self::table(),[
+                'kind'=>'employee', 'status'=>'pending_setup',
+                'details'=>wp_json_encode(['name'=>$name,'login'=>$login]),
+            ]);
+            if ($result !== 1) {
+                throw new RuntimeException('Employee could not be imported.');
+            }
+            $count++;
+            $usedNames[$nameKey] = true;
+            $usedLogins[$login] = true;
+        }
+        self::requireRule($hasNames,'Enter at least one employee name.');
+        return $count;
+    }
+
     public static function save() {
         global $wpdb;
         check_admin_referer('frontier_save');
@@ -1061,15 +1121,19 @@ final class Frontier {
         $error = null;
         $transaction = false;
         $accountId = 0;
+        $imported = null;
         try {
             $rows = self::rows();
-            if ($kind === 'employee' && in_array($action,['create','edit'],true)) {
+            if ($kind === 'employee' && in_array($action,['create','edit','import'],true)) {
                 if ($wpdb->query('START TRANSACTION') === false) {
                     throw new RuntimeException('Employee account transaction could not start.');
                 }
                 $transaction = true;
             }
-            if ($action === 'create') {
+            if ($kind === 'employee' && $action === 'import') {
+                $imported = self::importEmployees($rows);
+                $result = true;
+            } elseif ($action === 'create') {
                 $data = self::readFields($rows,$kind);
                 self::validateNew($rows,$kind,$data);
                 if ($transaction) {
@@ -1092,6 +1156,7 @@ final class Frontier {
                         $accountId = self::employeeAccount($data);
                         $data['wp_user_id'] = $accountId;
                         $update['details'] = wp_json_encode($data);
+                        $update['status'] = 'recorded';
                     }
                     $result = $wpdb->update(self::table(),$update,['id'=>$row['id']]);
                 }
@@ -1121,7 +1186,8 @@ final class Frontier {
         $screen = sanitize_key(self::input('screen'));
         $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
         $destination = $sameKind && self::canView($screen) ? $screen : $kind;
-        wp_safe_redirect(add_query_arg('saved',1,self::url($destination)));
+        $query = $imported === null ? ['saved'=>1] : ['imported'=>$imported];
+        wp_safe_redirect(add_query_arg($query,self::url($destination)));
         exit;
     }
 }
