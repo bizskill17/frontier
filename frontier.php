@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.8
+ * Version: 1.9.9
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.8');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.9');
         self::enqueueDropdownSearch();
     }
 
@@ -353,10 +353,11 @@ final class Frontier {
     private static function enqueueDropdownSearch() {
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.0',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
+        wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.9',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.8',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.8');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.9');
         }
     }
 
@@ -609,6 +610,13 @@ final class Frontier {
             echo '</div>';
             return;
         }
+        if (self::$screen === 'quote_form' && !isset($_GET['single_quote'])) {
+            if (self::can('quote')) {
+                self::quotationForm($rows);
+            }
+            echo '</div>';
+            return;
+        }
         if (self::$screen === 'indent_master') {
             if (self::can('indent')) {
                 echo '<p><a class="button frontier-add" href="'.esc_url(self::url('indent')).'">Add</a></p>';
@@ -686,7 +694,11 @@ final class Frontier {
             if (isset(self::IMPORT_TEMPLATES[$kind])) {
                 self::templateControls($kind,$addUrl);
             } else {
-                echo '<p><a class="button frontier-add" href="'.esc_url($addUrl).'">Add</a></p>';
+                echo '<p><a class="button frontier-add" href="'.esc_url($addUrl).'">Add</a>';
+                if (self::$screen === 'quote') {
+                    echo ' <a class="button" href="'.esc_url(add_query_arg('single_quote',1,$addUrl)).'">Add Quotation with Attachment</a>';
+                }
+                echo '</p>';
             }
         }
         if ($showForm) {
@@ -832,7 +844,7 @@ final class Frontier {
             'supplier'=>['combined_name'=>'Suppliers Name with Code'],
             'indent'=>['indent_number'=>'Indent No.','indent_date'=>'Indent Date','site_name'=>'Site Number with Name',
                 'requested_name'=>'Requested By','line_number'=>'Sl No.','unit'=>'Unit','excess'=>'Excess Quantity','reason'=>'Reason'],
-            'quote'=>['reason'=>'Selection Reason','attachment'=>'Quotation File'],
+            'quote'=>['quote_date'=>'Quotation Date','comparison_name'=>'Compared By','reason'=>'Selection Reason','attachment'=>'Quotation File'],
             'po'=>['supplier'=>'Supplier Name with Code','reason'=>'Reason','received'=>'Received','waiting'=>'Pending GRN Approval','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'follow'=>['ordered'=>'Order Quantity','expected'=>'Expected Delivery','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'grn'=>['attachment'=>'GRN Slip'],
@@ -956,6 +968,9 @@ final class Frontier {
 
     private static function formStart($kind,$action,$id=0) {
         $class = in_array($action,['create','edit','complete_site','cancel_site'],true) ? ' class="frontier-entry"' : '';
+        if ($action === 'save_quotations') {
+            $class = ' class="frontier-entry frontier-quotation-form"';
+        }
         if ($action === 'create_indent') {
             $class = ' class="frontier-entry frontier-indent-form"';
         }
@@ -1152,6 +1167,10 @@ final class Frontier {
             $values['pending_quantity'] = self::available($rows,$rows[$data['indent']]);
         }
         $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
+        if ($kind === 'quote') {
+            $values['quote_date'] = self::indentDisplayDate($data['quote_date'] ?? '');
+            $values['comparison_name'] = $data['comparison_name'] ?? '';
+        }
         if ($kind === 'indent' && !empty($data['indent_number'])) {
             foreach (['indent_number','requested_name','line_number','unit','excess'] as $key) {
                 $values[$key] = $data[$key] ?? '';
@@ -2294,9 +2313,17 @@ final class Frontier {
             }
         }
         $values['quote_at'] = $timestamp($latestQuote);
+        foreach ($quotes as $quote) {
+            $comparisonData = $quote['data'];
+            if (!empty($comparisonData['comparison_name']) && ($comparisonData['quote_timestamp'] ?? '') === $latestQuote) {
+                $values['comparison_at'] = $timestamp($latestQuote);
+                $values['compared_by'] = $comparisonData['comparison_name'];
+                break;
+            }
+        }
         if ($selected) {
-            $values['comparison_at'] = $timestamp($selected['data']['compared_at'] ?? '');
-            $values['compared_by'] = $selected['data']['compared_by'] ?? '';
+            $values['comparison_at'] = $values['comparison_at'] ?? $timestamp($selected['data']['compared_at'] ?? '');
+            $values['compared_by'] = $values['compared_by'] ?? ($selected['data']['compared_by'] ?? '');
             $values['final_supplier'] = self::supplierDisplay($selected['data'],$rows);
             $values['final_rate'] = $selected['data']['rate'];
         }
@@ -2605,6 +2632,133 @@ final class Frontier {
         }
     }
 
+    private static function quotationForm($rows) {
+        $groups = [];
+        $quotes = [];
+        $selected = [];
+        $suppliers = [];
+        foreach ($rows as $row) {
+            $data = $row['data'];
+            if ($row['kind'] === 'supplier') {
+                $suppliers[] = ['id'=>(int)$row['id'],'label'=>self::supplierDisplay(['supplier'=>$row['id']],$rows)];
+            } elseif ($row['kind'] === 'quote') {
+                $indent = (int)$data['indent'];
+                if ($row['status'] === 'selected') {
+                    $selected[$indent] = true;
+                }
+                $supplier = (int)($data['supplier'] ?? 0);
+                if ($supplier && !isset($quotes[$indent][$supplier])) {
+                    $quotes[$indent][$supplier] = ['supplier'=>$supplier,'rate'=>$data['rate']];
+                }
+            }
+        }
+        foreach (array_reverse($rows) as $row) {
+            if ($row['kind'] !== 'indent' || $row['status'] !== 'approved') {
+                continue;
+            }
+            $data = $row['data'];
+            $id = (int)$row['id'];
+            $group = self::indentGroup($row);
+            $boq = $rows[$data['boq']]['data'] ?? [];
+            $site = $rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
+            $number = $data['indent_number'] ?? '#'.$id;
+            if (!isset($groups[$group])) {
+                $groups[$group] = ['label'=>$number.' · '.self::siteNumberWithName($site),'items'=>[]];
+            }
+            $line = $data['line_number'] ?? 1;
+            $groups[$group]['items'][] = ['id'=>$id,'line'=>$line,'number'=>$number.'/'.$line,
+                'name'=>$boq['name'] ?? '', 'qty'=>$data['qty'],'locked'=>isset($selected[$id]),
+                'quotes'=>array_values(array_slice($quotes[$id] ?? [],0,3,true))];
+        }
+        $source = $rows[absint($_GET['source'] ?? 0)] ?? null;
+        $prefill = $source && $source['kind'] === 'indent' ? self::indentGroup($source) : '';
+        self::formStart('quote','save_quotations');
+        echo '<input type="hidden" name="quotation_lines"><div class="frontier-fields">';
+        self::field($rows,'quote','due','Date',current_time('Y-m-d'));
+        echo '<p><label>'.self::requiredLabel('Indent No. with Site Name').'<select name="quotation_group" required><option value="">Select</option>';
+        foreach (array_reverse($groups,true) as $key=>$group) {
+            echo '<option value="'.esc_attr($key).'" '.selected($prefill,$key,false).'>'.esc_html($group['label']).'</option>';
+        }
+        echo '</select></label></p>';
+        self::field($rows,'quote','employee','Compared By','');
+        echo '</div><h2>Indent Items</h2><p class="frontier-quotation-message" role="status"></p>';
+        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
+        foreach (['Sl No.','Indent Item No.','Item Name as per BOQ','Qty','Supplier 1 Name','Supplier 1 Rate',
+            'Supplier 2 Name','Supplier 2 Rate','Supplier 3 Name','Supplier 3 Rate'] as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '</tr></thead><tbody></tbody></table></div><datalist id="frontier-quote-suppliers"></datalist>';
+        echo '<script type="application/json" class="frontier-quotation-data">'.wp_json_encode(['groups'=>$groups,'suppliers'=>$suppliers],
+            JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
+        echo '<p><a class="button" href="'.esc_url(self::url('quote')).'">Cancel</a> ';
+        echo '<button type="submit" class="button button-primary frontier-quotation-save" disabled>Save Quotations</button></p>';
+        echo '<noscript><p>Enable JavaScript to enter supplier rates.</p></noscript></form>';
+    }
+
+    private static function saveQuotations($rows) {
+        global $wpdb;
+        $group = self::input('quotation_group');
+        $employee = $rows[absint(self::input('employee'))] ?? null;
+        $dateText = self::input('due');
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d',$dateText);
+        self::requireRule($employee && $employee['kind'] === 'employee','Select Compared By.');
+        self::requireRule($date && $date->format('Y-m-d') === $dateText,'Enter a valid quotation date.');
+        $raw = $_POST['quotation_lines'] ?? '';
+        $lines = is_string($raw) && strlen($raw) <= 200000 ? json_decode(wp_unslash($raw),true) : null;
+        self::requireRule(is_array($lines) && count($lines) > 0 && count($lines) <= 300,'Enter at least one supplier rate.');
+        $existing = [];
+        $locked = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] !== 'quote') {
+                continue;
+            }
+            $data = $row['data'];
+            $indent = (int)$data['indent'];
+            if ($row['status'] === 'selected') {
+                $locked[$indent] = true;
+            }
+            if (!empty($data['supplier']) && !isset($existing[$indent][$data['supplier']])) {
+                $existing[$indent][$data['supplier']] = $row;
+            }
+        }
+        $now = current_time('mysql');
+        $seen = [];
+        foreach ($lines as $line) {
+            $indentId = $line['indent'] ?? 0;
+            $supplierId = $line['supplier'] ?? 0;
+            $rate = $line['rate'] ?? '';
+            self::requireRule(is_int($indentId) && is_int($supplierId) && is_string($rate),'Check the quotation entries.');
+            $indent = $rows[$indentId] ?? null;
+            $supplier = $rows[$supplierId] ?? null;
+            self::requireRule($indent && $indent['kind'] === 'indent' && $indent['status'] === 'approved'
+                && self::indentGroup($indent) === $group && !isset($locked[$indentId]),
+                'Only approved items from this indent with no finalized supplier can be updated.');
+            self::requireRule($supplier && $supplier['kind'] === 'supplier','Choose a supplier from Supplier Master.');
+            self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$rate) && (float)$rate >= 0,'Enter a valid supplier rate.');
+            self::requireRule(!isset($seen[$indentId][$supplierId]) && count($seen[$indentId] ?? []) < 3,
+                'Enter up to three distinct suppliers per item.');
+            $seen[$indentId][$supplierId] = true;
+            $previous = $existing[$indentId][$supplierId] ?? null;
+            $data = [
+                'indent'=>$indentId,'supplier'=>$supplierId,'name'=>$supplier['data']['name'],'rate'=>(float)$rate,
+                'quote_date'=>$dateText,'comparison_employee'=>(int)$employee['id'],
+                'comparison_name'=>$employee['data']['name'],
+            ];
+            if ($previous && !array_diff_assoc($data,$previous['data'])) {
+                continue;
+            }
+            $data['quote_timestamp'] = $now;
+            if ($previous) {
+                $result = $wpdb->update(self::table(),['details'=>wp_json_encode($data + $previous['data'])],['id'=>$previous['id']]);
+            } else {
+                $result = $wpdb->insert(self::table(),['kind'=>'quote','status'=>'received','details'=>wp_json_encode($data)]);
+            }
+            if ($result === false) {
+                throw new RuntimeException('Supplier quotations could not be saved.');
+            }
+        }
+    }
+
     private static function updateIndentGroup($rows,$id) {
         global $wpdb;
         $anchor = $rows[$id] ?? null;
@@ -2652,6 +2806,7 @@ final class Frontier {
             $rows = self::rows();
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
+                || ($kind === 'quote' && $action === 'save_quotations')
                 || ($kind === 'supplier' && $action === 'import_suppliers')
                 || ($kind === 'indent' && in_array($action,['create_indent','update_indent_group'],true))
                 || ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true))) {
@@ -2660,7 +2815,10 @@ final class Frontier {
                 }
                 $transaction = true;
             }
-            if ($kind === 'indent' && $action === 'update_indent_group') {
+            if ($kind === 'quote' && $action === 'save_quotations') {
+                self::saveQuotations($rows);
+                $result = true;
+            } elseif ($kind === 'indent' && $action === 'update_indent_group') {
                 self::updateIndentGroup($rows,absint(self::input('id')));
                 $result = true;
             } elseif ($kind === 'indent' && $action === 'create_indent') {
@@ -2762,6 +2920,8 @@ final class Frontier {
         $destination = $action !== 'create_boq' && $sameKind && self::canView($screen) ? $screen : $kind;
         if ($action === 'create_indent') {
             $destination = 'indent_master';
+        } elseif ($action === 'save_quotations') {
+            $destination = 'quote';
         }
         $query = $imported === null ? [in_array($action,['delete_master','delete_boq'],true) ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
         if ($kind === 'indent' && isset($row) && ($screen === 'indent_items' || $action === 'edit')) {

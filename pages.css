@@ -157,3 +157,11 @@ body.frontier-workspace {
 .frontier-pages .frontier-indent-panel > td { background: #f4f8fc; padding: 12px; }
 .frontier-indent-panel .frontier-fields label { display: grid; gap: 4px; }
 .frontier-indent-panel .frontier-fields textarea { width: 100%; box-sizing: border-box; }
+
+.frontier-quotation-form th:nth-child(5), .frontier-quotation-form th:nth-child(6) { background: #dfeeff; }
+.frontier-quotation-form th:nth-child(7), .frontier-quotation-form th:nth-child(8) { background: #dcf4ef; }
+.frontier-quotation-form th:nth-child(9), .frontier-quotation-form th:nth-child(10) { background: #ede6fb; }
+.frontier-quotation-form td:nth-child(5), .frontier-quotation-form td:nth-child(7), .frontier-quotation-form td:nth-child(9) { min-width: 185px; }
+.frontier-quotation-form td:nth-child(6), .frontier-quotation-form td:nth-child(8), .frontier-quotation-form td:nth-child(10) { min-width: 82px; }
+.frontier-quotation-save:disabled { opacity: .55; cursor: not-allowed; }
+.frontier-quotation-form .frontier-quotation-error { color: #a32121; }
