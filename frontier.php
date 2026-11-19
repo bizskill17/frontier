@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.77
+ * Version: 1.9.78
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -130,6 +130,7 @@ final class Frontier {
         add_action('admin_post_frontier_boq_excel', [self::class, 'boqExcel']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
         add_action('admin_post_frontier_table_excel', [self::class, 'downloadTableExcel']);
+        add_action('admin_post_frontier_save_org_name', [self::class, 'saveOrgName']);
         add_action('admin_post_frontier_save_logo', [self::class, 'saveLogo']);
         add_action('admin_post_frontier_save_numbering', [self::class, 'saveNumbering']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
@@ -471,6 +472,30 @@ final class Frontier {
 })();
         </script>
         <?php
+    }
+
+    private static function orgNameSettings() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        echo '<form class="frontier-entry" method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+        wp_nonce_field('frontier_save_org_name');
+        echo '<input type="hidden" name="action" value="frontier_save_org_name">';
+        echo '<input type="hidden" name="surface" value="'.(self::$front ? 'front' : 'admin').'">';
+        echo '<p><label>Org Name<input type="text" name="org_name" value="'.esc_attr(get_option('frontier_org_name','')).'"></label></p>';
+        self::submitButton('Save Org Name',true);
+        echo '</form>';
+    }
+
+    public static function saveOrgName() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        check_admin_referer('frontier_save_org_name');
+        update_option('frontier_org_name',self::input('org_name'),false);
+        self::$front = self::input('surface') === 'front';
+        wp_safe_redirect(add_query_arg('saved',1,self::url('settings')));
+        exit;
     }
 
     private static function logoSettings() {
@@ -901,6 +926,7 @@ final class Frontier {
         }
         self::$screen = $kind;
         if ($kind === 'settings') {
+            self::orgNameSettings();
             self::logoSettings();
             self::numberingSettings();
             echo '</div>';
