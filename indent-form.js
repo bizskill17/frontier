@@ -110,6 +110,12 @@
 })();
 
 document.addEventListener('click', (event) => {
+    const dialog = event.target.closest('.frontier-indent-dialog');
+    if (dialog) {
+        if (event.target.closest('[data-indent-close]')) dialog.close();
+        return;
+    }
+
     const row = event.target.closest('[data-indent-row]');
     if (!row) return;
 
@@ -121,6 +127,17 @@ document.addEventListener('click', (event) => {
     if (!control) return;
 
     const panel = document.getElementById(control.getAttribute('aria-controls'));
+    if (control.dataset.indentToggle === 'update') {
+        if (!panel.open) {
+            panel.showModal();
+            control.setAttribute('aria-expanded', 'true');
+            panel.addEventListener('close', () => {
+                control.setAttribute('aria-expanded', 'false');
+                control.focus();
+            }, { once: true });
+        }
+        return;
+    }
     panel.hidden = !panel.hidden;
     control.setAttribute('aria-expanded', String(!panel.hidden));
 });

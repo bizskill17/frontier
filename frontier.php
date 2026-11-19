@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.9
+ * Version: 1.9.10
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.9');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.10');
         self::enqueueDropdownSearch();
     }
 
@@ -354,10 +354,10 @@ final class Frontier {
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.0',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.9',true);
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.8',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.9');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.10');
         }
     }
 
@@ -2444,7 +2444,8 @@ final class Frontier {
                     $url = add_query_arg('indent_group',$entry['group'],self::url('indent_items'));
                     echo '<a href="'.esc_url($url).'">'.esc_html((string)$entry['number']).'</a>';
                 } elseif ($field === 'actions') {
-                    echo '<button type="button" class="button frontier-add" data-indent-toggle="update" aria-expanded="false" aria-controls="frontier-indent-update-'.esc_attr($id).'">Update</button>';
+                    echo '<button type="button" class="button frontier-add" data-indent-toggle="update" aria-haspopup="dialog" aria-expanded="false" aria-controls="frontier-indent-update-'.esc_attr($id).'">Update</button>';
+                    self::indentUpdateDialog($entry);
                 } elseif ($field === 'pdf') {
                     $id = $entry['id'];
                     $url = add_query_arg(['action'=>'frontier_indent_pdf','id'=>$id],admin_url('admin-post.php'));
@@ -2493,15 +2494,26 @@ final class Frontier {
             echo '</tr>';
         }
         echo '</tbody></table></td></tr>';
-        echo '<tr class="frontier-indent-panel" id="frontier-indent-update-'.esc_attr($id).'" hidden><td colspan="'.(int)$colspan.'">';
+    }
+
+    private static function indentUpdateDialog($entry) {
+        $id = (int)$entry['id'];
+        echo '<dialog class="frontier-indent-dialog" id="frontier-indent-update-'.esc_attr($id).'" aria-labelledby="frontier-indent-title-'.esc_attr($id).'">';
+        echo '<div class="frontier-indent-dialog-header"><h2 id="frontier-indent-title-'.esc_attr($id).'">Update Indent</h2>';
+        echo '<button type="button" class="button frontier-dialog-close" data-indent-close aria-label="Close">×</button></div>';
+        echo '<p class="frontier-indent-dialog-context">'.esc_html('Indent No. '.$entry['number'].' · '.$entry['site']).'</p>';
         self::formStart('indent','update_indent_group',$id);
-        echo '<div class="frontier-fields">';
-        echo '<p><label>'.self::requiredLabel('Status').'<select name="approval_status" required><option value="">Select</option>';
-        echo '<option value="approved">Approved</option><option value="rejected">Rejected</option></select></label></p>';
+        echo '<fieldset><legend>'.self::requiredLabel('Status').'</legend><div class="frontier-indent-status-options">';
+        foreach (['approved'=>'Approved','rejected'=>'Rejected'] as $status=>$label) {
+            echo '<label class="frontier-indent-status frontier-indent-status-'.esc_attr($status).'">';
+            echo '<input type="radio" name="approval_status" value="'.esc_attr($status).'" required><span>'.esc_html($label).'</span></label>';
+        }
+        echo '</div></fieldset>';
         echo '<p><label>Update By <input readonly value="'.esc_attr(wp_get_current_user()->display_name).'"></label></p>';
-        echo '<p><label>Remarks <textarea name="approval_remarks" rows="2" maxlength="2000"></textarea></label></p></div>';
+        echo '<p><label>Remarks <textarea name="approval_remarks" rows="3" maxlength="2000"></textarea></label></p>';
+        echo '<div class="frontier-indent-dialog-actions"><button type="button" class="button" data-indent-close>Cancel</button>';
         self::submitButton('Save Update',true);
-        echo '</form></td></tr>';
+        echo '</div></form></dialog>';
     }
 
     public static function downloadIndentPdf() {

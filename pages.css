@@ -165,3 +165,26 @@ body.frontier-workspace {
 .frontier-quotation-form td:nth-child(6), .frontier-quotation-form td:nth-child(8), .frontier-quotation-form td:nth-child(10) { min-width: 82px; }
 .frontier-quotation-save:disabled { opacity: .55; cursor: not-allowed; }
 .frontier-quotation-form .frontier-quotation-error { color: #a32121; }
+
+.frontier-indent-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 22px; border: 1px solid #cbd6e4; border-radius: 12px; text-align: left; color: #172a42; box-sizing: border-box; }
+.frontier-indent-dialog::backdrop { background: rgb(27 43 64 / 52%); }
+.frontier-indent-dialog-header, .frontier-indent-dialog-actions { display: flex; align-items: center; gap: 8px; }
+.frontier-indent-dialog-header { justify-content: space-between; }
+.frontier-indent-dialog-header h2 { margin: 0; }
+.frontier-indent-dialog-context { font-weight: 650; }
+.frontier-indent-dialog fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.frontier-indent-dialog legend { margin-bottom: 6px; padding: 0; font-weight: 650; }
+.frontier-indent-status-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.frontier-indent-status { position: relative; cursor: pointer; }
+.frontier-indent-status input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.frontier-indent-status span { display: block; border: 1px solid currentColor; border-radius: 6px; padding: 8px; text-align: center; font-weight: 650; }
+.frontier-indent-status-approved span { background: #effaf2; color: #216936; }
+.frontier-indent-status-rejected span { background: #fff0f0; color: #9d2626; }
+.frontier-indent-status-approved input:checked + span { background: #bce9cc; }
+.frontier-indent-status-rejected input:checked + span { background: #ffd0d0; }
+.frontier-indent-status input:checked + span::before { content: '✓ '; }
+.frontier-indent-status input:focus-visible + span { outline: 2px solid #368ee4; outline-offset: 2px; }
+.frontier-indent-dialog label:not(.frontier-indent-status) { display: grid; gap: 4px; }
+.frontier-indent-dialog textarea, .frontier-indent-dialog input[readonly] { width: 100%; box-sizing: border-box; }
+.frontier-indent-dialog input[readonly] { background: #edf2f8; }
+.frontier-indent-dialog-actions { justify-content: flex-end; }
