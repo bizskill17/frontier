@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.3
+ * Version: 1.7.4
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -714,6 +714,9 @@ final class Frontier {
         } else {
             $numeric = in_array($field,['qty','rate','tax','freight','reject'],true);
             $type = $numeric ? 'number' : (['due'=>'date','email'=>'email','mobile'=>'tel','contact'=>'tel','alternate'=>'tel'][$field] ?? 'text');
+            if ($kind === 'supplier' && $field === 'email') {
+                $type = 'text';
+            }
             $optional = self::optionalField($kind,$field);
             printf('<input type="%s" name="%s" value="%s" %s %s>',esc_attr($type),esc_attr($field),esc_attr($value),
                 $numeric ? 'step="0.001" min="0"' : 'maxlength="200"', $optional ? '' : 'required');
@@ -894,7 +897,7 @@ final class Frontier {
                 $value = $value === '1';
             } else {
                 $optional = self::optionalField($kind,$field);
-                if ($field === 'email' && $value !== '') {
+                if ($kind !== 'supplier' && $field === 'email' && $value !== '') {
                     self::requireRule(is_email($value),'Enter a valid email address.');
                 }
                 $limit = $kind === 'supplier' ? (self::SUPPLIER_TEXT_LIMITS[$field] ?? 200) : 200;
@@ -1372,11 +1375,9 @@ final class Frontier {
             }
         }
         $count = 0;
-        foreach ($rows as $index=>$row) {
+        foreach ($rows as $row) {
             array_splice($row,2,1);
             $data = array_combine(array_keys(self::FIELDS['supplier']),$row);
-            self::requireRule($data['email'] === '' || is_email($data['email']),
-                'Check the supplier email on data row '.($index+1).'.');
             $key = $signature($data);
             if (isset($used[$key])) {
                 continue;
