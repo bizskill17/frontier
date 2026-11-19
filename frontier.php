@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.10
+ * Version: 1.7.11
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -287,7 +287,8 @@ final class Frontier {
     }
 
     private static function enqueueDropdownSearch() {
-        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.7.10',true);
+        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.7.11',true);
+        wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.7.11');
     }
 
     public static function workspaceTemplate($template) {

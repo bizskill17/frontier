@@ -1,0 +1,12 @@
+.frontier-combobox { position: relative; display: block; min-width: 0; }
+.frontier-pages .frontier-combobox input { width: 100%; padding-inline: 34px; }
+.frontier-combobox-search, .frontier-combobox-arrow { position: absolute; top: 50%; transform: translateY(-50%); color: #53647b; }
+.frontier-combobox-search { left: 12px; width: 11px; height: 11px; border: 1.5px solid currentColor; border-radius: 50%; pointer-events: none; }
+.frontier-combobox-search::after { content: ''; position: absolute; width: 5px; height: 1.5px; background: currentColor; transform: rotate(45deg); top: 9px; left: 8px; }
+.frontier-combobox-arrow { right: 9px; width: 20px; height: 24px; cursor: pointer; }
+.frontier-combobox-arrow::after { content: ''; display: block; width: 7px; height: 7px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); margin: 6px; }
+.frontier-combobox-list { position: absolute; z-index: 20; inset: calc(100% + 3px) 0 auto; max-height: 220px; overflow: auto; background: #fff; border: 1px solid #aebed0; border-radius: 6px; box-shadow: 0 5px 15px #18253722; font-weight: 400; }
+.frontier-combobox-list[hidden], .frontier-pages select[hidden] { display: none; }
+.frontier-combobox-option, .frontier-combobox-empty { display: block; padding: 6px 10px; overflow-wrap: anywhere; }
+.frontier-combobox-option { cursor: pointer; }
+.frontier-combobox-option:hover, .frontier-combobox-option.is-active { background: #e2efff; color: #164f8a; }
