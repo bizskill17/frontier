@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.26
+ * Version: 1.9.27
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -436,9 +436,6 @@ final class Frontier {
             }
             echo '</ul></details>';
         }
-        if (self::canView('stock')) {
-            self::workspaceNavigationLink('stock','Received Stock',$current);
-        }
         echo '</nav>';
     }
 
@@ -488,7 +485,7 @@ final class Frontier {
         $cap = current_user_can('manage_options') ? 'manage_options' : 'frontier_read';
         add_menu_page('Frontier','Frontier',$cap,'frontier',[self::class,'page'],'dashicons-clipboard');
         foreach (self::views() as $kind=>$label) {
-            if (!self::canView($kind)) {
+            if ($kind === 'stock' || !self::canView($kind)) {
                 continue;
             }
             if ($kind === 'home') {
