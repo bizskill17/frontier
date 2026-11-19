@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.73
+ * Version: 1.9.74
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -112,6 +112,7 @@ final class Frontier {
 
     public static function boot() {
         add_action('admin_init', [self::class, 'installPages']);
+        add_action('login_enqueue_scripts', [self::class, 'styleFrontierLogin']);
         add_action('template_redirect', [self::class, 'protectPage'], 0);
         add_filter('template_include', [self::class, 'workspaceTemplate'], 99);
         add_filter('render_block_core/navigation-link', [self::class, 'legacyNavigationBlock'], 10, 2);
@@ -324,6 +325,44 @@ final class Frontier {
         return $view;
     }
 
+    public static function styleFrontierLogin() {
+        $dashboard = self::frontUrl('home');
+        $target = $_POST['redirect_to'] ?? $_GET['redirect_to'] ?? '';
+        if (!$dashboard || !is_string($target)) {
+            return;
+        }
+        $destination = wp_parse_url(wp_unslash($target));
+        $home = wp_parse_url($dashboard);
+        $path = rtrim($home['path'] ?? '','/');
+        $targetPath = rtrim($destination['path'] ?? '','/');
+        if (empty($home['host']) || ($destination['host'] ?? '') !== $home['host']
+            || ($targetPath !== $path && ($path === '' || strpos($targetPath,$path.'/') !== 0))) {
+            return;
+        }
+        wp_enqueue_style('frontier-login',plugins_url('login.css',__FILE__),['login'],'1.9.74');
+        add_filter('login_body_class',static function ($classes) {
+            $classes[] = 'frontier-login';
+            return $classes;
+        });
+        add_filter('login_headerurl',static function () use ($dashboard) {
+            return $dashboard;
+        });
+        add_filter('login_headertext',static function () {
+            return 'Frontier';
+        });
+        add_filter('login_message',static function ($message) {
+            return '<h2 class="frontier-login-title">Log in</h2>'.$message;
+        });
+        add_filter('gettext',static function ($translation,$original,$domain) {
+            return $domain === 'default' && $original === 'Username or Email Address' ? 'User ID' : $translation;
+        },10,3);
+        $id = (int)get_option('frontier_logo_id',0);
+        $logo = $id ? wp_get_attachment_image_url($id,'medium') : '';
+        if ($logo) {
+            wp_add_inline_style('frontier-login','.frontier-login #login h1 a { background-image: url("'.esc_url_raw($logo).'"); font-size: 0; }');
+        }
+    }
+
     public static function protectPage() {
         $kind = self::requestedFrontView();
         if ($kind === 'follow' && ($orders = self::frontUrl('po'))) {
@@ -489,7 +528,7 @@ final class Frontier {
             }
             echo '</ul></details>';
         }
-        echo '<a class="frontier-sidebar-signout" href="'.esc_url(wp_logout_url(home_url('/'))).'">Sign out</a>';
+        echo '<a class="frontier-sidebar-signout" href="'.esc_url(wp_logout_url(self::frontUrl('home') ?: home_url('/'))).'">Sign out</a>';
         echo '</nav>';
     }
 

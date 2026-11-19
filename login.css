@@ -1,0 +1,40 @@
+
+body.frontier-login {
+    background: #dce7f3;
+    color: #142840;
+    font-family: system-ui, sans-serif;
+}
+.frontier-login #login {
+    box-sizing: border-box;
+    width: min(430px, calc(100% - 32px));
+    margin: clamp(24px, 10vh, 100px) auto 32px;
+    padding: clamp(18px, 5vw, 32px);
+    background: #fff;
+    border: 1px solid #aebed0;
+    border-radius: 16px;
+    box-shadow: 0 12px 32px #14284022;
+}
+.frontier-login #login h1 a {
+    display: block;
+    width: 100%;
+    height: 66px;
+    margin: 0 auto 12px;
+    background-image: none;
+    background-position: center;
+    background-size: contain;
+    color: #142840;
+    text-indent: 0;
+    font-size: 28px;
+    font-weight: 750;
+}
+.frontier-login .frontier-login-title { margin: 14px 0 20px; text-align: center; font-size: 26px; }
+.frontier-login #loginform { margin: 0; padding: 0; border: 0; box-shadow: none; }
+.frontier-login #loginform label { color: #142840; font-weight: 600; }
+.frontier-login #loginform label[for="user_login"]::after,
+.frontier-login #loginform label[for="user_pass"]::after { content: " *"; color: #b42318; }
+.frontier-login #loginform .input { padding: 8px 12px; border-color: #aebed0; border-radius: 8px; font-size: 16px; }
+.frontier-login #loginform .wp-pwd .input { padding-right: 44px; }
+.frontier-login #loginform .submit { clear: both; padding-top: 14px; }
+.frontier-login #wp-submit { float: none; width: 100%; min-height: 42px; background: #124577; border-color: #124577; border-radius: 8px; font-weight: 700; }
+.frontier-login #wp-submit:hover { background: #0d345b; border-color: #0d345b; }
+.frontier-login #nav, .frontier-login #backtoblog { padding-inline: 0; text-align: center; }
