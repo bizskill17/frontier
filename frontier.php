@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.8
+ * Version: 1.6.9
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -40,7 +40,7 @@ final class Frontier {
     private static $screen = '';
 
     private const FIELDS = [
-        'employee'=>['name'=>'Name', 'email'=>'Email Id', 'mobile'=>'Mobile', 'department'=>'Department', 'login'=>'User ID', 'password'=>'Password', 'role'=>'Role'],
+        'employee'=>['name'=>'Name', 'email'=>'Email Id', 'mobile'=>'Mobile', 'department'=>'Department', 'login'=>'User ID', 'password'=>'Password'],
         'item'=>['name'=>'Name', 'category'=>'Item Category', 'item_type'=>'Item Type'],
         'category'=>['name'=>'Category name'],
         'item_type'=>['name'=>'Type name'],
@@ -56,7 +56,7 @@ final class Frontier {
         'invoice'=>['name'=>'Supplier', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.6.5';
+    private const PAGE_VERSION = '1.6.9';
     private const PAGE_SLUGS = [
         'boq_form'=>'create-boq', 'boq_items'=>'boq-item-master',
         'indent_master'=>'indent-master', 'indent_items'=>'indents-item-master',
@@ -82,6 +82,7 @@ final class Frontier {
     private const IMPORT_TEMPLATES = [
         'employee'=>['Name'],
         'item'=>['Name','Item Category','Item Type'],
+        'supplier'=>['Supplier Code','Supplier Names','Suppliers Name with Code','Contact Number','Alternate Contact Number','Email Id','Address','City','State','PIN','Mobile','GST','Term'],
     ];
 
     private const FILES = ['quote'=>'Quotation file', 'grn'=>'Signed GRN slip', 'invoice'=>'Invoice copy'];
@@ -462,6 +463,11 @@ final class Frontier {
         $edit = $rows[absint($_GET['edit'] ?? 0)] ?? null;
         $editing = $edit && $edit['kind'] === $kind && ((isset(self::MASTERS[$kind]) || $kind === 'site')
             || ($kind === 'indent' && in_array($edit['status'],['draft','returned','approved'],true)));
+        if (isset(self::IMPORT_TEMPLATES[$kind]) && isset($_GET['upload']) && self::can($kind)) {
+            self::uploadTemplateForm($kind);
+            echo '</div>';
+            return;
+        }
         if ($kind === 'stock') {
             self::stock($rows);
             echo '</div>';
@@ -506,15 +512,12 @@ final class Frontier {
                 echo '</div>';
             }
             self::submitButton($editing ? 'Save changes' : ($kind === 'indent' ? 'Save draft' : 'Save'),true);
-            echo ' <a class="button" href="'.esc_url(self::url(self::$screen)).'">Cancel</a></form>';
+            echo ' <a class="button" href="'.esc_url(self::url(self::$screen)).'">Cancel</a></form></div>';
+            return;
         }
         if ($mode === 'form') {
             $register = $kind === 'indent' ? 'indent_master' : $kind;
             echo '<p><a href="'.esc_url(self::url($register)).'">'.esc_html($tabs[$register]).'</a></p>';
-            if ($showForm) {
-                echo '</div>';
-                return;
-            }
         }
         $listing = [];
         $indentFilter = absint($_GET['indent'] ?? 0);
@@ -605,7 +608,7 @@ final class Frontier {
             if ($showActions) {
                 echo '<td>';
                 self::actions($row,$rows);
-                if (isset(self::IMPORT_TEMPLATES[$kind]) && self::can($kind)) {
+                if (in_array($kind,['employee','item'],true) && self::can($kind)) {
                     echo ' <details><summary class="button">Delete</summary><p>Delete this record?</p>';
                     self::button($row,'delete_master','Confirm Delete');
                     echo '</details>';
@@ -683,13 +686,7 @@ final class Frontier {
 
     private static function field($rows,$kind,$field,$label,$value) {
         echo '<p><label>'.esc_html($label).' ';
-        if ($kind === 'employee' && $field === 'role') {
-            echo '<select name="role" required><option value="">Select</option>';
-            foreach (self::EMPLOYEE_ROLES as $key=>$name) {
-                echo '<option value="'.esc_attr($key).'" '.selected($value,$key,false).'>'.esc_html($name).'</option>';
-            }
-            echo '</select>';
-        } elseif ($kind === 'employee' && $field === 'password') {
+        if ($kind === 'employee' && $field === 'password') {
             echo '<input type="password" name="password" autocomplete="new-password" maxlength="4096">';
             echo '<small>Required for a new login. Leave blank to keep an existing password.</small>';
         } elseif (isset(self::FIELDS[$field])) {
@@ -778,8 +775,6 @@ final class Frontier {
             if (isset(self::FIELDS[$field],$rows[$value])) {
                 $linked = $rows[$value];
                 $value = in_array($field,['category','item_type','employee'],true) ? $linked['data']['name'] : self::label($linked,$rows);
-            } elseif ($field === 'role') {
-                $value = self::EMPLOYEE_ROLES[$value] ?? $value;
             } elseif ($field === 'due') {
                 $value = implode('/',array_reverse(explode('-',$value)));
             } elseif ($field === 'reorder') {
@@ -1070,7 +1065,7 @@ final class Frontier {
         self::requireRule(current_user_can('promote_users') && ($linkedId
             ? current_user_can('edit_user',$linkedId)
             : current_user_can('create_users')), 'You do not have permission to manage employee logins.');
-        self::requireRule(isset(self::EMPLOYEE_ROLES[$data['role']]) && get_role($data['role']), 'Choose a Frontier role.');
+        self::requireRule($linkedId || get_role('frontier_requester'), 'The Frontier Requester role is unavailable.');
         self::requireRule(strlen($data['login']) <= 60 && validate_username($data['login']), 'Enter a valid WordPress user ID.');
         if ($linkedId) {
             self::requireRule($account && $account->roles && !array_diff($account->roles,array_keys(self::EMPLOYEE_ROLES))
@@ -1082,7 +1077,10 @@ final class Frontier {
         self::requireRule(($linkedId && $password === '') || (strlen($password) >= 12 && strlen($password) <= 4096
             && trim($password) === $password), 'Enter a password of 12 to 4096 characters without spaces at either end.');
         $user = ['user_login'=>$data['login'], 'user_email'=>$data['email'],
-            'display_name'=>$data['name'], 'role'=>$data['role']];
+            'display_name'=>$data['name']];
+        if (!$linkedId) {
+            $user['role'] = 'frontier_requester';
+        }
         if ($password !== '') {
             $user['user_pass'] = $password;
         }
@@ -1099,11 +1097,19 @@ final class Frontier {
         echo '<div class="frontier-master-toolbar">';
         echo '<a class="button frontier-add" href="'.esc_url($addUrl).'">Add</a>';
         echo '<a class="button" href="'.esc_url(wp_nonce_url($download,'frontier_template_'.$kind)).'">Download Template</a>';
-        echo '<details><summary class="button">Upload Template</summary>';
-        self::formStart($kind,$kind === 'employee' ? 'import' : 'import_items');
+        if ($kind === 'supplier') {
+            $export = add_query_arg('export',1,$download);
+            echo ' <a class="button" href="'.esc_url(wp_nonce_url($export,'frontier_supplier_export')).'">Download Data</a>';
+        }
+        echo ' <a class="button" href="'.esc_url(add_query_arg('upload',1,self::url($kind))).'">Upload Template</a></div>';
+    }
+
+    private static function uploadTemplateForm($kind) {
+        $operation = ['employee'=>'import','item'=>'import_items','supplier'=>'import_suppliers'][$kind];
+        self::formStart($kind,$operation);
         echo '<p><label>CSV file <input type="file" name="import_template" accept=".csv,text/csv" required></label></p>';
         self::submitButton('Import',true);
-        echo '</form></details></div>';
+        echo ' <a class="button" href="'.esc_url(self::url($kind)).'">Cancel</a></form>';
     }
 
     public static function downloadTemplate() {
@@ -1111,13 +1117,30 @@ final class Frontier {
         if (!isset(self::IMPORT_TEMPLATES[$kind]) || !self::canView($kind)) {
             wp_die('Access denied.', '', ['response'=>403]);
         }
-        check_admin_referer('frontier_template_'.$kind);
+        $export = $kind === 'supplier' && isset($_GET['export']);
+        check_admin_referer($export ? 'frontier_supplier_export' : 'frontier_template_'.$kind);
+        $records = $export ? self::rows() : [];
         nocache_headers();
         header('Content-Type: text/csv; charset=UTF-8');
-        header('Content-Disposition: attachment; filename="frontier-'.$kind.'-template.csv"');
+        header('Content-Disposition: attachment; filename="frontier-'.$kind.($export ? '-data' : '-template').'.csv"');
         $output = fopen('php://output','wb');
         fwrite($output,"\xEF\xBB\xBF");
         fputcsv($output,self::IMPORT_TEMPLATES[$kind],',','"','');
+        foreach ($records as $row) {
+            if ($row['kind'] !== 'supplier') {
+                continue;
+            }
+            $data = $row['data'];
+            $values = [];
+            foreach (array_keys(self::FIELDS['supplier']) as $field) {
+                $values[] = (string)($data[$field] ?? '');
+            }
+            array_splice($values,2,0,[$values[0].' - '.$values[1]]);
+            $values = array_map(static function ($value) {
+                return preg_match('/^\s*[=+\-@]/u',$value) ? "'".$value : $value;
+            },$values);
+            fputcsv($output,$values,',','"','');
+        }
         fclose($output);
         exit;
     }
@@ -1155,6 +1178,9 @@ final class Frontier {
             while (($row = fgetcsv($stream,0,',','"','')) !== false) {
                 $line++;
                 $row = array_map(static function ($value) use ($kind) {
+                    if ($kind === 'supplier') {
+                        $value = preg_replace("/^'(?=\s*[=+@-])/u",'',(string)$value);
+                    }
                     if ($kind === 'item') {
                         return trim(preg_replace('/[\x00-\x1F\x7F]+/u',' ',(string)$value));
                     }
@@ -1164,8 +1190,10 @@ final class Frontier {
                     continue;
                 }
                 self::requireRule(count($row) === count($expected),'Check the column count on CSV row '.$line.'.');
-                foreach ($row as $value) {
-                    self::requireRule($value !== '' && strlen($value) <= 200,'Check the values on CSV row '.$line.'.');
+                foreach ($row as $index=>$value) {
+                    $optional = $kind === 'supplier' && $index >= 2;
+                    $length = $kind === 'supplier' && $index === 2 ? 403 : 200;
+                    self::requireRule(($optional || $value !== '') && strlen($value) <= $length,'Check the values on CSV row '.$line.'.');
                 }
                 $rows[] = $row;
                 self::requireRule(count($rows) <= $limit,'Upload up to '.$limit.' records.');
@@ -1244,7 +1272,7 @@ final class Frontier {
             foreach (['category'=>$category,'item_type'=>$type] as $kind=>$label) {
                 $key = strtolower($label);
                 if (!isset($lookup[$kind][$key])) {
-                    self::insertImportedItemRecord($kind,['name'=>$label]);
+                    self::insertImportedRecord($kind,['name'=>$label]);
                     $lookup[$kind][$key] = (int)$wpdb->insert_id;
                 }
             }
@@ -1254,19 +1282,44 @@ final class Frontier {
             if (isset($existing[$categoryId][$typeId][$nameKey])) {
                 continue;
             }
-            self::insertImportedItemRecord('item',['name'=>$name,'category'=>$categoryId,'item_type'=>$typeId]);
+            self::insertImportedRecord('item',['name'=>$name,'category'=>$categoryId,'item_type'=>$typeId]);
             $existing[$categoryId][$typeId][$nameKey] = true;
             $added++;
         }
         return $added;
     }
 
-    private static function insertImportedItemRecord($kind,$data) {
+    private static function importSuppliers($records) {
+        $rows = self::readImportTemplate('supplier',5000);
+        $used = [];
+        foreach ($records as $record) {
+            if ($record['kind'] === 'supplier') {
+                $used[strtolower($record['data']['ref'])] = true;
+            }
+        }
+        $count = 0;
+        foreach ($rows as $index=>$row) {
+            array_splice($row,2,1);
+            $data = array_combine(array_keys(self::FIELDS['supplier']),$row);
+            self::requireRule($data['email'] === '' || is_email($data['email']),
+                'Check the supplier email on data row '.($index+1).'.');
+            $code = strtolower($data['ref']);
+            if (isset($used[$code])) {
+                continue;
+            }
+            self::insertImportedRecord('supplier',$data);
+            $used[$code] = true;
+            $count++;
+        }
+        return $count;
+    }
+
+    private static function insertImportedRecord($kind,$data) {
         global $wpdb;
         if ($wpdb->insert(self::table(),[
             'kind'=>$kind, 'status'=>'recorded', 'details'=>wp_json_encode($data),
         ]) !== 1) {
-            throw new RuntimeException('Item import could not be saved.');
+            throw new RuntimeException('Imported record could not be saved.');
         }
     }
 
@@ -1290,13 +1343,17 @@ final class Frontier {
         try {
             $rows = self::rows();
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
-                || ($kind === 'item' && $action === 'import_items')) {
+                || ($kind === 'item' && $action === 'import_items')
+                || ($kind === 'supplier' && $action === 'import_suppliers')) {
                 if ($wpdb->query('START TRANSACTION') === false) {
                     throw new RuntimeException('Database transaction could not start.');
                 }
                 $transaction = true;
             }
-            if ($kind === 'item' && $action === 'import_items') {
+            if ($kind === 'supplier' && $action === 'import_suppliers') {
+                $imported = self::importSuppliers($rows);
+                $result = true;
+            } elseif ($kind === 'item' && $action === 'import_items') {
                 $imported = self::importItems($rows);
                 $result = true;
             } elseif ($kind === 'employee' && $action === 'import') {
@@ -1316,7 +1373,7 @@ final class Frontier {
                 $row = $rows[absint(self::input('id'))] ?? null;
                 self::requireRule($row && $row['kind'] === $kind,'Record could not be found.');
                 if ($action === 'delete_master') {
-                    self::requireRule(isset(self::IMPORT_TEMPLATES[$kind]),'This record cannot be deleted here.');
+                    self::requireRule(in_array($kind,['employee','item'],true),'This record cannot be deleted here.');
                     if ($kind === 'employee') {
                         self::requireRule(empty($row['data']['wp_user_id']),'This employee has a linked WordPress login. Resolve the login before deleting the record.');
                         foreach ($rows as $record) {

@@ -67,3 +67,6 @@ body.frontier-workspace {
 .frontier-main .frontier-master-table th, .frontier-main .frontier-master-table td { padding: 6px 10px; vertical-align: middle; }
 .frontier-main .frontier-master-table th { white-space: nowrap; }
 .frontier-main .frontier-master-table .button { padding: 3px 8px; }
+
+.frontier-pages .frontier-table th, .frontier-pages .frontier-table td { border: 1px solid #cbd6e4; }
+.frontier-main .frontier-table tbody tr:last-child td { border-bottom: 1px solid #cbd6e4; }
