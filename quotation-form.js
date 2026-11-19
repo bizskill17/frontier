@@ -29,7 +29,8 @@
             for (const pair of entry.pairs) {
                 const name = pair.name.value.trim();
                 const rate = pair.rate.value.trim();
-                if (!name && !rate && !pair.rate.validity.badInput) continue;
+                pair.rate.disabled = !name;
+                if (!name) continue;
                 const supplier = ids.get(normalize(name));
                 if (!supplier || !rate || !pair.rate.validity.valid || seen.has(supplier)) {
                     error = 'Choose distinct suppliers and enter a valid rate for item ' + entry.number + '.';
