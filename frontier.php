@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.87
+ * Version: 1.9.88
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -394,7 +394,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.86');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.88');
         self::enqueueDropdownSearch();
     }
 
@@ -412,7 +412,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.86');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.88');
         }
     }
 
@@ -2047,9 +2047,37 @@ HTML;
             }
             return $values;
         });
+        $stageClasses = [];
+        if ($indentItems) {
+            $stages = [
+                'indent'=>['Indent Details',[]],
+                'approval'=>['Approval',['approval']],
+                'quotation'=>['Supplier Quotation',['last_supplier','last_rate','supplier_1','rate_1','supplier_2','rate_2','supplier_3','rate_3']],
+                'selection'=>['Supplier Finalization',['final_supplier','final_rate','quote_at','compared_by']],
+                'order'=>['Purchase Order',['ordered','pending_order']],
+                'receipt'=>['Goods Receipt',['received','pending_receive']],
+                'cancel'=>['Cancellation',['cancel_date','cancelled','cancel_reason','cancel_by']],
+            ];
+            $columnStages = [];
+            echo '<ul class="frontier-stage-key" aria-label="Workflow stages">';
+            foreach ($stages as $stage=>[$label,$columns]) {
+                echo '<li class="frontier-stage-'.esc_attr($stage).'">'.esc_html($label).'</li>';
+                foreach ($columns as $column) {
+                    $columnStages[$column] = $stage;
+                }
+            }
+            echo '</ul>';
+            $previousStage = null;
+            foreach ($fields as $field=>$label) {
+                $stage = $columnStages[$field] ?? 'indent';
+                $class = 'frontier-stage-'.$stage.($previousStage !== null && $previousStage !== $stage ? ' frontier-stage-start' : '');
+                $stageClasses[$field] = ' class="'.esc_attr($class).'"';
+                $previousStage = $stage;
+            }
+        }
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
-        foreach ($fields as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+        foreach ($fields as $field=>$label) {
+            echo '<th scope="col"'.($stageClasses[$field] ?? '').'>'.esc_html($label).'</th>';
         }
         if ($showStatus) {
             echo '<th scope="col">Status</th>';
@@ -2063,7 +2091,7 @@ HTML;
             [$values,$status] = $rowValues($row);
             echo '<tr>';
             foreach ($fields as $field=>$label) {
-                echo '<td>';
+                echo '<td'.($stageClasses[$field] ?? '').'>';
                 if ($field === 'grn_pdf' || ($field === 'pdf' && $poRegister)) {
                     $action = $field === 'grn_pdf' ? 'frontier_grn_pdf' : 'frontier_po_pdf';
                     $url = add_query_arg(['action'=>$action,'id'=>$row['id']],admin_url('admin-post.php'));
