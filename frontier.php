@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.47
+ * Version: 1.9.48
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -27,7 +27,7 @@ final class Frontier {
         'Choose Supplier' => ['pending_choose'=>'Pending Choose Supplier', 'choose_form'=>'Choose Supplier Form', 'choose_master'=>'Choose Supplier Master'],
         'Purchase Order' => ['pending_po'=>'Pending Purchase Order', 'po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items', 'follow'=>'Follow Up PO Master'],
         'Goods Receipt' => ['pending_grn'=>'Pending Goods Receipt', 'grn_form'=>'Goods Receipt Form', 'grn'=>'Goods Receipt Notes', 'grn_items'=>'Goods Receipt Items', 'grn_slip'=>'Upload GRN Slip'],
-        'Invoice' => ['invoice'=>'Upload Invoice', 'match'=>'Link PO Items With Invoice'],
+        'Invoice' => ['invoice'=>'Upload Invoice', 'match'=>'Link PO Items With Invoice', 'po_invoice_master'=>'PO Item Invoice Master'],
     ];
 
     // Each screen uses the existing procurement record type and workflow.
@@ -74,7 +74,7 @@ final class Frontier {
         'invoice'=>['supplier'=>'Supplier Name with Code', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.9.4';
+    private const PAGE_VERSION = '1.9.48';
     private const PAGE_SLUGS = [
         'pending_indent'=>'pending-approve-indent', 'pending_quote'=>'pending-supplier-quotation',
         'pending_choose'=>'pending-choose-supplier', 'pending_po'=>'pending-purchase-order',
@@ -89,7 +89,7 @@ final class Frontier {
         'home'=>'frontier', 'site'=>'site-master', 'boq'=>'boq', 'indent'=>'indents',
         'quote'=>'quotation-comparison', 'po'=>'purchase-orders', 'follow'=>'delivery-follow-up',
         'cancel'=>'cancel-po-items', 'grn'=>'goods-receipt-notes', 'stock'=>'received-stock',
-        'invoice'=>'supplier-invoices', 'match'=>'invoice-matching',
+        'invoice'=>'supplier-invoices', 'match'=>'invoice-matching', 'po_invoice_master'=>'po-item-invoice-master',
     ];
     private const EMPLOYEE_ROLES = [
         'frontier_requester'=>'Frontier Requester',
@@ -468,7 +468,7 @@ final class Frontier {
         if (isset(self::MASTERS[$kind])) {
             return current_user_can('manage_options');
         }
-        return self::can('read') && (!in_array($kind,['invoice','match'],true) || self::can('invoice') || self::can('match'));
+        return self::can('read') && (!in_array($kind,['invoice','match','po_invoice_master'],true) || self::can('invoice') || self::can('match'));
     }
 
     private static function table() {
@@ -670,6 +670,11 @@ final class Frontier {
             if (self::can('quote')) {
                 self::quotationForm($rows);
             }
+            echo '</div>';
+            return;
+        }
+        if (in_array(self::$screen,['match','po_invoice_master'],true)) {
+            self::purchaseInvoiceView($rows,self::$screen === 'po_invoice_master');
             echo '</div>';
             return;
         }
@@ -1255,7 +1260,7 @@ final class Frontier {
     }
 
     private static function formStart($kind,$action,$id=0) {
-        $class = in_array($action,['create','edit','complete_site','cancel_site','save_supplier_selection','create_purchase_orders','create_goods_receipt'],true) ? ' class="frontier-entry"' : '';
+        $class = in_array($action,['create','edit','complete_site','cancel_site','save_supplier_selection','create_purchase_orders','create_goods_receipt','link_po_invoice'],true) ? ' class="frontier-entry"' : '';
         if ($action === 'create_purchase_orders') {
             $class = ' class="frontier-entry frontier-po-form"';
         }
@@ -1723,6 +1728,7 @@ final class Frontier {
                 $po = $rows[$data['po']];
                 $invoice = $rows[$data['invoice']];
                 self::requireRule(self::sameSupplier($po['data'],$invoice['data']),'The invoice and PO suppliers must match.');
+                self::requireRule($data['qty'] <= self::pendingInvoiceQuantity($rows,$po),'Invoice quantity exceeds the PO item balance.');
                 self::requireRule($data['qty'] <= round($grn['data']['qty'] - self::sum($rows,'match','grn',$grn['id']),3),'Invoice quantity exceeds the unmatched GRN quantity.');
                 self::requireRule($data['qty'] <= round($invoice['data']['qty'] - self::sum($rows,'match','invoice',$invoice['id']),3),'Quantity exceeds the unmatched invoice balance.');
                 self::requireRule($data['rate'] === (float)$po['data']['rate'] || $data['note'] !== '','Explain the variance from the PO rate.');
@@ -2984,6 +2990,132 @@ final class Frontier {
         }
     }
 
+    private static function pendingInvoiceQuantity($rows,$po) {
+        return max(0,round($po['data']['qty'] - self::sum($rows,'cancel','po',$po['id'])
+            - self::sum($rows,'match','po',$po['id']),3));
+    }
+
+    private static function purchaseInvoiceView($rows,$master) {
+        $id = absint($_GET['invoice_po'] ?? 0);
+        if (!$master && $id && self::can('match')) {
+            $po = $rows[$id] ?? [];
+            if (($po['kind'] ?? '') === 'po' && $po['status'] !== 'cancelled' && self::pendingInvoiceQuantity($rows,$po) > 0) {
+                self::purchaseInvoiceForm($rows,$po);
+                return;
+            }
+        }
+        $listing = array_filter($rows,static function ($row) use ($master) {
+            return $master ? $row['kind'] === 'match' : $row['kind'] === 'po';
+        });
+        [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
+        $columns = ['PO No. with Supplier Name','PO Date',$master ? 'Indent Number with Site Name' : 'Indent Number',
+            'PO No.','Indent Date','Site Name','Item Name','Order Quantity','Supplier Finalized','Rate Finalized','Pending for Invoice'];
+        $columns = array_merge($columns,$master ? ['Quantity Invoiced','Rate as per Invoice','Invoice Identifier',
+            'Invoice No.','Invoice Date','Invoice Copy','Invoice Amount'] : ['Actions']);
+        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="PO item invoices"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $column) {
+            echo '<th scope="col">'.esc_html($column).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($pageRows as $row) {
+            $po = $master ? ($rows[$row['data']['po'] ?? 0] ?? []) : $row;
+            $order = $po ? self::purchaseOrderValues($rows,$po) : [];
+            $pending = $po && $po['status'] !== 'cancelled' ? self::pendingInvoiceQuantity($rows,$po) : 0;
+            $indent = $order['indent_number'] ?? '';
+            if ($master) {
+                $indent = implode(' · ',array_filter([(string)$indent,$order['site_name'] ?? ''],'strlen'));
+            }
+            $values = [$order['po_supplier'] ?? '',$order['po_date'] ?? '',$indent,$order['ref'] ?? '',
+                $order['indent_date'] ?? '',$order['site_name'] ?? '',$order['item_name'] ?? '',$order['qty'] ?? '',
+                $order['supplier'] ?? '',$order['rate'] ?? '',$po ? $pending : ''];
+            echo '<tr>';
+            foreach ($values as $value) {
+                echo '<td>'.esc_html((string)$value).'</td>';
+            }
+            if ($master) {
+                $data = $row['data'];
+                $invoice = $rows[$data['invoice'] ?? 0] ?? [];
+                $invoiceData = $invoice['data'] ?? [];
+                foreach ([$data['qty'] ?? '',$data['rate'] ?? '',$data['invoice_identifier'] ?? ($invoice ? self::invoiceIdentifier($invoice,$rows) : ''),
+                    $invoiceData['ref'] ?? '',self::indentDisplayDate($invoiceData['due'] ?? '')] as $value) {
+                    echo '<td>'.esc_html((string)$value).'</td>';
+                }
+                echo '<td>';
+                if (!empty($invoice['filename']) && self::canFile('invoice')) {
+                    $url = add_query_arg(['action'=>'frontier_file','id'=>$invoice['id']],admin_url('admin-post.php'));
+                    echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url($url,'frontier_file_'.$invoice['id'])).'">Download</a>';
+                }
+                echo '</td><td>'.esc_html(number_format((float)$data['qty'] * (float)$data['rate'],2)).'</td>';
+            } else {
+                echo '<td>';
+                if ($pending > 0 && self::can('match')) {
+                    echo '<a class="button frontier-add" href="'.esc_url(add_query_arg('invoice_po',$po['id'],self::url('match'))).'">Update</a>';
+                }
+                echo '</td>';
+            }
+            echo '</tr>';
+        }
+        if (!$total) {
+            echo '<tr><td colspan="'.count($columns).'">No records yet.</td></tr>';
+        }
+        echo '</tbody></table></div>';
+        self::pagination($page,$pages,$total);
+    }
+
+    private static function invoiceIdentifier($invoice,$rows) {
+        $data = $invoice['data'];
+        $supplier = $rows[$data['supplier'] ?? 0]['data']['name'] ?? ($data['name'] ?? '');
+        return implode(' - ',array_filter([$data['ref'] ?? '',self::indentDisplayDate($data['due'] ?? ''),$supplier],'strlen'));
+    }
+
+    private static function purchaseInvoiceForm($rows,$po) {
+        $order = self::purchaseOrderValues($rows,$po);
+        echo '<h2>'.esc_html($order['po_supplier'].' · '.$order['item_name']).'</h2>';
+        echo '<p>Pending for Invoice: '.esc_html((string)self::pendingInvoiceQuantity($rows,$po)).'</p>';
+        $invoices = array_filter($rows,static function ($invoice) use ($rows,$po) {
+            return $invoice['kind'] === 'invoice' && self::sameSupplier($po['data'],$invoice['data'])
+                && $invoice['data']['qty'] > self::sum($rows,'match','invoice',$invoice['id']);
+        });
+        if (!$invoices) {
+            echo '<p>No uploaded invoices with a remaining quantity for this supplier.</p>';
+            echo '<p><a class="button" href="'.esc_url(self::url('match')).'">Back</a></p>';
+            return;
+        }
+        self::formStart('match','link_po_invoice',$po['id']);
+        echo '<div class="frontier-fields">';
+        echo '<p><label>'.self::requiredLabel('Invoice Identifier').'<select name="invoice" required><option value="">Select invoice</option>';
+        foreach ($invoices as $invoice) {
+            echo '<option value="'.esc_attr($invoice['id']).'">'.esc_html(self::invoiceIdentifier($invoice,$rows)).'</option>';
+        }
+        echo '</select></label></p>';
+        self::field($rows,'match','qty','Invoice Qty','');
+        self::field($rows,'match','rate','Invoice Rate',$order['rate']);
+        echo '</div><p>';
+        self::submitButton('Save',true);
+        echo ' <a class="button" href="'.esc_url(self::url('match')).'">Cancel</a></p></form>';
+    }
+
+    private static function savePurchaseInvoice($rows) {
+        global $wpdb;
+        $po = $rows[absint(self::input('id'))] ?? [];
+        $invoice = $rows[absint(self::input('invoice'))] ?? [];
+        self::requireRule(($po['kind'] ?? '') === 'po' && $po['status'] !== 'cancelled','Select a valid PO item.');
+        self::requireRule(($invoice['kind'] ?? '') === 'invoice' && self::sameSupplier($po['data'],$invoice['data']),
+            'The invoice and PO suppliers must match.');
+        $qty = self::input('qty');
+        $rate = self::input('rate');
+        self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0
+            && (float)$qty <= self::pendingInvoiceQuantity($rows,$po),'Invoice Qty exceeds the PO item balance or is invalid.');
+        self::requireRule((float)$qty <= round($invoice['data']['qty'] - self::sum($rows,'match','invoice',$invoice['id']),3),
+            'Invoice Qty exceeds the unmatched invoice quantity.');
+        self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$rate),'Enter a valid Invoice Rate.');
+        $data = ['po'=>(int)$po['id'],'invoice'=>(int)$invoice['id'],'qty'=>(float)$qty,'rate'=>(float)$rate,
+            'invoice_identifier'=>self::invoiceIdentifier($invoice,$rows)];
+        if ($wpdb->insert(self::table(),['kind'=>'match','status'=>'recorded','details'=>wp_json_encode($data)]) !== 1) {
+            throw new RuntimeException('Invoice link could not be saved.');
+        }
+    }
+
     private static function goodsReceiptNumberId($row) {
         return (int)($row['data']['grn_group_id'] ?? $row['id']);
     }
@@ -3910,6 +4042,9 @@ HTML;
             }
             if ($kind === 'quote' && $action === 'save_quotations') {
                 self::saveQuotations($rows);
+                $result = true;
+            } elseif ($kind === 'match' && $action === 'link_po_invoice') {
+                self::savePurchaseInvoice($rows);
                 $result = true;
             } elseif ($kind === 'grn' && $action === 'approve_grn') {
                 $receipt = $rows[absint(self::input('id'))] ?? [];
