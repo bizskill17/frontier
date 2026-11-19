@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.7
+ * Version: 1.7.8
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -517,7 +517,7 @@ final class Frontier {
                 echo '<div class="frontier-fields">';
             }
             foreach (self::FIELDS[$kind] as $field=>$label) {
-                if ($kind === 'supplier' && $field === 'ref') {
+                if ($field === 'ref' && in_array($kind,['site','supplier'],true)) {
                     continue;
                 }
                 self::field($rows,$kind,$field,$label,$editing ? ($edit['data'][$field] ?? '') : '');
@@ -721,14 +721,12 @@ final class Frontier {
         return in_array($field,['reject','tax','freight'],true)
             || ($field === 'note' && in_array($kind,['quote','match'],true))
             || ($kind === 'supplier' && !in_array($field,['ref','name'],true))
-            || ($kind === 'site' && in_array($field,['telegram','employee'],true));
+            || ($kind === 'site' && $field === 'telegram');
     }
 
     private static function field($rows,$kind,$field,$label,$value) {
         echo '<p><label>'.esc_html($label).' ';
-        if ($field === 'ref' && in_array($kind,['site','supplier'],true)) {
-            printf('<input type="text" readonly value="%s" placeholder="Assigned on save">',esc_attr($value));
-        } elseif ($kind === 'supplier' && isset(self::SUPPLIER_TEXT_LIMITS[$field])) {
+        if ($kind === 'supplier' && isset(self::SUPPLIER_TEXT_LIMITS[$field])) {
             printf('<textarea name="%s" rows="4" maxlength="%d">%s</textarea>',
                 esc_attr($field),self::SUPPLIER_TEXT_LIMITS[$field],esc_textarea($value));
         } elseif ($kind === 'employee' && $field === 'password') {
