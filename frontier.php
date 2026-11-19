@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.20
+ * Version: 1.9.21
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2286,16 +2286,17 @@ final class Frontier {
 
     private static function indentItemColumns() {
         return [
-            'entered'=>'Timestamp','number'=>'Indent No.','date'=>'Indent Date','site'=>'Site Number with Name',
+            'entered'=>'Indent Timestamp','number'=>'Indent No.','date'=>'Indent Date','site'=>'Site Number with Name',
             'requested'=>'Requested By','sl'=>'Sl No.','item'=>'Item','unit'=>'Units','boq_qty'=>'Quantity as per BOQ',
             'already'=>'Quantity Already Indented','qty'=>'Quantity Required Now','excess'=>'Whether Excess Indented',
-            'comparison_at'=>'Comparison Timestamp','last_supplier'=>'Last Supplier','last_rate'=>'Last Rate',
-            'supplier_1'=>'Supplier1','rate_1'=>'Rate1','supplier_2'=>'Supplier2','rate_2'=>'Rate2',
-            'supplier_3'=>'Supplier3','rate_3'=>'Rate3','final_supplier'=>'Supplier Finalized','final_rate'=>'Rate Finalized',
-            'compared_by'=>'Compared By','ordered'=>'Quantity Ordered','pending_order'=>'Pending to Order',
+            'last_supplier'=>'Last Supplier','last_rate'=>'Last Rate',
+            'supplier_1'=>'Supplier1','rate_1'=>'Rate1','quotation_1'=>'Quotation1',
+            'supplier_2'=>'Supplier2','rate_2'=>'Rate2','quotation_2'=>'Quotation2',
+            'supplier_3'=>'Supplier3','rate_3'=>'Rate3','quotation_3'=>'Quotation3',
+            'final_supplier'=>'Supplier Finalized','final_rate'=>'Rate Finalized',
+            'quote_at'=>'Quotation Timestamp','compared_by'=>'Compared By',
+            'ordered'=>'Quantity Ordered','pending_order'=>'Pending to Order',
             'type'=>'Item Type','approval'=>'Approval Status','received'=>'Quantity Received','pending_receive'=>'Pending to Receive',
-            'quote_at'=>'Quotation Timestamp','quoted_by_1'=>'Supplier1','quotation_1'=>'Quotation1',
-            'quoted_by_2'=>'Supplier2','quotation_2'=>'Quotation2','quoted_by_3'=>'Supplier3','quotation_3'=>'Quotation3',
             'cancel_date'=>'Cancel Date',
             'cancelled'=>'Indent Item Canceled','cancel_reason'=>'Cancel Reason','cancel_by'=>'Cancel By',
         ];
@@ -2398,41 +2399,32 @@ final class Frontier {
             'last_supplier'=>$past ? self::supplierDisplay($past,$rows) : '', 'last_rate'=>$past['rate'] ?? '',
         ];
         $latestQuote = '';
-        $supplierSeen = [];
-        $comparison = 0;
-        $attachments = 0;
-        $quotedSuppliers = [];
+        $supplierSlots = [];
         foreach ($quotes as $quote) {
             $quoteData = $quote['data'];
             $name = self::supplierDisplay($quoteData,$rows);
             $latestQuote = max($latestQuote,$quoteData['quote_timestamp'] ?? '');
             $key = !empty($quoteData['supplier']) ? 'id-'.$quoteData['supplier'] : strtolower($name);
-            if ($comparison < 3 && !isset($supplierSeen[$key])) {
-                $supplierSeen[$key] = true;
-                $comparison++;
-                $values['supplier_'.$comparison] = $name;
-                $values['rate_'.$comparison] = $quoteData['rate'];
+            if (!isset($supplierSlots[$key]) && count($supplierSlots) < 3) {
+                $slot = count($supplierSlots) + 1;
+                $supplierSlots[$key] = $slot;
+                $values['supplier_'.$slot] = $name;
+                $values['rate_'.$slot] = $quoteData['rate'];
             }
-            if ($attachments < 3 && !isset($quotedSuppliers[$key])) {
-                $quotedSuppliers[$key] = true;
-                $attachments++;
-                $values['quoted_by_'.$attachments] = $name;
-                if ($quote['filename']) {
-                    $values['quotation_'.$attachments] = $quote;
-                }
+            if (isset($supplierSlots[$key]) && !empty($quote['filename'])) {
+                $fileKey = 'quotation_'.$supplierSlots[$key];
+                $values[$fileKey] = $values[$fileKey] ?? $quote;
             }
         }
         $values['quote_at'] = $timestamp($latestQuote);
         foreach ($quotes as $quote) {
             $comparisonData = $quote['data'];
             if (!empty($comparisonData['comparison_name']) && ($comparisonData['quote_timestamp'] ?? '') === $latestQuote) {
-                $values['comparison_at'] = $timestamp($latestQuote);
                 $values['compared_by'] = $comparisonData['comparison_name'];
                 break;
             }
         }
         if ($selected) {
-            $values['comparison_at'] = $values['comparison_at'] ?? $timestamp($selected['data']['compared_at'] ?? '');
             $values['compared_by'] = $values['compared_by'] ?? ($selected['data']['compared_by'] ?? '');
             $values['final_supplier'] = self::supplierDisplay($selected['data'],$rows);
             $values['final_rate'] = $selected['data']['rate'];
