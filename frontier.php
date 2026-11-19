@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.5
+ * Version: 1.6.6
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1121,6 +1121,7 @@ final class Frontier {
         header('Content-Type: text/csv; charset=UTF-8');
         header('Content-Disposition: attachment; filename="frontier-'.$kind.'-template.csv"');
         $output = fopen('php://output','wb');
+        fwrite($output,"\xEF\xBB\xBF");
         fputcsv($output,self::IMPORT_TEMPLATES[$kind],',','"','');
         fclose($output);
         exit;
@@ -1133,12 +1134,23 @@ final class Frontier {
             && is_string($path) && is_uploaded_file($path) && ($file['size'] ?? 0) <= 500000
             && is_string($file['name'] ?? null) && strtolower(pathinfo($file['name'],PATHINFO_EXTENSION)) === 'csv',
             'Upload a CSV template up to 500 KB.');
-        $stream = fopen($path,'rb');
+        $contents = file_get_contents($path);
+        self::requireRule(is_string($contents),'Could not read the CSV file.');
+        $bom = substr($contents,0,2);
+        if ($bom === "\xFF\xFE" || $bom === "\xFE\xFF") {
+            $contents = self::convertCsvEncoding(substr($contents,2),$bom === "\xFF\xFE" ? 'UTF-16LE' : 'UTF-16BE');
+        } elseif (substr($contents,0,3) === "\xEF\xBB\xBF") {
+            $contents = substr($contents,3);
+        } elseif (!preg_match('//u',$contents)) {
+            $contents = self::convertCsvEncoding($contents,'Windows-1252');
+        }
+        self::requireRule(preg_match('//u',$contents),'Save the file as CSV UTF-8 and upload it again.');
+
+        // Parse after decoding so quoted fields and commas use standard CSV rules.
+        $stream = fopen('php://temp','w+b');
         self::requireRule($stream !== false,'Could not open the CSV file.');
         try {
-            if (fread($stream,3) !== "\xEF\xBB\xBF") {
-                rewind($stream);
-            }
+            self::requireRule(fwrite($stream,$contents) === strlen($contents) && rewind($stream),'Could not read the CSV file.');
             $headers = fgetcsv($stream,0,',','"','');
             $expected = self::IMPORT_TEMPLATES[$kind];
             self::requireRule($headers && array_map('trim',$headers) === $expected,
@@ -1147,7 +1159,10 @@ final class Frontier {
             $line = 1;
             while (($row = fgetcsv($stream,0,',','"','')) !== false) {
                 $line++;
-                $row = array_map(static function ($value) {
+                $row = array_map(static function ($value) use ($kind) {
+                    if ($kind === 'item') {
+                        return trim(preg_replace('/[\x00-\x1F\x7F]+/u',' ',(string)$value));
+                    }
                     return trim(sanitize_text_field((string)$value));
                 },$row);
                 if ($row === [''] || $row === array_fill(0,count($expected),'')) {
@@ -1165,6 +1180,15 @@ final class Frontier {
         } finally {
             fclose($stream);
         }
+    }
+
+    private static function convertCsvEncoding($contents,$encoding) {
+        if (function_exists('mb_convert_encoding')) {
+            return mb_convert_encoding($contents,'UTF-8',$encoding);
+        }
+        $converted = function_exists('iconv') ? @iconv($encoding,'UTF-8',$contents) : false;
+        self::requireRule($converted !== false,'Save the file as CSV UTF-8 and upload it again.');
+        return $converted;
     }
 
     private static function importEmployees($rows) {
