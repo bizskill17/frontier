@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.52
+ * Version: 1.9.53
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -385,7 +385,7 @@ final class Frontier {
             <div class="frontier-main-column">
                 <header class="frontier-topbar">
                     <div class="frontier-topbar-start">
-                        <button type="button" class="frontier-menu-toggle" aria-controls="frontier-sidebar" aria-expanded="true" hidden>Hide menu</button>
+                        <button type="button" class="frontier-menu-toggle" aria-controls="frontier-sidebar" aria-expanded="true" aria-label="Hide menu" title="Hide menu" hidden><span aria-hidden="true">☰</span></button>
                         <span role="heading" aria-level="1"><?php echo esc_html($views[$kind]); ?></span>
                     </div>
                     <?php if ($kind === 'home') : ?>
@@ -409,7 +409,9 @@ final class Frontier {
         menu.hidden = hidden;
         shell.classList.toggle('frontier-menu-hidden', hidden);
         toggle.setAttribute('aria-expanded', String(!hidden));
-        toggle.textContent = hidden ? 'Show menu' : 'Hide menu';
+        const label = hidden ? 'Show menu' : 'Hide menu';
+        toggle.setAttribute('aria-label', label);
+        toggle.title = label;
     };
     setHidden(preference === null ? window.matchMedia('(max-width: 760px)').matches : preference === 'true');
     toggle.hidden = false;
