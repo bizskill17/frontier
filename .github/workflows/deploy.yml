@@ -1,0 +1,39 @@
+name: Deploy Frontier to WordPress
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: frontier-wordpress-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Check PHP syntax
+        run: |
+          php -l frontier.php
+          php -l workspace.php
+      - name: Request deployment
+        env:
+          DEPLOY_URL: ${{ secrets.DFG_PLUGIN_DEPLOY_URL }}
+        run: |
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "::notice::Set DFG_PLUGIN_DEPLOY_URL to enable deployment."
+            exit 0
+          fi
+          case "$DEPLOY_URL" in
+            https://frontier.bizskilledu.com/*) ;;
+            *) echo "::error::Expected an HTTPS URL on frontier.bizskilledu.com."; exit 1 ;;
+          esac
+          status="$(curl --silent --max-time 90 --output /dev/null --write-out '%{http_code}' --request POST -- "$DEPLOY_URL")"
+          if [ "$status" != '200' ]; then
+            echo "::error::Deployer for Git returned HTTP $status."
+            exit 1
+          fi
+          echo "Deployer for Git returned HTTP 200. See WordPress deployment logs for the installation result."
