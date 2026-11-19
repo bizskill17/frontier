@@ -363,13 +363,7 @@ body.frontier-workspace {
     .frontier-sidebar .frontier-sidebar-signout { grid-column: 1 / -1; }
 }
 
-.frontier-pages .frontier-master-table .frontier-po-actions {
-    position: sticky;
-    right: 0;
-    z-index: 1;
-    min-width: 172px;
-    box-shadow: -2px 0 4px #17243b18;
-}
+.frontier-pages .frontier-master-table .frontier-po-actions { min-width: 172px; }
 .frontier-pages .frontier-master-table td.frontier-po-actions { background: #fff; }
 .frontier-po-actions .frontier-row-actions { flex-wrap: wrap; }
 .frontier-po-actions .frontier-po-cancel { min-width: 0; max-width: 160px; }
