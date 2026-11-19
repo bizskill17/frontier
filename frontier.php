@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.25
+ * Version: 1.9.26
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1152,6 +1152,7 @@ final class Frontier {
         return in_array($field,['reject','tax','freight'],true)
             || ($field === 'note' && in_array($kind,['quote','match'],true))
             || ($kind === 'supplier' && !in_array($field,['ref','name'],true))
+            || ($kind === 'employee' && in_array($field,['email','department'],true))
             || ($kind === 'site' && $field === 'telegram');
     }
 
@@ -1697,8 +1698,8 @@ final class Frontier {
         }
         $input = $_POST['password'] ?? '';
         $password = is_string($input) ? wp_unslash($input) : '';
-        self::requireRule(($linkedId && $password === '') || (strlen($password) >= 12 && strlen($password) <= 4096
-            && trim($password) === $password), 'Enter a password of 12 to 4096 characters without spaces at either end.');
+        self::requireRule(($linkedId && $password === '') || ($password !== '' && strlen($password) <= 4096
+            && trim($password) === $password), 'Enter a password without spaces at either end (maximum 4096 bytes).');
         $user = ['user_login'=>$data['login'], 'user_email'=>$data['email'],
             'display_name'=>$data['name']];
         if (!$linkedId) {
