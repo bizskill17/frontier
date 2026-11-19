@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.75
+ * Version: 1.9.76
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -131,6 +131,7 @@ final class Frontier {
         add_action('admin_post_frontier_save', [self::class, 'save']);
         add_action('admin_post_frontier_table_excel', [self::class, 'downloadTableExcel']);
         add_action('admin_post_frontier_save_logo', [self::class, 'saveLogo']);
+        add_action('admin_post_frontier_save_numbering', [self::class, 'saveNumbering']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
     }
 
@@ -489,6 +490,125 @@ final class Frontier {
         echo '</form>';
     }
 
+    private const NUMBER_FIELDS = ['boq'=>'BOQ Number','indent'=>'Indent Number','po'=>'PO Number',
+        'grn'=>'GRN Number','supplier'=>'Supplier Code','site'=>'Site Number'];
+
+    private static function fiscalYear($date) {
+        return (int)substr($date,0,4) - ((int)substr($date,5,2) < 4 ? 1 : 0);
+    }
+
+    private static function poPrefix($year) {
+        return sprintf('FY - %02d-%02d/',$year % 100,($year+1) % 100);
+    }
+
+    private static function nextNumber($kind,$last,$year=0) {
+        $settings = (array)get_option('frontier_next_numbers',[]);
+        $key = $kind === 'po' ? 'po_'.$year : $kind;
+        return max($last+1,(int)($settings[$key] ?? 1));
+    }
+
+    private static function lastNumbers($rows,$year) {
+        $last = ['boq'=>(int)get_option('frontier_last_deleted_boq',0),'indent'=>0,
+            'po'=>(int)get_option('frontier_po_sequence_'.$year,0),'grn'=>0,
+            'supplier'=>self::lastMasterCode($rows,'supplier'),'site'=>self::lastMasterCode($rows,'site')];
+        $prefix = self::poPrefix($year);
+        foreach ($rows as $row) {
+            $kind = $row['kind'];
+            $data = $row['data'];
+            if ($kind === 'boq' || $kind === 'indent') {
+                $last[$kind] = max($last[$kind],(int)($data[$kind.'_number'] ?? 0));
+            } elseif ($kind === 'grn') {
+                $last['grn'] = max($last['grn'],(int)($data['grn_number'] ?? self::goodsReceiptNumberId($row)));
+            } elseif ($kind === 'po' && strpos($data['ref'] ?? '',$prefix) === 0) {
+                $last['po'] = max($last['po'],(int)substr($data['ref'],strlen($prefix)));
+            }
+        }
+        return $last;
+    }
+
+    private static function numberingPreview($kind,$number,$year) {
+        if ($kind === 'po' || $kind === 'grn') {
+            return ($kind === 'po' ? self::poPrefix($year) : 'GRN - ').str_pad((string)$number,4,'0',STR_PAD_LEFT);
+        }
+        return in_array($kind,['supplier','site'],true) ? self::formatMasterCode($number) : (string)$number;
+    }
+
+    private static function numberingSettings() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        $current = self::fiscalYear(current_time('Y-m-d'));
+        $year = absint($_GET['number_year'] ?? $current);
+        $year = $year >= 1900 && $year <= 9998 ? $year : $current;
+        $url = self::url('settings');
+        $query = [];
+        parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$query);
+        echo '<section class="frontier-entry"><h2>Document Numbering</h2>';
+        echo '<form method="get" action="'.esc_url(remove_query_arg(array_keys($query),$url)).'">';
+        foreach ($query as $key=>$value) {
+            echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
+        }
+        echo '<p><label>PO Financial Year Start <input type="number" name="number_year" min="1900" max="9998" required value="'.esc_attr($year).'"></label></p>';
+        self::submitButton('Show financial year');
+        echo '</form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+        wp_nonce_field('frontier_save_numbering');
+        echo '<input type="hidden" name="action" value="frontier_save_numbering">';
+        echo '<input type="hidden" name="number_year" value="'.esc_attr($year).'">';
+        echo '<input type="hidden" name="surface" value="'.(self::$front ? 'front' : 'admin').'">';
+        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>Field</th><th>Last used</th><th>Next number</th><th>Format preview</th></tr></thead><tbody>';
+        $last = self::lastNumbers(self::rows(),$year);
+        foreach (self::NUMBER_FIELDS as $kind=>$label) {
+            $next = self::nextNumber($kind,$last[$kind],$year);
+            echo '<tr><th scope="row">'.esc_html('Next '.$label).'</th><td>';
+            echo $last[$kind] ? esc_html(self::numberingPreview($kind,$last[$kind],$year)) : '';
+            echo '</td><td><input type="number" name="next_'.esc_attr($kind).'" aria-label="'.esc_attr('Next '.$label).'" required min="'.esc_attr($last[$kind]+1).'" step="1" value="'.esc_attr($next).'"></td>';
+            echo '<td>'.esc_html(self::numberingPreview($kind,$next,$year)).'</td></tr>';
+        }
+        echo '</tbody></table></div><p>';
+        self::submitButton('Save Numbering',true);
+        echo '</p></form></section>';
+    }
+
+    public static function saveNumbering() {
+        global $wpdb;
+        if (!current_user_can('manage_options')) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        check_admin_referer('frontier_save_numbering');
+        $year = absint(self::input('number_year'));
+        if ($year < 1900 || $year > 9998) {
+            wp_die('Enter a valid financial year.','Frontier',['response'=>400,'back_link'=>true]);
+        }
+        $lock = 'frontier_'.md5(DB_NAME.'|'.self::table());
+        if ((int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)',$lock)) !== 1) {
+            wp_die('Frontier is busy. Please retry.','Frontier',['response'=>503]);
+        }
+        $error = '';
+        try {
+            $last = self::lastNumbers(self::rows(),$year);
+            $previous = $settings = (array)get_option('frontier_next_numbers',[]);
+            foreach (self::NUMBER_FIELDS as $kind=>$label) {
+                $next = self::input('next_'.$kind);
+                self::requireRule(preg_match('/^[1-9]\d{0,8}$/D',$next) && (int)$next > $last[$kind],
+                    'Next '.$label.' must be greater than the last number already used.');
+                $settings[$kind === 'po' ? 'po_'.$year : $kind] = (int)$next;
+            }
+            if ($previous !== $settings && !update_option('frontier_next_numbers',$settings,false)) {
+                throw new RuntimeException('Numbering settings could not be saved.');
+            }
+        } catch (Throwable $exception) {
+            $error = $exception instanceof DomainException ? $exception->getMessage() : 'Numbering settings could not be saved.';
+        } finally {
+            $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)',$lock));
+        }
+        if ($error !== '') {
+            wp_die(esc_html($error),'Frontier',['response'=>400,'back_link'=>true]);
+        }
+        self::$front = self::input('surface') === 'front';
+        wp_safe_redirect(add_query_arg(['saved'=>1,'number_year'=>$year],self::url('settings')));
+        exit;
+    }
+
     public static function saveLogo() {
         if (!current_user_can('manage_options') || !current_user_can('upload_files')) {
             wp_die('Access denied.','Frontier',['response'=>403]);
@@ -782,6 +902,7 @@ final class Frontier {
         self::$screen = $kind;
         if ($kind === 'settings') {
             self::logoSettings();
+            self::numberingSettings();
             echo '</div>';
             return;
         }
@@ -2263,7 +2384,7 @@ HTML;
                 if (isset(self::MASTERS[$kind]) || $kind === 'site') {
                     $fields = self::readFields($rows,$kind);
                     if (in_array($kind,['site','supplier'],true)) {
-                        $fields['ref'] = ($row['data']['ref'] ?? '') ?: self::formatMasterCode(self::lastMasterCode($rows,$kind)+1);
+                        $fields['ref'] = ($row['data']['ref'] ?? '') ?: self::formatMasterCode(self::nextNumber($kind,self::lastMasterCode($rows,$kind)));
                     }
                     self::validateMaster($rows,$kind,$fields,$row['id']);
                     $data = $fields + $row['data'];
@@ -2655,7 +2776,7 @@ HTML;
 
     private static function importSuppliers($records) {
         $rows = self::readImportTemplate('supplier',5000);
-        $last = self::lastMasterCode($records,'supplier');
+        $last = self::nextNumber('supplier',self::lastMasterCode($records,'supplier'))-1;
         $fields = array_values(array_diff(array_keys(self::FIELDS['supplier']),['ref']));
         $signature = static function ($data) use ($fields) {
             return wp_json_encode(array_map(static function ($field) use ($data) {
@@ -3007,7 +3128,7 @@ HTML;
             $last = max($last,(int)($row['data']['boq_number'] ?? 0));
         }
         $header = ['site'=>(int)$site['id'],'prepared_by'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name'],
-            'group_id'=>$site['data']['telegram'] ?? '', 'boq_date'=>$dateText,'boq_number'=>$previous['boq_number'] ?? ($last+1),
+            'group_id'=>$site['data']['telegram'] ?? '', 'boq_date'=>$dateText,'boq_number'=>$previous['boq_number'] ?? self::nextNumber('boq',$last),
             'boq_token'=>$previous['boq_token'] ?? $token,'boq_timestamp'=>$id ? ($previous['boq_timestamp'] ?? '') : current_time('mysql')];
         $seen = [];
         foreach (array_values($lines) as $index=>$line) {
@@ -3514,7 +3635,7 @@ HTML;
             $target = DateTimeImmutable::createFromFormat('!Y-m-d',$targetDate);
             self::requireRule($target && $target->format('Y-m-d') === $targetDate,'Enter a valid indent target date.');
         }
-        $header = ['indent_number'=>$last+1,'indent_date'=>$dateText,'indent_token'=>$token,
+        $header = ['indent_number'=>self::nextNumber('indent',$last),'indent_date'=>$dateText,'indent_token'=>$token,
             'indent_timestamp'=>current_time('mysql'),'due'=>$targetDate,
             'requested_by'=>(int)$employee['id'],'requested_name'=>$employee['data']['name'],'site'=>(int)$site['id']];
         $selected = [];
@@ -3751,7 +3872,7 @@ HTML;
             $pending = max(0,self::balance($earlier,$po));
         }
         return [
-            'grn_no'=>'GRN - '.str_pad((string)self::goodsReceiptNumberId($row),4,'0',STR_PAD_LEFT),
+            'grn_no'=>'GRN - '.str_pad((string)($data['grn_number'] ?? self::goodsReceiptNumberId($row)),4,'0',STR_PAD_LEFT),
             'grn_date'=>self::indentDisplayDate($data['due'] ?? ''),
             'timestamp'=>empty($data['grn_timestamp']) ? '' : mysql2date('d/m/Y H:i:s',$data['grn_timestamp'],false),
             'slip_no'=>$data['ref'] ?? '', 'supplier'=>$order['supplier'] ?? '',
@@ -3898,6 +4019,7 @@ HTML;
         self::requireRule(is_array($submitted),'Check the quantities received.');
         $group = 0;
         $timestamp = current_time('mysql');
+        $number = self::nextNumber('grn',self::lastNumbers($rows,0)['grn']);
         foreach ($submitted as $id=>$qty) {
             self::requireRule(is_string($qty),'Enter a valid Quantity Received.');
             if ($qty === '') {
@@ -3911,7 +4033,7 @@ HTML;
             self::requireRule(($line['kind'] ?? '') === 'po'
                 && (int)($line['data']['po_group_id'] ?? $line['id']) === $orderId
                 && self::canReceivePurchaseOrder($rows,$line),'This PO item is no longer available for receipt.');
-            $data = ['po'=>(int)$id,'ref'=>$ref,'due'=>$due,'qty'=>(float)$qty,'reject'=>0,'grn_timestamp'=>$timestamp,
+            $data = ['po'=>(int)$id,'ref'=>$ref,'due'=>$due,'qty'=>(float)$qty,'reject'=>0,'grn_timestamp'=>$timestamp,'grn_number'=>$number,
                 'already_received'=>self::sum($rows,'grn','po',$id),'pending_before'=>self::balance($rows,$line),
                 'prepared_employee'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name']];
             self::validateNew($rows,'grn',$data);
@@ -4334,8 +4456,8 @@ HTML;
             self::requireRule(strlen($delivery['delivery_'.$field]) <= $limit,'Check the delivery details.');
         }
         $orderGroups = [];
-        $year = (int)substr($date,0,4) - (substr($date,5,2) < '04' ? 1 : 0);
-        $prefix = sprintf('FY - %02d-%02d/',$year % 100,($year + 1) % 100);
+        $year = self::fiscalYear($date);
+        $prefix = self::poPrefix($year);
         $sequenceKey = 'frontier_po_sequence_'.$year;
         $sequence = (int)get_option($sequenceKey,0);
         foreach ($rows as $record) {
@@ -4344,6 +4466,7 @@ HTML;
                 $sequence = max($sequence,(int)substr($reference,strlen($prefix)));
             }
         }
+        $sequence = self::nextNumber('po',$sequence,$year)-1;
         $timestamp = current_time('mysql');
         foreach ($submitted as $quoteId=>$line) {
             self::requireRule(is_array($line) && is_string($line['qty'] ?? null),'Enter a valid Order Qty.');
@@ -4800,7 +4923,7 @@ HTML;
             } elseif ($action === 'create') {
                 $data = self::readFields($rows,$kind);
                 if (in_array($kind,['site','supplier'],true)) {
-                    $data['ref'] = self::formatMasterCode(self::lastMasterCode($rows,$kind)+1);
+                    $data['ref'] = self::formatMasterCode(self::nextNumber($kind,self::lastMasterCode($rows,$kind)));
                 }
                 self::validateNew($rows,$kind,$data);
                 if ($kind === 'employee') {
@@ -4808,6 +4931,9 @@ HTML;
                     $data['wp_user_id'] = $accountId;
                 }
                 $status = ['indent'=>'draft','po'=>'draft','grn'=>'pending','quote'=>'received','invoice'=>'pending_match'][$kind] ?? 'recorded';
+                if ($kind === 'grn') {
+                    $data['grn_number'] = self::nextNumber('grn',self::lastNumbers($rows,0)['grn']);
+                }
                 $document = isset(self::FILES[$kind]) ? self::document($kind === 'invoice') : [];
                 $result = $wpdb->insert(self::table(),$document + ['kind'=>$kind,'status'=>$status,'details'=>wp_json_encode($data)]);
                 if ($result === 1 && $kind === 'grn' && $rows[$data['po']]['status'] === 'draft') {
