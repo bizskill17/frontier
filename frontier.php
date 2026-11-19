@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.80
+ * Version: 1.9.81
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -486,10 +486,12 @@ final class Frontier {
         wp_nonce_field('frontier_save_indent_telegram');
         echo '<input type="hidden" name="action" value="frontier_save_indent_telegram">';
         echo '<input type="hidden" name="surface" value="'.(self::$front ? 'front' : 'admin').'">';
-        echo '<p><label><input type="checkbox" name="telegram_enabled" value="1" '.checked(!empty($settings['enabled']),true,false).'> Send new indents to Telegram</label></p>';
+        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th scope="col">Event</th><th scope="col">Channel</th><th scope="col">Enabled</th><th scope="col">Message Format</th></tr></thead><tbody><tr>';
+        echo '<th scope="row">Create Indent</th><td>Telegram</td>';
+        echo '<td><input type="checkbox" name="telegram_enabled" value="1" aria-label="Send new indents to Telegram" '.checked(!empty($settings['enabled']),true,false).'></td>';
+        echo '<td><textarea name="telegram_message" aria-label="Create Indent message format" rows="4" maxlength="700" style="display:block;width:100%;min-width:220px;box-sizing:border-box;font:inherit">'.esc_textarea($settings['message'] ?? self::INDENT_MESSAGE).'</textarea>';
+        echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{indent_date}</code> <code>{requested_by}</code></p></td></tr></tbody></table></div>';
         echo '<p><label>Bot Token<input type="password" name="telegram_token" autocomplete="new-password"></label> '.(empty($settings['token']) ? 'Not configured' : 'Saved').'</p>';
-        echo '<p><label>Message Format<textarea name="telegram_message" rows="4" maxlength="700">'.esc_textarea($settings['message'] ?? self::INDENT_MESSAGE).'</textarea></label></p>';
-        echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{indent_date}</code> <code>{requested_by}</code></p>';
         self::submitButton('Save Telegram Settings',true);
         echo '</form>';
     }
@@ -509,7 +511,7 @@ final class Frontier {
         $message = is_string($raw) ? sanitize_textarea_field(wp_unslash($raw)) : '';
         update_option('frontier_indent_telegram',['enabled'=>$enabled,'token'=>$token,'message'=>$message ?: self::INDENT_MESSAGE],false);
         self::$front = self::input('surface') === 'front';
-        wp_safe_redirect(add_query_arg('saved',1,self::url('settings')));
+        wp_safe_redirect(add_query_arg(['saved'=>1,'settings_tab'=>'notification'],self::url('settings')));
         exit;
     }
 
@@ -1003,10 +1005,21 @@ final class Frontier {
         }
         self::$screen = $kind;
         if ($kind === 'settings') {
-            self::orgNameSettings();
-            self::indentTelegramSettings();
-            self::logoSettings();
-            self::numberingSettings();
+            $notification = ($_GET['settings_tab'] ?? '') === 'notification';
+            if (current_user_can('manage_options')) {
+                $settingsUrl = self::url('settings');
+                echo '<nav class="nav-tab-wrapper" aria-label="Settings sections">';
+                echo '<a class="nav-tab'.(!$notification ? ' nav-tab-active' : '').'" '.(!$notification ? 'aria-current="page" ' : '').'href="'.esc_url($settingsUrl).'">General</a> ';
+                echo '<a class="nav-tab'.($notification ? ' nav-tab-active' : '').'" '.($notification ? 'aria-current="page" ' : '').'href="'.esc_url(add_query_arg('settings_tab','notification',$settingsUrl)).'">Notification</a>';
+                echo '</nav>';
+            }
+            if ($notification && current_user_can('manage_options')) {
+                self::indentTelegramSettings();
+            } else {
+                self::orgNameSettings();
+                self::logoSettings();
+                self::numberingSettings();
+            }
             echo '</div>';
             return;
         }
