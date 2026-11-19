@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.81
+ * Version: 1.9.82
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -477,6 +477,32 @@ final class Frontier {
 
     private const INDENT_MESSAGE = "A new Indent {indent_number} was created for {site_name}.\nIndent Date: {indent_date}\nRequested By: {requested_by}";
 
+    private const APPROVED_INDENT_MESSAGE = "Indent No: {indent_number}\nSite Name: {site_name}\nUpdated By: {updated_by}\nStatus: {status}\nRemarks: {remarks}";
+
+    private static function sendApprovedIndentTelegram($data,$rows) {
+        $settings = (array)get_option('frontier_indent_telegram',[]);
+        if (empty($settings['approval_enabled'])) {
+            return true;
+        }
+        $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
+        $site = $rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
+        $chat = trim((string)($site['telegram'] ?? ''));
+        if (!preg_match('/^-?[0-9]+$/D',$chat) || empty($settings['token'])) {
+            return false;
+        }
+        $message = strtr($settings['approval_message'] ?? self::APPROVED_INDENT_MESSAGE,[
+            '{indent_number}'=>(string)$data['indent_number'],'{site_name}'=>self::siteNumberWithName($site),
+            '{updated_by}'=>$data['decision_by'],'{status}'=>'Approved','{remarks}'=>$data['reason'],
+        ]);
+        $response = wp_remote_post('https://api.telegram.org/bot'.$settings['token'].'/sendMessage',[
+            'headers'=>['Content-Type'=>'application/json'],
+            'body'=>wp_json_encode(['chat_id'=>$chat,'text'=>$message]),
+            'timeout'=>10,'redirection'=>0,
+        ]);
+        return !is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200
+            && !empty(json_decode(wp_remote_retrieve_body($response),true)['ok']);
+    }
+
     private static function indentTelegramSettings() {
         if (!current_user_can('manage_options')) {
             return;
@@ -490,7 +516,10 @@ final class Frontier {
         echo '<th scope="row">Create Indent</th><td>Telegram</td>';
         echo '<td><input type="checkbox" name="telegram_enabled" value="1" aria-label="Send new indents to Telegram" '.checked(!empty($settings['enabled']),true,false).'></td>';
         echo '<td><textarea name="telegram_message" aria-label="Create Indent message format" rows="4" maxlength="700" style="display:block;width:100%;min-width:220px;box-sizing:border-box;font:inherit">'.esc_textarea($settings['message'] ?? self::INDENT_MESSAGE).'</textarea>';
-        echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{indent_date}</code> <code>{requested_by}</code></p></td></tr></tbody></table></div>';
+        echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{indent_date}</code> <code>{requested_by}</code></p></td></tr>';
+        echo '<tr><th scope="row">Approved Indent</th><td>Telegram</td><td><input type="checkbox" name="approval_enabled" value="1" aria-label="Send approved indents to Telegram" '.checked(!empty($settings['approval_enabled']),true,false).'></td>';
+        echo '<td><textarea name="approval_message" aria-label="Approved Indent message format" rows="5" maxlength="700" style="display:block;width:100%;min-width:220px;box-sizing:border-box;font:inherit">'.esc_textarea($settings['approval_message'] ?? self::APPROVED_INDENT_MESSAGE).'</textarea>';
+        echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{updated_by}</code> <code>{status}</code> <code>{remarks}</code></p></td></tr></tbody></table></div>';
         echo '<p><label>Bot Token<input type="password" name="telegram_token" autocomplete="new-password"></label> '.(empty($settings['token']) ? 'Not configured' : 'Saved').'</p>';
         self::submitButton('Save Telegram Settings',true);
         echo '</form>';
@@ -504,12 +533,16 @@ final class Frontier {
         $existing = (array)get_option('frontier_indent_telegram',[]);
         $token = self::input('telegram_token') ?: ($existing['token'] ?? '');
         $enabled = self::input('telegram_enabled') === '1';
-        if (($enabled || $token !== '') && !preg_match('/^[0-9]+:[A-Za-z0-9_-]+$/D',$token)) {
+        $approvalEnabled = self::input('approval_enabled') === '1';
+        if (($enabled || $approvalEnabled || $token !== '') && !preg_match('/^[0-9]+:[A-Za-z0-9_-]+$/D',$token)) {
             wp_die('Enter a valid Telegram bot token.','Frontier',['response'=>400,'back_link'=>true]);
         }
         $raw = $_POST['telegram_message'] ?? '';
         $message = is_string($raw) ? sanitize_textarea_field(wp_unslash($raw)) : '';
-        update_option('frontier_indent_telegram',['enabled'=>$enabled,'token'=>$token,'message'=>$message ?: self::INDENT_MESSAGE],false);
+        $rawApproval = $_POST['approval_message'] ?? '';
+        $approvalMessage = is_string($rawApproval) ? sanitize_textarea_field(wp_unslash($rawApproval)) : '';
+        update_option('frontier_indent_telegram',['enabled'=>$enabled,'token'=>$token,'message'=>$message ?: self::INDENT_MESSAGE,
+            'approval_enabled'=>$approvalEnabled,'approval_message'=>$approvalMessage ?: self::APPROVED_INDENT_MESSAGE],false);
         self::$front = self::input('surface') === 'front';
         wp_safe_redirect(add_query_arg(['saved'=>1,'settings_tab'=>'notification'],self::url('settings')));
         exit;
@@ -4923,6 +4956,7 @@ HTML;
         self::requireRule(strlen($remarks) <= 2000,'Enter remarks of up to 2,000 bytes.');
         $actor = wp_get_current_user()->display_name;
         $time = current_time('mysql');
+        $approved = null;
         foreach ($rows as $row) {
             if ($row['kind'] !== 'indent' || $row['status'] !== 'pending' || self::indentGroup($row) !== $group) {
                 continue;
@@ -4935,7 +4969,11 @@ HTML;
             if ($wpdb->update(self::table(),$update,['id'=>$row['id']]) !== 1) {
                 throw new RuntimeException('Indent update could not be saved.');
             }
+            if ($status === 'approved') {
+                $approved = $data + ['indent_number'=>$anchor['id']];
+            }
         }
+        return $approved;
     }
 
     public static function save() {
@@ -5008,7 +5046,7 @@ HTML;
                 self::saveSupplierSelection($rows);
                 $result = true;
             } elseif ($kind === 'indent' && $action === 'update_indent_group') {
-                self::updateIndentGroup($rows,absint(self::input('id')));
+                $approvedIndentTelegram = self::updateIndentGroup($rows,absint(self::input('id')));
                 $result = true;
             } elseif ($kind === 'indent' && $action === 'create_indent') {
                 $indentTelegram = self::saveIndent($rows);
@@ -5125,6 +5163,16 @@ HTML;
         if ($kind === 'indent' && isset($row) && ($screen === 'indent_items' || $action === 'edit')) {
             $destination = 'indent_items';
             $query['indent_group'] = self::indentGroup($row);
+        }
+        if (!empty($approvedIndentTelegram)) {
+            try {
+                $sent = self::sendApprovedIndentTelegram($approvedIndentTelegram,$rows);
+            } catch (Throwable $exception) {
+                $sent = false;
+            }
+            if (!$sent) {
+                $query['indent_telegram_failed'] = 1;
+            }
         }
         if (!empty($indentTelegram)) {
             try {
