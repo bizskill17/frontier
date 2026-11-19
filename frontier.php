@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.59
+ * Version: 1.9.60
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3763,39 +3763,84 @@ HTML;
         if (!$path || !is_readable($path)) {
             return [];
         }
+        $bytes = file_get_contents($path);
+        if (!$bytes) {
+            return [];
+        }
+        $logo = self::pdfJpegLogo($bytes);
+        if ($logo && max($logo['width'],$logo['height']) <= 1200) {
+            return $logo;
+        }
+
+        if (function_exists('imagecreatefromstring') && function_exists('imagejpeg')) {
+            $source = @imagecreatefromstring($bytes);
+            if ($source) {
+                $width = imagesx($source);
+                $height = imagesy($source);
+                $scale = min(1,600/max($width,$height));
+                $targetWidth = max(1,(int)round($width*$scale));
+                $targetHeight = max(1,(int)round($height*$scale));
+                $image = imagecreatetruecolor($targetWidth,$targetHeight);
+                if ($image) {
+                    imagefill($image,0,0,imagecolorallocate($image,255,255,255));
+                    imagecopyresampled($image,$source,0,0,0,0,$targetWidth,$targetHeight,$width,$height);
+                    ob_start();
+                    try {
+                        imagejpeg($image,null,90);
+                        $converted = ob_get_contents();
+                    } finally {
+                        ob_end_clean();
+                        imagedestroy($image);
+                    }
+                    $embedded = self::pdfJpegLogo($converted);
+                    if ($embedded) {
+                        imagedestroy($source);
+                        return $embedded;
+                    }
+                }
+                imagedestroy($source);
+            }
+        }
+
         require_once ABSPATH.'wp-admin/includes/file.php';
         $editor = wp_get_image_editor($path);
         if (is_wp_error($editor)) {
-            return [];
+            return $logo;
         }
         $size = $editor->get_size();
-        if (max($size['width'],$size['height']) > 600 && is_wp_error($editor->resize(600,600,false))) {
-            return [];
+        if (max($size['width'],$size['height']) > 600) {
+            $editor->resize(600,600,false);
         }
-        $temporary = wp_tempnam('frontier-po-logo.jpg');
+        $temporary = wp_tempnam('frontier-po-logo');
         if (!$temporary) {
-            return [];
+            return $logo;
         }
+        $destination = $temporary.'.jpg';
         $output = '';
         try {
-            $saved = $editor->save($temporary,'image/jpeg');
+            $saved = $editor->save($destination,'image/jpeg');
             if (is_wp_error($saved)) {
-                return [];
+                return $logo;
             }
             $output = $saved['path'];
-            $image = getimagesize($output);
-            $bytes = file_get_contents($output);
-            $channels = (int)($image['channels'] ?? 3);
-            if (!$image || $image[2] !== IMAGETYPE_JPEG || !$bytes || !in_array($channels,[1,3],true)) {
-                return [];
-            }
-            return ['width'=>$image[0],'height'=>$image[1],'channels'=>$channels,'bytes'=>$bytes];
+            return self::pdfJpegLogo(file_get_contents($output)) ?: $logo;
         } finally {
             wp_delete_file($temporary);
-            if ($output && $output !== $temporary) {
-                wp_delete_file($output);
+            foreach (array_unique([$destination,$output]) as $file) {
+                if ($file && is_file($file)) {
+                    wp_delete_file($file);
+                }
             }
         }
+    }
+
+    private static function pdfJpegLogo($bytes) {
+        $image = $bytes ? @getimagesizefromstring($bytes) : false;
+        $channels = (int)($image['channels'] ?? 3);
+        if (!$image || $image[2] !== IMAGETYPE_JPEG || !in_array($channels,[1,3],true)) {
+            return [];
+        }
+        return ['width'=>$image[0],'height'=>$image[1],'channels'=>$channels,'bytes'=>$bytes];
     }
 
     private static function purchaseOrderGroup($rows,$row) {
