@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.88
+ * Version: 1.9.89
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -394,7 +394,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.88');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.89');
         self::enqueueDropdownSearch();
     }
 
@@ -412,7 +412,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.88');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.89');
         }
     }
 
@@ -2303,7 +2303,7 @@ HTML;
         ][self::$screen] ?? null;
         if ($next) {
             $url = add_query_arg(['add'=>1,'source'=>$row['id']],self::url($next[0]));
-            echo '<a class="button frontier-add" href="'.esc_url($url).'">'.esc_html($next[1]).'</a>';
+            echo '<a'.self::actionIconAttributes($next[1]).' href="'.esc_url($url).'">'.self::actionIcon($next[1] === 'Update' ? '✎' : '+').'</a>';
             return;
         }
         if (in_array($mode,['items','selected'],true)) {
@@ -2315,7 +2315,7 @@ HTML;
         if ($kind === 'site' && self::can('sites') && !in_array($status,['completed','cancelled'],true)) {
             foreach (['complete_site'=>'Complete Site','cancel_site'=>'Cancel Site'] as $action=>$label) {
                 $url = add_query_arg(['site_action'=>$action,'site_id'=>$row['id']],self::url('site'));
-                echo ' <a class="button" href="'.esc_url($url).'">'.esc_html($label).'</a>';
+                echo '<a'.self::actionIconAttributes($label).' href="'.esc_url($url).'">'.self::actionIcon($action === 'complete_site' ? '✓' : '×').'</a>';
             }
         }
         if ($kind === 'indent') {
@@ -2327,13 +2327,13 @@ HTML;
             }
             if ($status === 'pending' && self::can('approve')) {
                 self::button($row,'approve','Approve');
-                echo '<details class="frontier-return-action"><summary class="button">Return</summary>';
+                echo '<details class="frontier-return-action"><summary'.self::actionIconAttributes('Return').'>'.self::actionIcon('↩').'</summary>';
                 self::button($row,'return','Confirm Return',true);
                 echo '</details>';
             }
         }
         if ($kind === 'quote' && $mode === 'choose' && self::can('quote') && $status !== 'selected') {
-            echo '<details><summary>Choose supplier</summary>';
+            echo '<details><summary'.self::actionIconAttributes('Choose supplier').'>'.self::actionIcon('☷').'</summary>';
             self::button($row,'select','Save supplier',true);
             echo '</details>';
         }
@@ -2352,12 +2352,12 @@ HTML;
                     }
                 }
                 if (!$linked) {
-                    echo '<details class="frontier-po-cancel"><summary class="button">Cancel PO</summary>';
+                    echo '<details class="frontier-po-cancel"><summary'.self::actionIconAttributes('Cancel PO').'>'.self::actionIcon('×').'</summary>';
                     self::button($row,'cancel_po','Confirm cancellation',true);
                     echo '</details>';
                 } elseif ($openLine !== null && self::canView('cancel') && self::can('cancel')) {
                     $url = add_query_arg(['add'=>1,'source'=>$openLine],self::url('cancel'));
-                    echo '<a class="button" href="'.esc_url($url).'">Cancel PO Items</a>';
+                    echo '<a'.self::actionIconAttributes('Cancel PO Items').' href="'.esc_url($url).'">'.self::actionIcon('⊘').'</a>';
                 } elseif (self::$screen === 'po') {
                     echo '<small>No cancellable balance</small>';
                 }
@@ -2366,12 +2366,21 @@ HTML;
             }
         }
         if ($kind === 'grn' && $mode === 'slip' && self::can('grn')) {
-            echo '<details><summary class="button frontier-upload">Upload</summary>';
+            echo '<details><summary'.self::actionIconAttributes('Upload GRN slip').'>'.self::actionIcon('↑').'</summary>';
             self::formStart($kind,'attach',$row['id']);
             self::uploadField($kind,true);
             self::submitButton('Upload slip');
             echo '</form></details>';
         }
+    }
+
+    private static function actionIconAttributes($label) {
+        $label = esc_attr($label);
+        return ' class="button frontier-action-icon" aria-label="'.$label.'" title="'.$label.'"';
+    }
+
+    private static function actionIcon($glyph) {
+        return '<span aria-hidden="true">'.esc_html($glyph).'</span>';
     }
 
     private static function editAction($kind,$id,$label) {
@@ -2391,7 +2400,12 @@ HTML;
         if ($reason) {
             echo '<label>'.self::requiredLabel('Reason').' <input name="reason" required maxlength="200"></label> ';
         }
-        self::submitButton($label);
+        $glyph = ['submit'=>'↑','approve'=>'✓','issue'=>'➜'][$operation] ?? null;
+        if ($glyph !== null) {
+            echo '<button type="submit"'.self::actionIconAttributes($label).'>'.self::actionIcon($glyph).'</button>';
+        } else {
+            self::submitButton($label);
+        }
         echo '</form>';
     }
 
@@ -3838,7 +3852,7 @@ HTML;
                     $url = add_query_arg('indent_group',$entry['group'],self::url('indent_items'));
                     echo '<a href="'.esc_url($url).'">'.esc_html((string)$entry['number']).'</a>';
                 } elseif ($field === 'actions') {
-                    echo '<button type="button" class="button frontier-add" data-indent-toggle="update" aria-haspopup="dialog" aria-expanded="false" aria-controls="frontier-indent-update-'.esc_attr($id).'">Update</button>';
+                    echo '<button type="button" '.self::actionIconAttributes('Update indent').' data-indent-toggle="update" aria-haspopup="dialog" aria-expanded="false" aria-controls="frontier-indent-update-'.esc_attr($id).'">'.self::actionIcon('✎').'</button>';
                     self::indentUpdateDialog($entry);
                 } elseif ($field === 'pdf') {
                     $id = $entry['id'];
