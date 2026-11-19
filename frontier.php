@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.89
+ * Version: 1.9.90
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2050,23 +2050,19 @@ HTML;
         $stageClasses = [];
         if ($indentItems) {
             $stages = [
-                'indent'=>['Indent Details',[]],
-                'approval'=>['Approval',['approval']],
-                'quotation'=>['Supplier Quotation',['last_supplier','last_rate','supplier_1','rate_1','supplier_2','rate_2','supplier_3','rate_3']],
-                'selection'=>['Supplier Finalization',['final_supplier','final_rate','quote_at','compared_by']],
-                'order'=>['Purchase Order',['ordered','pending_order']],
-                'receipt'=>['Goods Receipt',['received','pending_receive']],
-                'cancel'=>['Cancellation',['cancel_date','cancelled','cancel_reason','cancel_by']],
+                'approval'=>['approval'],
+                'quotation'=>['last_supplier','last_rate','supplier_1','rate_1','supplier_2','rate_2','supplier_3','rate_3'],
+                'selection'=>['final_supplier','final_rate','quote_at','compared_by'],
+                'order'=>['ordered','pending_order'],
+                'receipt'=>['received','pending_receive'],
+                'cancel'=>['cancel_date','cancelled','cancel_reason','cancel_by'],
             ];
             $columnStages = [];
-            echo '<ul class="frontier-stage-key" aria-label="Workflow stages">';
-            foreach ($stages as $stage=>[$label,$columns]) {
-                echo '<li class="frontier-stage-'.esc_attr($stage).'">'.esc_html($label).'</li>';
+            foreach ($stages as $stage=>$columns) {
                 foreach ($columns as $column) {
                     $columnStages[$column] = $stage;
                 }
             }
-            echo '</ul>';
             $previousStage = null;
             foreach ($fields as $field=>$label) {
                 $stage = $columnStages[$field] ?? 'indent';
