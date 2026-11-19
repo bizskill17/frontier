@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.0
+ * Version: 1.8.1
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -15,6 +15,7 @@ final class Frontier {
         'category'=>'Item Categories',
         'item_type'=>'Item Type',
         'supplier'=>'Supplier Master',
+        'units'=>'Unit',
     ];
 
     private const GROUPS = [
@@ -40,7 +41,13 @@ final class Frontier {
 
     private static $screen = '';
 
+    private const DEFAULT_UNITS = [
+        'Kg','Pcs','Bags','Box','Cartons','Packets','Bundles','Cum',
+        'Cft','Grm','Roll','Mtrs','PKT','Set','Ltrs','Coil',
+    ];
+
     private const FIELDS = [
+        'units'=>['name'=>'Unit'],
         'employee'=>['name'=>'Name', 'email'=>'Email Id', 'mobile'=>'Mobile', 'department'=>'Department', 'login'=>'User ID', 'password'=>'Password'],
         'item'=>['name'=>'Name', 'category'=>'Item Category', 'item_type'=>'Item Type'],
         'category'=>['name'=>'Category name'],
@@ -57,7 +64,7 @@ final class Frontier {
         'invoice'=>['name'=>'Supplier', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.7.5';
+    private const PAGE_VERSION = '1.8.1';
     private const PAGE_SLUGS = [
         'boq_form'=>'create-boq', 'boq_items'=>'boq-item-master',
         'indent_master'=>'indent-master', 'indent_items'=>'indents-item-master',
@@ -65,7 +72,7 @@ final class Frontier {
         'po_form'=>'create-purchase-order', 'po_items'=>'purchase-order-items',
         'grn_form'=>'goods-receipt-form', 'grn_items'=>'goods-receipt-items', 'grn_slip'=>'upload-grn-slip',
         'employee'=>'employee-master', 'item'=>'item-master',
-        'category'=>'item-categories', 'item_type'=>'item-type', 'supplier'=>'supplier-master',
+        'category'=>'item-categories', 'item_type'=>'item-type', 'supplier'=>'supplier-master', 'units'=>'units',
         'home'=>'frontier', 'site'=>'site-master', 'boq'=>'boq', 'indent'=>'indents',
         'quote'=>'quotation-comparison', 'po'=>'purchase-orders', 'follow'=>'delivery-follow-up',
         'cancel'=>'cancel-po-items', 'grn'=>'goods-receipt-notes', 'stock'=>'received-stock',
@@ -198,7 +205,11 @@ final class Frontier {
     }
 
     public static function installPages() {
-        if (!current_user_can('manage_options') || get_option('frontier_page_version') === self::PAGE_VERSION) {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        self::installUnits();
+        if (get_option('frontier_page_version') === self::PAGE_VERSION) {
             return;
         }
         $pages = (array)get_option('frontier_pages', []);
@@ -235,6 +246,42 @@ final class Frontier {
         update_option('frontier_pages',$pages,false);
         if ($ready) {
             update_option('frontier_page_version',self::PAGE_VERSION,false);
+        }
+    }
+
+    private static function installUnits() {
+        global $wpdb;
+        if (get_option('frontier_units_seeded')) {
+            return;
+        }
+        $table = self::table();
+        $lock = 'frontier_'.md5(DB_NAME.'|'.$table);
+        if ((int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)',$lock)) !== 1) {
+            return;
+        }
+        try {
+            if (get_option('frontier_units_seeded')) {
+                return;
+            }
+            $existing = $wpdb->get_col($wpdb->prepare("SELECT details FROM $table WHERE kind = %s",'units'));
+            if ($wpdb->last_error) {
+                return;
+            }
+            $names = [];
+            foreach ($existing as $details) {
+                $data = json_decode($details,true);
+                $names[strtolower($data['name'] ?? '')] = true;
+            }
+            foreach (array_reverse(self::DEFAULT_UNITS) as $unit) {
+                if (!isset($names[strtolower($unit)]) && $wpdb->insert($table,[
+                    'kind'=>'units','status'=>'recorded','details'=>wp_json_encode(['name'=>$unit]),
+                ]) !== 1) {
+                    return;
+                }
+            }
+            update_option('frontier_units_seeded',1,false);
+        } finally {
+            $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)',$lock));
         }
     }
 
