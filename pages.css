@@ -60,3 +60,21 @@ body.frontier-workspace {
     .frontier-nav a { white-space: nowrap; }
     .frontier-nav h2 { margin-top: 0; }
 }
+
+/* Section backgrounds remain distinct in both sidebar layouts. */
+.frontier-nav .frontier-nav-group { margin-block: 8px; padding: 4px 5px 6px; border-radius: 8px; }
+.frontier-nav .frontier-nav-group h2 { margin: 4px 8px; color: #edf4ff; }
+.frontier-nav-master { background: #273c59; }
+.frontier-nav-boq { background: #214b50; }
+.frontier-nav-indent { background: #443752; }
+.frontier-nav-supplier-quotation { background: #4c3e37; }
+.frontier-nav-choose-supplier { background: #394654; }
+.frontier-nav-purchase-order { background: #25456a; }
+.frontier-nav-goods-receipt { background: #28473e; }
+.frontier-nav-invoice { background: #543849; }
+.frontier-nav .frontier-nav-group a { padding-inline: 8px; }
+.frontier-nav .frontier-nav-group a:hover { background: rgba(255,255,255,.12); }
+.frontier-nav .frontier-nav-group a[aria-current="page"] { background: #e7f1ff; color: #173452; }
+@media (max-width: 720px) {
+    .frontier-nav .frontier-nav-group { margin-block: 0; }
+}

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.3.1
+ * Version: 1.4.0
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -16,15 +16,27 @@ final class Frontier {
     ];
 
     private const GROUPS = [
-        'Master' => self::MASTERS,
-        'Sites' => ['site'=>'Site Master'],
-        'BOQ' => ['boq'=>'BOQ'],
-        'Indent' => ['indent'=>'Indents'],
-        'Supplier Quotation' => ['quote'=>'Quotation Comparison'],
-        'Purchase Order' => ['po'=>'Purchase Orders', 'follow'=>'Delivery Follow-up', 'cancel'=>'Cancel PO Items'],
-        'Goods Receipt' => ['grn'=>'Goods Receipt Notes', 'stock'=>'Received Stock'],
-        'Purchase' => ['invoice'=>'Supplier Invoices', 'match'=>'Invoice Matching'],
+        'Master' => self::MASTERS + ['site'=>'Site Master'],
+        'BOQ' => ['boq_form'=>'Create BOQ', 'boq'=>'BOQ', 'boq_items'=>'BOQ Item Master'],
+        'Indent' => ['indent'=>'Indents Form', 'indent_master'=>'Indent Master', 'indent_items'=>'Indents Item Master'],
+        'Supplier Quotation' => ['quote_form'=>'Supplier Quotation Form', 'quote'=>'Supplier Quotation Master'],
+        'Choose Supplier' => ['choose_form'=>'Choose Supplier Form', 'choose_master'=>'Choose Supplier Master'],
+        'Purchase Order' => ['po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items', 'follow'=>'Follow Up PO Master'],
+        'Goods Receipt' => ['grn_form'=>'Goods Receipt Form', 'grn'=>'Goods Receipt Notes', 'grn_items'=>'Goods Receipt Items', 'grn_slip'=>'Upload GRN Slip'],
+        'Invoice' => ['invoice'=>'Upload Invoice', 'match'=>'Link PO Items With Invoice'],
     ];
+
+    // Each screen uses the existing procurement record type and workflow.
+    private const SCREENS = [
+        'boq_form'=>['boq','form'], 'boq'=>['boq','register'], 'boq_items'=>['boq','items'],
+        'indent'=>['indent','form'], 'indent_master'=>['indent','register'], 'indent_items'=>['indent','items'],
+        'quote_form'=>['quote','form'], 'quote'=>['quote','register'],
+        'choose_form'=>['quote','choose'], 'choose_master'=>['quote','selected'],
+        'po_form'=>['po','form'], 'po'=>['po','register'], 'po_items'=>['po','items'],
+        'grn_form'=>['grn','form'], 'grn'=>['grn','register'], 'grn_items'=>['grn','items'], 'grn_slip'=>['grn','slip'],
+    ];
+
+    private static $screen = '';
 
     private const FIELDS = [
         'employee'=>['ref'=>'Employee code', 'name'=>'Employee name'],
@@ -42,8 +54,13 @@ final class Frontier {
         'invoice'=>['name'=>'Supplier', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.2.0';
+    private const PAGE_VERSION = '1.4.0';
     private const PAGE_SLUGS = [
+        'boq_form'=>'create-boq', 'boq_items'=>'boq-item-master',
+        'indent_master'=>'indent-master', 'indent_items'=>'indents-item-master',
+        'quote_form'=>'supplier-quotation-form', 'choose_form'=>'choose-supplier-form', 'choose_master'=>'choose-supplier-master',
+        'po_form'=>'create-purchase-order', 'po_items'=>'purchase-order-items',
+        'grn_form'=>'goods-receipt-form', 'grn_items'=>'goods-receipt-items', 'grn_slip'=>'upload-grn-slip',
         'employee'=>'employee-master', 'item'=>'item-master',
         'category'=>'item-categories', 'item_type'=>'item-type',
         'home'=>'frontier', 'site'=>'site-master', 'boq'=>'boq', 'indent'=>'indents',
@@ -158,7 +175,7 @@ final class Frontier {
     }
 
     private static function views() {
-        return ['home'=>'Frontier'] + array_merge(...array_values(self::GROUPS));
+        return ['home'=>'Frontier'] + array_merge(...array_values(self::GROUPS)) + ['stock'=>'Received Stock'];
     }
 
     public static function installPages() {
@@ -223,7 +240,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.3.0');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],self::PAGE_VERSION);
     }
 
     public static function workspaceTemplate($template) {
@@ -249,7 +266,7 @@ final class Frontier {
                     <?php foreach (self::GROUPS as $group=>$links) : ?>
                         <?php $visible = array_filter(array_keys($links), [self::class,'canView']); ?>
                         <?php if ($visible) : ?>
-                            <div class="frontier-nav-group">
+                            <div class="frontier-nav-group frontier-nav-<?php echo esc_attr(sanitize_title($group)); ?>">
                                 <h2><?php echo esc_html($group); ?></h2>
                                 <?php foreach ($visible as $key) {
                                     self::workspaceLink($key,$links[$key],$kind);
@@ -291,6 +308,12 @@ final class Frontier {
     }
 
     private static function canView($kind) {
+        if ($kind === 'choose_form' && !self::can('quote')) {
+            return false;
+        }
+        if ($kind === 'grn_slip' && !self::can('grn')) {
+            return false;
+        }
         if (isset(self::MASTERS[$kind])) {
             return current_user_can('manage_options');
         }
@@ -432,6 +455,8 @@ final class Frontier {
         if (isset($_GET['saved'])) {
             echo '<div class="notice notice-success" role="status"><p>Saved.</p></div>';
         }
+        self::$screen = $kind;
+        [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
         $edit = $rows[absint($_GET['edit'] ?? 0)] ?? null;
         $editing = $edit && $edit['kind'] === $kind && (isset(self::MASTERS[$kind])
@@ -441,8 +466,8 @@ final class Frontier {
             echo '</div>';
             return;
         }
-        if ($kind === 'quote') {
-            $url = self::url('quote');
+        if (in_array($mode,['choose','selected'],true)) {
+            $url = self::url(self::$screen);
             $query = [];
             parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$query);
             echo '<form method="get" action="'.esc_url(remove_query_arg(array_keys($query),$url)).'">';
@@ -450,9 +475,9 @@ final class Frontier {
                 echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
             }
             self::field($rows,'quote','indent','Compare quotations for',absint($_GET['indent'] ?? 0));
-            echo '<button class="button">Filter</button> <a href="'.esc_url(self::url('quote')).'">Show all</a></form>';
+            echo '<button class="button">Filter</button> <a href="'.esc_url($url).'">Show all</a></form>';
         }
-        if (self::can($kind === 'site' ? 'sites' : $kind)) {
+        if (in_array($mode,['form','combined'],true) && self::can($kind === 'site' ? 'sites' : $kind)) {
             self::formStart($kind,$editing ? 'edit' : 'create',$editing ? $edit['id'] : 0);
             if (self::$front) {
                 echo '<h2>'.esc_html($editing ? 'Edit record' : ($kind === 'site' ? 'Add site' : 'Add record')).'</h2><div class="frontier-fields">';
@@ -469,6 +494,16 @@ final class Frontier {
             self::submitButton($editing ? 'Save changes' : ($kind === 'indent' ? 'Save draft' : 'Save'),true);
             echo '</form>';
         }
+        if ($mode === 'form') {
+            $register = $kind === 'indent' ? 'indent_master' : $kind;
+            echo '<p><a href="'.esc_url(self::url($register)).'">'.esc_html($tabs[$register]).'</a></p></div>';
+            return;
+        }
+        if ($mode === 'items') {
+            self::renderItems($rows,$kind);
+            echo '</div>';
+            return;
+        }
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>Record</th><th>Status</th><th>Details</th><th>Actions</th></tr></thead><tbody>';
         $count = 0;
         foreach ($rows as $row) {
@@ -482,6 +517,10 @@ final class Frontier {
             if ($kind === 'quote' && $indentFilter && (int)$row['data']['indent'] !== $indentFilter) {
                 continue;
             }
+            if (($mode === 'choose' && $row['status'] === 'selected')
+                || ($mode === 'selected' && $row['status'] !== 'selected')) {
+                continue;
+            }
             $count++;
             self::displayRow($row,$rows);
         }
@@ -489,6 +528,42 @@ final class Frontier {
             echo '<tr><td colspan="4">No records yet.</td></tr>';
         }
         echo '</tbody></table></div></div>';
+    }
+
+    private static function renderItems($rows,$kind) {
+        $columns = [
+            'boq'=>['site','section','name','unit','qty'],
+            'indent'=>['boq','qty','due'],
+            'po'=>['ref','quote','qty','due'],
+            'grn'=>['ref','po','qty','reject','due'],
+        ][$kind];
+        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $field) {
+            echo '<th scope="col">'.esc_html(self::FIELDS[$kind][$field]).'</th>';
+        }
+        echo '<th scope="col">Status</th></tr></thead><tbody>';
+        $count = 0;
+        foreach ($rows as $row) {
+            if ($row['kind'] !== $kind) {
+                continue;
+            }
+            $count++;
+            echo '<tr>';
+            foreach ($columns as $field) {
+                $value = $row['data'][$field] ?? '';
+                if (isset(self::FIELDS[$field],$rows[$value])) {
+                    $value = self::label($rows[$value],$rows);
+                } elseif ($field === 'due' && $value !== '') {
+                    $value = implode('/',array_reverse(explode('-',$value)));
+                }
+                echo '<td>'.esc_html((string)$value).'</td>';
+            }
+            echo '<td>'.esc_html(ucwords(str_replace('_',' ',$row['status']))).'</td></tr>';
+        }
+        if (!$count) {
+            echo '<tr><td colspan="'.(count($columns)+1).'">No records yet.</td></tr>';
+        }
+        echo '</tbody></table></div>';
     }
 
     private static function stock($rows) {
@@ -532,7 +607,7 @@ final class Frontier {
         $class = in_array($action,['create','edit'],true) ? ' class="frontier-entry"' : '';
         echo '<form'.$class.' method="post" enctype="multipart/form-data" action="'.esc_url(admin_url('admin-post.php')).'">';
         wp_nonce_field('frontier_save');
-        foreach (['action'=>'frontier_save','kind'=>$kind,'operation'=>$action,'id'=>$id,'surface'=>self::$front ? 'front' : 'admin'] as $key=>$value) {
+        foreach (['action'=>'frontier_save','kind'=>$kind,'operation'=>$action,'id'=>$id,'screen'=>self::$screen,'surface'=>self::$front ? 'front' : 'admin'] as $key=>$value) {
             echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
         }
     }
@@ -564,6 +639,10 @@ final class Frontier {
     private static function actions($row,$rows) {
         $kind = $row['kind'];
         $status = $row['status'];
+        $mode = self::SCREENS[self::$screen][1] ?? 'combined';
+        if (in_array($mode,['items','selected'],true)) {
+            return;
+        }
         if (isset(self::MASTERS[$kind])) {
             echo '<a class="button" href="'.esc_url(add_query_arg('edit',$row['id'],self::url($kind))).'">Edit</a>';
         }
@@ -579,7 +658,7 @@ final class Frontier {
                 self::button($row,'return','Return',true);
             }
         }
-        if ($kind === 'quote' && self::can('quote') && $status !== 'selected') {
+        if ($kind === 'quote' && $mode === 'choose' && self::can('quote') && $status !== 'selected') {
             self::button($row,'select','Choose supplier',true);
         }
         if ($kind === 'po' && self::can('po')) {
@@ -590,13 +669,13 @@ final class Frontier {
                 self::button($row,'cancel_po','Cancel PO',true);
             }
         }
-        if ($kind === 'grn' && self::can('grn')) {
+        if ($kind === 'grn' && $mode === 'slip' && self::can('grn')) {
             self::formStart($kind,'attach',$row['id']);
             self::uploadField($kind,true);
             self::submitButton('Upload slip');
             echo '</form>';
         }
-        if ($kind === 'grn' && self::can('stock') && $status === 'pending') {
+        if ($kind === 'grn' && $mode === 'register' && self::can('stock') && $status === 'pending') {
             self::button($row,'approve_grn','Approve and post stock');
         }
     }
@@ -938,7 +1017,10 @@ final class Frontier {
             wp_die(esc_html($error),'Frontier',['response'=>400,'back_link'=>true]);
         }
         self::$front = self::input('surface') === 'front';
-        wp_safe_redirect(add_query_arg('saved',1,self::url($kind)));
+        $screen = sanitize_key(self::input('screen'));
+        $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
+        $destination = $sameKind && self::canView($screen) ? $screen : $kind;
+        wp_safe_redirect(add_query_arg('saved',1,self::url($destination)));
         exit;
     }
 }
