@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.4
+ * Version: 1.7.5
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -56,7 +56,7 @@ final class Frontier {
         'invoice'=>['name'=>'Supplier', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.6.9';
+    private const PAGE_VERSION = '1.7.5';
     private const PAGE_SLUGS = [
         'boq_form'=>'create-boq', 'boq_items'=>'boq-item-master',
         'indent_master'=>'indent-master', 'indent_items'=>'indents-item-master',
@@ -601,7 +601,14 @@ final class Frontier {
                     echo '<a href="'.esc_url(wp_nonce_url($url,'frontier_file_'.$row['id'])).'">'.esc_html($row['filename']).'</a>';
                 } else {
                     $value = esc_html((string)($values[$field] ?? ''));
-                    echo $kind === 'supplier' && isset(self::SUPPLIER_TEXT_LIMITS[$field]) ? nl2br($value,false) : $value;
+                    if ($kind === 'supplier' && $field === 'term' && $value !== '') {
+                        echo '<details class="frontier-term"><summary aria-label="Toggle supplier terms">';
+                        echo '<span class="frontier-term-preview">'.$value.'</span><span class="frontier-term-label">Terms</span>';
+                        echo '<span class="frontier-term-arrow" aria-hidden="true">▾</span></summary>';
+                        echo '<div class="frontier-term-full">'.nl2br($value,false).'</div></details>';
+                    } else {
+                        echo $kind === 'supplier' && $field === 'address' ? nl2br($value,false) : $value;
+                    }
                 }
                 echo '</td>';
             }

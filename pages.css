@@ -70,3 +70,13 @@ body.frontier-workspace {
 
 .frontier-pages .frontier-table th, .frontier-pages .frontier-table td { border: 1px solid #cbd6e4; }
 .frontier-main .frontier-table tbody tr:last-child td { border-bottom: 1px solid #cbd6e4; }
+
+.frontier-term { min-width: 220px; width: 280px; }
+.frontier-term summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.frontier-term summary::-webkit-details-marker { display: none; }
+.frontier-term-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.frontier-term-arrow { margin-left: auto; flex: 0 0 20px; text-align: center; line-height: 18px; border: 1px solid #cbd6e4; border-radius: 5px; color: #274763; background: #fff; }
+.frontier-term-label, .frontier-term[open] .frontier-term-preview { display: none; }
+.frontier-term[open] .frontier-term-label { display: inline; }
+.frontier-term[open] .frontier-term-arrow { transform: rotate(180deg); }
+.frontier-term-full { margin-top: 6px; overflow-wrap: anywhere; }
