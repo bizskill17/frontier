@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.7
+ * Version: 1.6.8
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -516,18 +516,8 @@ final class Frontier {
                 return;
             }
         }
-        if (isset(self::IMPORT_TEMPLATES[$kind])) {
-            self::renderMasterTable($rows,$kind);
-            echo '</div>';
-            return;
-        }
-        if ($mode === 'items') {
-            self::renderItems($rows,$kind);
-            echo '</div>';
-            return;
-        }
-        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>Record</th><th>Status</th><th>Details</th><th>Actions</th></tr></thead><tbody>';
-        $count = 0;
+        $listing = [];
+        $indentFilter = absint($_GET['indent'] ?? 0);
         foreach ($rows as $row) {
             if ($row['kind'] !== $kind && !($kind === 'follow' && $row['kind'] === 'po' && $row['status'] === 'issued' && self::balance($rows,$row) > 0)) {
                 continue;
@@ -535,7 +525,6 @@ final class Frontier {
             if ($row['kind'] === 'invoice' && !self::can('invoice') && !self::can('match')) {
                 continue;
             }
-            $indentFilter = absint($_GET['indent'] ?? 0);
             if ($kind === 'quote' && $indentFilter && (int)$row['data']['indent'] !== $indentFilter) {
                 continue;
             }
@@ -543,89 +532,93 @@ final class Frontier {
                 || ($mode === 'selected' && $row['status'] !== 'selected')) {
                 continue;
             }
-            $count++;
-            self::displayRow($row,$rows);
+            $listing[] = $row;
         }
-        if (!$count) {
-            echo '<tr><td colspan="4">No records yet.</td></tr>';
-        }
-        echo '</tbody></table></div></div>';
+        self::renderRecords($listing,$rows,$kind,$mode);
+        echo '</div>';
     }
 
-    private static function renderMasterTable($rows,$kind) {
+    private static function pagedRows($rows) {
+        $total = count($rows);
+        $pages = max(1,(int)ceil($total / 25));
+        $page = min($pages,max(1,absint($_GET['frontier_page'] ?? 1)));
+        return [array_slice($rows,($page-1)*25,25,true),$page,$pages,$total];
+    }
+
+    private static function pagination($page,$pages,$total) {
+        if ($pages === 1) {
+            return;
+        }
+        $url = self::url(self::$screen);
+        if ($indent = absint($_GET['indent'] ?? 0)) {
+            $url = add_query_arg('indent',$indent,$url);
+        }
+        echo '<nav aria-label="Table pagination"><p>';
+        if ($page > 1) {
+            echo '<a class="button" href="'.esc_url(add_query_arg('frontier_page',$page-1,$url)).'">Previous</a> ';
+        }
+        echo esc_html(sprintf('Page %d of %d · %d–%d of %d records',$page,$pages,($page-1)*25+1,min($page*25,$total),$total));
+        if ($page < $pages) {
+            echo ' <a class="button" href="'.esc_url(add_query_arg('frontier_page',$page+1,$url)).'">Next</a>';
+        }
+        echo '</p></nav>';
+    }
+
+    private static function renderRecords($listing,$rows,$kind,$mode) {
         $fields = self::FIELDS[$kind];
         unset($fields['password']);
-        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="'.esc_attr(self::MASTERS[$kind]).'">';
-        echo '<table class="widefat striped"><thead><tr>';
+        $fields += [
+            'site'=>['combined_name'=>'Site Number with Name'],
+            'supplier'=>['combined_name'=>'Suppliers Name with Code'],
+            'indent'=>['reason'=>'Reason'],
+            'quote'=>['reason'=>'Selection Reason','attachment'=>'Quotation File'],
+            'po'=>['reason'=>'Reason','received'=>'Received','waiting'=>'Pending GRN Approval','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
+            'follow'=>['ordered'=>'Order Quantity','expected'=>'Expected Delivery','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
+            'grn'=>['attachment'=>'GRN Slip'],
+            'invoice'=>['matched'=>'Matched Quantity','attachment'=>'Invoice Copy'],
+        ][$kind] ?? [];
+        $showActions = !in_array($mode,['items','selected'],true);
+        [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
+        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
         foreach ($fields as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';
         }
-        echo '<th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>';
-        $count = 0;
-        foreach ($rows as $row) {
-            if ($row['kind'] !== $kind) {
-                continue;
-            }
-            $count++;
+        echo '<th scope="col">Status</th>';
+        if ($showActions) {
+            echo '<th scope="col">Actions</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($pageRows as $row) {
+            [$values,$status] = self::recordValues($row,$rows,$kind);
             echo '<tr>';
             foreach ($fields as $field=>$label) {
-                $value = $row['data'][$field] ?? '';
-                if ($field === 'role') {
-                    $value = self::EMPLOYEE_ROLES[$value] ?? $value;
-                } elseif (isset(self::FIELDS[$field])) {
-                    $value = $rows[$value]['data']['name'] ?? '';
+                echo '<td>';
+                if ($field === 'attachment' && $row['filename'] && self::canFile($row['kind'])) {
+                    $url = add_query_arg(['action'=>'frontier_file','id'=>$row['id']],admin_url('admin-post.php'));
+                    echo '<a href="'.esc_url(wp_nonce_url($url,'frontier_file_'.$row['id'])).'">'.esc_html($row['filename']).'</a>';
+                } else {
+                    echo esc_html((string)($values[$field] ?? ''));
                 }
-                echo '<td>'.esc_html((string)$value).'</td>';
+                echo '</td>';
             }
-            echo '<td>'.esc_html(ucwords(str_replace('_',' ',$row['status']))).'</td><td>';
-            self::actions($row,$rows);
-            if (self::can($kind)) {
-                echo ' <details><summary class="button">Delete</summary><p>Delete this record?</p>';
-                self::button($row,'delete_master','Confirm Delete');
-                echo '</details>';
+            echo '<td>'.esc_html(ucwords(str_replace('_',' ',$status))).'</td>';
+            if ($showActions) {
+                echo '<td>';
+                self::actions($row,$rows);
+                if (isset(self::IMPORT_TEMPLATES[$kind]) && self::can($kind)) {
+                    echo ' <details><summary class="button">Delete</summary><p>Delete this record?</p>';
+                    self::button($row,'delete_master','Confirm Delete');
+                    echo '</details>';
+                }
+                echo '</td>';
             }
-            echo '</td></tr>';
+            echo '</tr>';
         }
-        if (!$count) {
-            echo '<tr><td colspan="'.(count($fields)+2).'">No records yet.</td></tr>';
+        if (!$total) {
+            echo '<tr><td colspan="'.(count($fields)+1+(int)$showActions).'">No records yet.</td></tr>';
         }
         echo '</tbody></table></div>';
-    }
-
-    private static function renderItems($rows,$kind) {
-        $columns = [
-            'boq'=>['site','section','name','unit','qty'],
-            'indent'=>['boq','qty','due'],
-            'po'=>['ref','quote','qty','due'],
-            'grn'=>['ref','po','qty','reject','due'],
-        ][$kind];
-        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
-        foreach ($columns as $field) {
-            echo '<th scope="col">'.esc_html(self::FIELDS[$kind][$field]).'</th>';
-        }
-        echo '<th scope="col">Status</th></tr></thead><tbody>';
-        $count = 0;
-        foreach ($rows as $row) {
-            if ($row['kind'] !== $kind) {
-                continue;
-            }
-            $count++;
-            echo '<tr>';
-            foreach ($columns as $field) {
-                $value = $row['data'][$field] ?? '';
-                if (isset(self::FIELDS[$field],$rows[$value])) {
-                    $value = self::label($rows[$value],$rows);
-                } elseif ($field === 'due' && $value !== '') {
-                    $value = implode('/',array_reverse(explode('-',$value)));
-                }
-                echo '<td>'.esc_html((string)$value).'</td>';
-            }
-            echo '<td>'.esc_html(ucwords(str_replace('_',' ',$row['status']))).'</td></tr>';
-        }
-        if (!$count) {
-            echo '<tr><td colspan="'.(count($columns)+1).'">No records yet.</td></tr>';
-        }
-        echo '</tbody></table></div>';
+        self::pagination($page,$pages,$total);
     }
 
     private static function stock($rows) {
@@ -638,14 +631,17 @@ final class Frontier {
             $boq = $rows[$rows[$po['data']['indent']]['data']['boq']];
             $received[$boq['id']] = ($received[$boq['id']] ?? 0) + $row['data']['qty'];
         }
-        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>BOQ item and site</th><th>Accepted stock received</th></tr></thead><tbody>';
-        foreach ($received as $id=>$quantity) {
-            echo '<tr><td>'.esc_html(self::label($rows[$id],$rows)).'</td><td>'.esc_html(round($quantity,3).' '.$rows[$id]['data']['unit']).'</td></tr>';
+        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>BOQ Item</th><th>Site</th><th>Accepted Stock Received</th><th>Unit</th></tr></thead><tbody>';
+        [$pageRows,$page,$pages,$total] = self::pagedRows($received);
+        foreach ($pageRows as $id=>$quantity) {
+            $item = $rows[$id]['data'];
+            echo '<tr><td>'.esc_html($item['name']).'</td><td>'.esc_html($rows[$item['site']]['data']['name'] ?? '').'</td><td>'.esc_html(round($quantity,3)).'</td><td>'.esc_html($item['unit']).'</td></tr>';
         }
         if (!$received) {
-            echo '<tr><td colspan="2">No stock receipts approved yet.</td></tr>';
+            echo '<tr><td colspan="4">No stock receipts approved yet.</td></tr>';
         }
         echo '</tbody></table></div>';
+        self::pagination($page,$pages,$total);
     }
 
     private static function frontUrl($kind) {
@@ -770,21 +766,18 @@ final class Frontier {
         echo '</form>';
     }
 
-    private static function displayRow($row,$rows) {
+    private static function recordValues($row,$rows,$screenKind) {
         $kind = $row['kind'];
         $data = $row['data'];
-        $messages = [];
-        if (in_array($kind,['supplier','site'],true) && !empty($data['ref'])) {
-            $label = $kind === 'site' ? 'Site Number with Name' : 'Suppliers Name with Code';
-            $messages[] = $label.' · '.$data['ref'].' - '.$data['name'];
-        }
+        $values = [];
         foreach (self::FIELDS[$kind] as $field=>$label) {
-            if (!isset($data[$field]) || $data[$field] === '') {
+            if ($field === 'password' || !isset($data[$field]) || $data[$field] === '') {
                 continue;
             }
             $value = $data[$field];
             if (isset(self::FIELDS[$field],$rows[$value])) {
-                $value = self::label($rows[$value],$rows);
+                $linked = $rows[$value];
+                $value = in_array($field,['category','item_type','employee'],true) ? $linked['data']['name'] : self::label($linked,$rows);
             } elseif ($field === 'role') {
                 $value = self::EMPLOYEE_ROLES[$value] ?? $value;
             } elseif ($field === 'due') {
@@ -792,52 +785,48 @@ final class Frontier {
             } elseif ($field === 'reorder') {
                 $value = $value ? 'Yes' : 'No';
             }
-            $messages[] = $label.' · '.$value;
+            $values[$field] = $value;
         }
-        foreach (['reason','selection_reason'] as $field) {
-            if (!empty($data[$field])) {
-                $messages[] = 'Reason · '.$data[$field];
-            }
+        if (in_array($kind,['supplier','site'],true) && !empty($data['ref'])) {
+            $values['combined_name'] = $data['ref'].' - '.$data['name'];
         }
+        $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
         if ($kind === 'po' && $row['status'] === 'issued') {
             $id = $row['id'];
-            $messages[] = 'Received · '.self::sum($rows,'grn','po',$id,'qty','approved');
-            $messages[] = 'Pending GRN approval · '.self::sum($rows,'grn','po',$id,'qty','pending');
-            $messages[] = 'Invoiced · '.self::sum($rows,'match','po',$id);
-            $messages[] = 'Cancelled · '.self::sum($rows,'cancel','po',$id);
-            $messages[] = 'Open to receive · '.self::balance($rows,$row);
-            if (self::balance($rows,$row) > 0) {
+            $values['received'] = self::sum($rows,'grn','po',$id,'qty','approved');
+            $values['waiting'] = self::sum($rows,'grn','po',$id,'qty','pending');
+            $values['invoiced'] = self::sum($rows,'match','po',$id);
+            $values['cancelled'] = self::sum($rows,'cancel','po',$id);
+            $values['open'] = self::balance($rows,$row);
+            if ($values['open'] > 0 && !empty($data['due'])) {
                 $today = new DateTimeImmutable(current_time('Y-m-d'));
                 $due = new DateTimeImmutable($data['due']);
-                $messages[] = 'Overdue days · '.max(0,(int)$due->diff($today)->format('%r%a'));
+                $values['overdue'] = max(0,(int)$due->diff($today)->format('%r%a'));
             }
             foreach ($rows as $follow) {
                 if ($follow['kind'] === 'follow' && (int)$follow['data']['po'] === (int)$id) {
-                    $messages[] = 'Latest follow-up · '.$follow['data']['note'].' · Next '.implode('/',array_reverse(explode('-',$follow['data']['due'])));
+                    $values['latest'] = $follow['data']['note'];
+                    $values['next'] = implode('/',array_reverse(explode('-',$follow['data']['due'])));
                     break;
                 }
             }
+            if ($screenKind === 'follow') {
+                $values['po'] = self::label($row,$rows);
+                $values['ordered'] = $values['qty'];
+                $values['expected'] = $values['due'] ?? '';
+                unset($values['due']);
+            }
         }
-        if ($kind === 'grn') {
-            $messages[] = $row['filename'] ? 'GRN slip attached' : 'Slip pending';
+        if ($kind === 'grn' && !$row['filename']) {
+            $values['attachment'] = 'Slip pending';
         }
         $status = $row['status'];
         if ($kind === 'invoice') {
             $matched = self::sum($rows,'match','invoice',$row['id']);
-            $messages[] = 'Matched quantity · '.$matched;
+            $values['matched'] = $matched;
             $status = $matched >= $data['qty'] ? 'matched' : ($matched > 0 ? 'partially_matched' : 'pending_match');
         }
-        echo '<tr><td>'.esc_html(self::label($row,$rows)).'</td><td>'.esc_html(ucwords(str_replace('_',' ',$status))).'</td><td>';
-        foreach ($messages as $message) {
-            echo esc_html($message).'<br>';
-        }
-        if ($row['filename'] && self::canFile($kind)) {
-            $url = add_query_arg(['action'=>'frontier_file','id'=>$row['id']],admin_url('admin-post.php'));
-            echo '<a href="'.esc_url(wp_nonce_url($url,'frontier_file_'.$row['id'])).'">'.esc_html($row['filename']).'</a>';
-        }
-        echo '</td><td>';
-        self::actions($row,$rows);
-        echo '</td></tr>';
+        return [$values,$status];
     }
 
     private static function linked($rows,$id) {
