@@ -94,18 +94,18 @@ final class Frontier_Boq_Pdf {
         }
         $header = static function () use ($reference,$navy,$logo) {
             $stream = "$navy rg\n".self::poAligned($reference,563,811,12,'right',true);
-            $y = 785;
+            $y = 793;
             if ($logo) {
-                $scale = min(128/$logo['width'],55/$logo['height']);
+                $scale = min(128/$logo['width'],48/$logo['height']);
                 $w = $logo['width']*$scale;
                 $h = $logo['height']*$scale;
                 $x = (595-$w)/2;
                 $stream .= "q $w 0 0 $h $x ".($y-$h)." cm /Logo Do Q\n";
-                $y -= $h + 17;
+                $y -= $h + 15;
             }
             $stream .= self::poAligned('PURCHASE ORDER',297.5,$y,22,'center',true);
             $stream .= "$navy RG 32 ".($y-12)." m 563 ".($y-12)." l S\n0 g\n";
-            return [$stream,$y-35];
+            return [$stream,$y-27];
         };
         $pages = [];
         [$stream,$y] = $header();
@@ -113,24 +113,38 @@ final class Frontier_Boq_Pdf {
             $pages[] = $stream.$footer;
             [$stream,$y] = $header();
         };
+        $blocks = [[],[]];
         foreach ($details as $label=>$value) {
             if ($value === '') {
                 continue;
             }
+            $column = in_array($label,['PO Date','Target Date','Supplier'],true) ? 0 : 1;
             $first = true;
-            foreach (explode("\n",wordwrap(self::text($value),68,"\n",true)) as $part) {
-                if ($y < 105) {
-                    $pageBreak();
-                }
-                if ($first) {
-                    $stream .= self::poAligned($label,36,$y,10,'left',true);
-                    $first = false;
-                }
-                $stream .= self::line($part,143,$y);
-                $y -= 15;
+            foreach (explode("\n",wordwrap(self::text($value),25,"\n",true)) as $part) {
+                $blocks[$column][] = [$first ? $label : '',$part];
+                $first = false;
             }
         }
-        $y -= 13;
+        $lineCount = max(count($blocks[0]),count($blocks[1]));
+        for ($offset=0;$offset<$lineCount;) {
+            $length = min($lineCount-$offset,(int)floor(($y-114)/15));
+            if ($length < 1) {
+                $pageBreak();
+                continue;
+            }
+            $height = $length*15+16;
+            foreach ($blocks as $column=>$block) {
+                $x = $column === 0 ? 32 : 304;
+                $stream .= "0.96 0.97 0.98 rg 0.73 0.79 0.85 RG $x ".($y-$height)." 259 $height re B\n0 g\n";
+                foreach (array_slice($block,$offset,$length) as $index=>[$label,$value]) {
+                    $baseline = $y-18-$index*15;
+                    $stream .= self::poAligned($label,$x+10,$baseline,9,'left',true);
+                    $stream .= self::line($value,$x+113,$baseline,9);
+                }
+            }
+            $y -= $height+18;
+            $offset += $length;
+        }
         $columns = [32,77,293,352,412,478,563];
         $tableHeader = static function () use (&$stream,&$y,$columns,$navy) {
             $stream .= "$navy rg 32 ".($y-22)." 531 22 re f\n1 g\n";
@@ -178,8 +192,10 @@ final class Frontier_Boq_Pdf {
         if ($y < 126) {
             $pageBreak();
         }
-        $y -= 22;
-        $stream .= self::poAligned('Total Amount',470,$y,11,'right',true);
+        $y -= 10;
+        $stream .= "0.87 0.92 0.97 rg 32 ".($y-25)." 531 25 re f\n0 g\n";
+        $y -= 17;
+        $stream .= self::poAligned('Total Amount',420,$y,11,'right',true);
         $stream .= self::poAligned('INR '.number_format($total,2),563,$y,11,'right',true);
         if ($terms !== '') {
             $y -= 30;
@@ -187,7 +203,8 @@ final class Frontier_Boq_Pdf {
                 $pageBreak();
             }
             $stream .= self::poAligned('Supplier Terms',32,$y,13,'left',true);
-            $y -= 16;
+            $stream .= "$navy RG 32 ".($y-6)." m 563 ".($y-6)." l S\n";
+            $y -= 22;
             foreach (preg_split('/\R/u',$terms) ?: [] as $line) {
                 foreach (explode("\n",wordwrap(self::text($line),86,"\n",true)) as $part) {
                     if ($y < 100) {
