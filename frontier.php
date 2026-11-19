@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.93
+ * Version: 1.9.94
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2299,7 +2299,7 @@ HTML;
         ][self::$screen] ?? null;
         if ($next) {
             $url = add_query_arg(['add'=>1,'source'=>$row['id']],self::url($next[0]));
-            echo '<a'.self::actionIconAttributes($next[1]).' href="'.esc_url($url).'">'.self::actionIcon($next[1] === 'Update' ? '✓' : '+').'</a>';
+            echo '<a'.self::actionIconAttributes($next[1]).' href="'.esc_url($url).'">'.($next[1] === 'Update' ? self::updateActionIcon() : self::actionIcon('+')).'</a>';
             return;
         }
         if (in_array($mode,['items','selected'],true)) {
@@ -2373,6 +2373,10 @@ HTML;
     private static function actionIconAttributes($label) {
         $label = esc_attr($label);
         return ' class="button frontier-action-icon" aria-label="'.$label.'" title="'.$label.'"';
+    }
+
+    private static function updateActionIcon() {
+        return '<span aria-hidden="true" style="display:inline-grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#4caf50;color:#fff;font:900 18px/1 system-ui,sans-serif">✓</span>';
     }
 
     private static function actionIcon($glyph) {
@@ -3848,7 +3852,7 @@ HTML;
                     $url = add_query_arg('indent_group',$entry['group'],self::url('indent_items'));
                     echo '<a href="'.esc_url($url).'">'.esc_html((string)$entry['number']).'</a>';
                 } elseif ($field === 'actions') {
-                    echo '<button type="button" '.self::actionIconAttributes('Update indent').' data-indent-toggle="update" aria-haspopup="dialog" aria-expanded="false" aria-controls="frontier-indent-update-'.esc_attr($id).'">'.self::actionIcon('✓').'</button>';
+                    echo '<button type="button" '.self::actionIconAttributes('Update indent').' data-indent-toggle="update" aria-haspopup="dialog" aria-expanded="false" aria-controls="frontier-indent-update-'.esc_attr($id).'">'.self::updateActionIcon().'</button>';
                     self::indentUpdateDialog($entry);
                 } elseif ($field === 'pdf') {
                     $id = $entry['id'];
