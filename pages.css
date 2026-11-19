@@ -383,3 +383,39 @@ body.frontier-workspace {
     min-height: 30px;
     padding-block: 4px;
 }
+
+.frontier-settings-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.frontier-pages .frontier-settings-nav .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 6px 14px;
+    border: 1px solid #b8c8dc;
+    border-radius: 6px;
+    background: #fff;
+    color: #154775;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.frontier-pages .frontier-settings-nav .button:hover {
+    background: #e8f0fa;
+}
+
+.frontier-pages .frontier-settings-nav .button[aria-current="page"] {
+    background: #164f8a;
+    border-color: #164f8a;
+    color: #fff;
+}
+
+.frontier-settings-nav .button:focus-visible {
+    outline: 2px solid #164f8a;
+    outline-offset: 2px;
+}
