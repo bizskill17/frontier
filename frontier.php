@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.55
+ * Version: 1.9.56
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3714,34 +3714,67 @@ HTML;
         foreach (self::purchaseOrderGroup($rows,$order) as $line) {
             $item = self::purchaseOrderValues($rows,$line);
             $total += round($item['qty'] * (float)$item['rate'],2);
-            $name = $item['item_name'].' | Rate: '.$item['rate'].' | Amount: '.$item['amount'];
+            $name = $item['item_name'];
             foreach (['brand'=>'Brand','remarks'=>'Remark'] as $field=>$label) {
                 if ($item[$field] !== '') {
-                    $name .= ' | '.$label.': '.$item[$field];
+                    $name .= "\n".$label.': '.$item[$field];
                 }
             }
-            $items[] = [$item['line_number'],$name,$item['qty'],$item['unit']];
+            $items[] = [$item['line_number'],$name,$item['unit'],$item['qty'],$item['rate'],$item['amount']];
         }
-        $heading = ['Supplier: '.$values['supplier'],'Target Date: '.$values['due']];
-        $footer = ['Total Amount: INR '.number_format($total,2)];
-        foreach (['delivery_address'=>'Delivery Address','delivery_contact'=>'Site Contact Person',
-            'delivery_mobile'=>'Site Mobile No.'] as $field=>$label) {
-            if (!empty($data[$field])) {
-                $footer[] = $label.': '.$data[$field];
-            }
-        }
-        if (!empty($data['terms'])) {
-            $footer[] = 'Supplier Terms';
-            $footer = array_merge($footer,preg_split('/\R/u',$data['terms']) ?: []);
-        }
-        $pdf = Frontier_Boq_Pdf::build($values['ref'],$values['site_name'],$values['po_date'],$data['prepared_name'] ?? '',
-            $items,'Purchase Order','Prepared By',$heading,$footer);
+        $details = [
+            'PO Date'=>$values['po_date'],'Target Date'=>$values['due'],'Supplier'=>$values['supplier'],
+            'Site'=>$values['site_name'],'Delivery Address'=>$data['delivery_address'] ?? '',
+            'Site Contact'=>$data['delivery_contact'] ?? '', 'Site Mobile No.'=>$data['delivery_mobile'] ?? '',
+        ];
+        $pdf = Frontier_Boq_Pdf::buildPurchaseOrder($values['ref'],$details,$items,$total,$data['terms'] ?? '',self::purchaseOrderLogo());
         nocache_headers();
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="purchase-order-'.$id.'.pdf"');
         header('Content-Length: '.strlen($pdf));
         echo $pdf;
         exit;
+    }
+
+    private static function purchaseOrderLogo() {
+        $id = (int)get_option('frontier_logo_id',0);
+        $path = $id ? get_attached_file($id) : '';
+        if (!$path || !is_readable($path)) {
+            return [];
+        }
+        require_once ABSPATH.'wp-admin/includes/file.php';
+        $editor = wp_get_image_editor($path);
+        if (is_wp_error($editor)) {
+            return [];
+        }
+        $size = $editor->get_size();
+        if (max($size['width'],$size['height']) > 600 && is_wp_error($editor->resize(600,600,false))) {
+            return [];
+        }
+        $temporary = wp_tempnam('frontier-po-logo.jpg');
+        if (!$temporary) {
+            return [];
+        }
+        $output = '';
+        try {
+            $saved = $editor->save($temporary,'image/jpeg');
+            if (is_wp_error($saved)) {
+                return [];
+            }
+            $output = $saved['path'];
+            $image = getimagesize($output);
+            $bytes = file_get_contents($output);
+            $channels = (int)($image['channels'] ?? 3);
+            if (!$image || $image[2] !== IMAGETYPE_JPEG || !$bytes || !in_array($channels,[1,3],true)) {
+                return [];
+            }
+            return ['width'=>$image[0],'height'=>$image[1],'channels'=>$channels,'bytes'=>$bytes];
+        } finally {
+            wp_delete_file($temporary);
+            if ($output && $output !== $temporary) {
+                wp_delete_file($output);
+            }
+        }
     }
 
     private static function purchaseOrderGroup($rows,$row) {

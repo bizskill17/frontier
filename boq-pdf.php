@@ -13,9 +13,9 @@ final class Frontier_Boq_Pdf {
         return preg_replace('/[^\x20-\x7E]/u','?',$value) ?? '';
     }
 
-    private static function line($text,$x,$y,$size=10) {
+    private static function line($text,$x,$y,$size=10,$font='F1') {
         $escaped = strtr($text,['\\'=>'\\\\','('=>'\(',')'=>'\)']);
-        return "BT /F1 $size Tf $x $y Td ($escaped) Tj ET\n";
+        return "BT /$font $size Tf $x $y Td ($escaped) Tj ET\n";
     }
 
     public static function build($number,$site,$date,$prepared,$rows,$title='BOQ',$ownerLabel='Prepared By',$extraHeading=[],$footer=[]) {
@@ -76,17 +76,167 @@ final class Frontier_Boq_Pdf {
         }
         $pages[] = $content;
 
+        return self::document($pages);
+    }
+
+    public static function buildPurchaseOrder($reference,$details,$rows,$total,$terms,$logo=[]) {
+        $navy = '0.04 0.15 0.27';
+        $rule = "$navy RG 32 75 m 563 75 l S\n";
+        $footer = $rule;
+        $contact = [
+            'Frontier Sales Corporation (A unit of FRONTIER CORPORATION LLP)',
+            '3rd Floor, Temple Tower, opp News Live, Christian Basti, G S Road, Guwahati-781005, Assam',
+            '0361-2341301, +91 70860 21001, +91 95080 15000, +91 94350 10287',
+            'Email: info@frontier.in.net, sanyam@frontier.in.net',
+        ];
+        foreach ($contact as $index=>$value) {
+            $footer .= self::poAligned($value,297.5,61-$index*12,$index === 0 ? 9 : 8,'center',$index === 0);
+        }
+        $header = static function () use ($reference,$navy,$logo) {
+            $stream = "$navy rg\n".self::poAligned($reference,563,811,12,'right',true);
+            $y = 785;
+            if ($logo) {
+                $scale = min(128/$logo['width'],55/$logo['height']);
+                $w = $logo['width']*$scale;
+                $h = $logo['height']*$scale;
+                $x = (595-$w)/2;
+                $stream .= "q $w 0 0 $h $x ".($y-$h)." cm /Logo Do Q\n";
+                $y -= $h + 17;
+            }
+            $stream .= self::poAligned('PURCHASE ORDER',297.5,$y,22,'center',true);
+            $stream .= "$navy RG 32 ".($y-12)." m 563 ".($y-12)." l S\n0 g\n";
+            return [$stream,$y-35];
+        };
+        $pages = [];
+        [$stream,$y] = $header();
+        $pageBreak = static function () use (&$stream,&$y,&$pages,$header,$footer) {
+            $pages[] = $stream.$footer;
+            [$stream,$y] = $header();
+        };
+        foreach ($details as $label=>$value) {
+            if ($value === '') {
+                continue;
+            }
+            $first = true;
+            foreach (explode("\n",wordwrap(self::text($value),68,"\n",true)) as $part) {
+                if ($y < 105) {
+                    $pageBreak();
+                }
+                if ($first) {
+                    $stream .= self::poAligned($label,36,$y,10,'left',true);
+                    $first = false;
+                }
+                $stream .= self::line($part,143,$y);
+                $y -= 15;
+            }
+        }
+        $y -= 13;
+        $columns = [32,77,293,352,412,478,563];
+        $tableHeader = static function () use (&$stream,&$y,$columns,$navy) {
+            $stream .= "$navy rg 32 ".($y-22)." 531 22 re f\n1 g\n";
+            foreach (['Sl No.','Item Name','Unit','Order Qty','Rate','Amount'] as $index=>$label) {
+                $stream .= self::poAligned($label,$columns[$index]+6,$y-15,9,'left',true);
+            }
+            $stream .= "0 g\n";
+            $y -= 22;
+        };
+        if ($y < 150) {
+            $pageBreak();
+        }
+        $tableHeader();
+        foreach ($rows as $row) {
+            [$number,$name,$unit,$qty,$rate,$amount] = $row;
+            $names = [];
+            foreach (explode("\n",$name) as $part) {
+                $names = array_merge($names,explode("\n",wordwrap(self::text($part),36,"\n",true)));
+            }
+            $units = explode("\n",wordwrap(self::text($unit),9,"\n",true));
+            $lines = max(count($names),count($units),1);
+            $height = $lines*12+10;
+            if ($y-$height < 98) {
+                $pageBreak();
+                $tableHeader();
+            }
+            for ($line=0;$line<$lines;$line++) {
+                if ($y < 110) {
+                    $pageBreak();
+                    $tableHeader();
+                }
+                $stream .= self::line($names[$line] ?? '',83,$y-12,9);
+                $stream .= self::line($units[$line] ?? '',299,$y-12,9);
+                if ($line === 0) {
+                    $stream .= self::line(self::text($number),38,$y-12,9);
+                    foreach ([$qty,$rate,$amount] as $index=>$value) {
+                        $stream .= self::poAligned($value,$columns[$index+4]-6,$y-12,9,'right');
+                    }
+                }
+                $y -= 12;
+            }
+            $y -= 10;
+            $stream .= "0.78 0.82 0.86 RG 32 $y m 563 $y l S\n";
+        }
+        if ($y < 126) {
+            $pageBreak();
+        }
+        $y -= 22;
+        $stream .= self::poAligned('Total Amount',470,$y,11,'right',true);
+        $stream .= self::poAligned('INR '.number_format($total,2),563,$y,11,'right',true);
+        if ($terms !== '') {
+            $y -= 30;
+            if ($y < 125) {
+                $pageBreak();
+            }
+            $stream .= self::poAligned('Supplier Terms',32,$y,13,'left',true);
+            $y -= 16;
+            foreach (preg_split('/\R/u',$terms) ?: [] as $line) {
+                foreach (explode("\n",wordwrap(self::text($line),86,"\n",true)) as $part) {
+                    if ($y < 100) {
+                        $pageBreak();
+                    }
+                    $stream .= self::line($part,32,$y,10);
+                    $y -= 13;
+                }
+            }
+        }
+        $pages[] = $stream.$footer;
+        return self::document($pages,$logo);
+    }
+
+    private static function poAligned($value,$x,$y,$size,$alignment,$bold=false) {
+        $text = self::text($value);
+        if ($alignment !== 'left') {
+            $width = 0;
+            for ($index=0;$index<strlen($text);$index++) {
+                $character = $text[$index];
+                $width += strpos(' ilI.,:!|',$character) !== false ? 0.26
+                    : (strpos('MWmw@%',$character) !== false ? 0.84 : 0.56);
+            }
+            $x -= $width*$size*($alignment === 'center' ? 0.5 : 1);
+        }
+        return self::line($text,$x,$y,$size,$bold ? 'F2' : 'F1');
+    }
+
+    private static function document($pages,$logo=[]) {
         $objects = [
             1=>'<< /Type /Catalog /Pages 2 0 R >>',
             2=>'',
             3=>'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
         ];
+        $objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+        $imageResource = '';
+        if ($logo) {
+            $color = $logo['channels'] === 1 ? '/DeviceGray' : '/DeviceRGB';
+            $objects[5] = '<< /Type /XObject /Subtype /Image /Width '.$logo['width'].' /Height '.$logo['height']
+                .' /ColorSpace '.$color.' /BitsPerComponent 8 /Filter /DCTDecode /Length '.strlen($logo['bytes'])
+                ." >>\nstream\n".$logo['bytes']."\nendstream";
+            $imageResource = '/XObject << /Logo 5 0 R >>';
+        }
         $kids = [];
         foreach ($pages as $stream) {
             $pageId = count($objects)+1;
             $streamId = $pageId+1;
             $kids[] = "$pageId 0 R";
-            $objects[$pageId] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents $streamId 0 R >>";
+            $objects[$pageId] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> $imageResource >> /Contents $streamId 0 R >>";
             $objects[$streamId] = '<< /Length '.strlen($stream)." >>\nstream\n".$stream."endstream";
         }
         $objects[2] = '<< /Type /Pages /Kids ['.implode(' ',$kids).'] /Count '.count($kids).' >>';
