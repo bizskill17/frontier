@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.83
+ * Version: 1.9.84
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -114,7 +114,7 @@ final class Frontier {
         add_action('admin_init', [self::class, 'installPages']);
         add_filter('cron_schedules', [self::class, 'notificationSchedules']);
         add_action('init', [self::class, 'schedulePendingGrn']);
-        add_action('frontier_pending_grn_reminder', [self::class, 'pendingGrnReminder']);
+        add_action('frontier_pending_grn_reminder', [self::class, 'pendingProcurementReminders']);
         add_action('login_enqueue_scripts', [self::class, 'styleFrontierLogin']);
         add_action('template_redirect', [self::class, 'protectPage'], 0);
         add_filter('template_include', [self::class, 'workspaceTemplate'], 99);
@@ -506,7 +506,12 @@ final class Frontier {
             && !empty(json_decode(wp_remote_retrieve_body($response),true)['ok']);
     }
 
+    private const PROCUREMENT_REMINDERS = ['pending_quote','pending_choose','pending_po','pending_grn'];
+
     private const PROCUREMENT_MESSAGES = [
+        'pending_quote'=>['Pending Supplier Quotation',"Pending Supplier Quotation\nSite: {site_name}\nAs of: {report_date}\n\n{pending_items}\n\nPlease collect and enter the pending supplier quotations."],
+        'pending_choose'=>['Pending Choose Supplier',"Pending Choose Supplier\nSite: {site_name}\nAs of: {report_date}\n\n{pending_items}\n\nPlease review the quotations and finalize the supplier."],
+        'pending_po'=>['Pending Create PO',"Pending Create PO\nSite: {site_name}\nAs of: {report_date}\n\n{pending_items}\n\nPlease create purchase orders for the pending quantities."],
         'pending_grn'=>['Pending GRN',"Pending GRN\nSite: {site_name}\nAs of: {report_date}\n\nSupplier\n{pending_items}\n\nPlease create a GRN for any materials already received."],
         'po_created'=>['Purchase Order Created',"Purchase Order Created\n\nPO No: {po_number}\nPO Date: {po_date}\nSite: {site_name}\nSupplier: {supplier_name}\nTarget Delivery Date: {target_date}\nTotal Amount: {total_amount}"],
         'grn_created'=>['Goods Receipt Note Created',"Goods Receipt Note Created\n\nGRN No: {grn_number}\nGRN Date: {grn_date}\nPO No: {po_number}\nSite: {site_name}\nSupplier: {supplier_name}\nSlip No: {slip_number}\nPrepared By: {prepared_by}"],
@@ -589,28 +594,50 @@ final class Frontier {
         return strtr($settings['events'][$event]['message'] ?? self::PROCUREMENT_MESSAGES[$event][1],$tokens);
     }
 
-    public static function pendingGrnReminder() {
-        $event = 'pending_grn';
+    public static function pendingProcurementReminders() {
         $settings = (array)get_option('frontier_indent_telegram',[]);
-        $config = $settings['events'][$event] ?? [];
         $now = new DateTimeImmutable('now',new DateTimeZone('Asia/Kolkata'));
-        if (empty($config['enabled']) || $now->format('H:i') < ($config['time'] ?? '09:00')) {
-            return;
-        }
-        $rows = self::rows();
-        $sites = [];
-        foreach ($rows as $po) {
-            if ($po['kind'] !== 'po' || !self::canReceivePurchaseOrder($rows,$po)) {
+        $rows = null;
+        foreach (self::PROCUREMENT_REMINDERS as $event) {
+            $config = $settings['events'][$event] ?? [];
+            if (empty($config['enabled']) || $now->format('H:i') < ($config['time'] ?? '09:00')) {
                 continue;
             }
-            $id = self::procurementSite($rows,$po);
-            if ($id) {
-                $v = self::purchaseOrderValues($rows,$po);
-                $sites[$id][$v['supplier']][] = 'PO '.$v['ref'].' | '.$v['item_name'].' | Pending: '.self::balance($rows,$po).' '.$v['unit'].' | Target: '.$v['due'];
+            $rows = $rows ?? self::rows();
+            self::sendPendingProcurementReminder($rows,$settings,$now,$event);
+        }
+    }
+
+    private static function sendPendingProcurementReminder($rows,$settings,$now,$event) {
+        [$listing] = self::pendingRows($rows,$event);
+        $sites = [];
+        foreach ($listing as $row) {
+            if ($event === 'pending_grn') {
+                $id = self::procurementSite($rows,$row);
+                if ($id) {
+                    $v = self::purchaseOrderValues($rows,$row);
+                    $sites[$id][$v['supplier']][] = 'PO '.$v['ref'].' | '.$v['item_name'].' | Pending: '.self::balance($rows,$row).' '.$v['unit'].' | Target: '.$v['due'];
+                }
+                continue;
             }
+            $indent = $event === 'pending_quote' ? $row : ($rows[$row['data']['indent'] ?? 0] ?? []);
+            $data = $indent['data'] ?? [];
+            $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
+            $id = (int)($data['site'] ?? $boq['site'] ?? 0);
+            if (!$id) {
+                continue;
+            }
+            $v = self::supplierIndentDetails($indent,$rows);
+            $line = 'Indent '.$v['indent_number'].' | '.$v['item_name'];
+            if ($event === 'pending_po') {
+                $line .= ' | '.self::supplierDisplay($row['data'],$rows).' | Pending to order: '.self::available($rows,$indent);
+            } else {
+                $line .= ' | Qty: '.$v['qty'];
+            }
+            $sites[$id][''][] = $line.' '.$v['unit'];
         }
         $date = $now->format('Y-m-d');
-        $sent = (array)get_option('frontier_pending_grn_sent',[]);
+        $sent = (array)get_option('frontier_'.$event.'_sent',[]);
         foreach ($sites as $id=>$suppliers) {
             if (($sent[$id] ?? '') === $date) {
                 continue;
@@ -618,14 +645,14 @@ final class Frontier {
             $site = $rows[$id]['data'] ?? [];
             $blocks = [];
             foreach ($suppliers as $supplier=>$lines) {
-                $blocks[] = $supplier."\n".implode("\n",$lines);
+                $blocks[] = ($supplier === '' ? '' : $supplier."\n").implode("\n",$lines);
             }
             $message = self::procurementMessage($settings,$event,['site_name'=>self::siteNumberWithName($site),
                 'report_date'=>$now->format('d/m/Y'),'pending_items'=>implode("\n\n",$blocks)]);
             $chat = trim((string)($site['telegram'] ?? ''));
             if (self::procurementTelegram($settings,$chat,$message)) {
                 $sent[$id] = $date;
-                update_option('frontier_pending_grn_sent',$sent,false);
+                update_option('frontier_'.$event.'_sent',$sent,false);
             }
         }
     }
@@ -637,7 +664,11 @@ final class Frontier {
 
     public static function schedulePendingGrn() {
         $settings = (array)get_option('frontier_indent_telegram',[]);
-        if (empty($settings['events']['pending_grn']['enabled'])) {
+        $enabled = false;
+        foreach (self::PROCUREMENT_REMINDERS as $event) {
+            $enabled = $enabled || !empty($settings['events'][$event]['enabled']);
+        }
+        if (!$enabled) {
             if (wp_next_scheduled('frontier_pending_grn_reminder')) {
                 wp_clear_scheduled_hook('frontier_pending_grn_reminder');
             }
@@ -667,10 +698,11 @@ final class Frontier {
         echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{updated_by}</code> <code>{status}</code> <code>{remarks}</code></p></td></tr>';
         foreach (self::PROCUREMENT_MESSAGES as $event=>[$label,$default]) {
             $config = $settings['events'][$event] ?? [];
-            echo '<tr><th scope="row">'.esc_html($label).'</th><td>Telegram'.($event === 'pending_grn' ? '' : ' + PDF').'</td>';
+            $scheduled = in_array($event,self::PROCUREMENT_REMINDERS,true);
+            echo '<tr><th scope="row">'.esc_html($label).'</th><td>Telegram'.($scheduled ? '' : ' + PDF').'</td>';
             echo '<td><input type="checkbox" name="events['.esc_attr($event).'][enabled]" value="1" aria-label="'.esc_attr('Enable '.$label).'" '.checked(!empty($config['enabled']),true,false).'>';
-            if ($event === 'pending_grn') {
-                echo '<label>Send Time (IST)<input type="time" name="events[pending_grn][time]" value="'.esc_attr($config['time'] ?? '09:00').'"></label>';
+            if ($scheduled) {
+                echo '<label>Send Time (IST)<input type="time" name="events['.esc_attr($event).'][time]" value="'.esc_attr($config['time'] ?? '09:00').'"></label>';
             }
             echo '</td><td><textarea name="events['.esc_attr($event).'][message]" aria-label="'.esc_attr($label.' message format').'" rows="8" maxlength="1000" style="width:100%;min-width:220px">'.esc_textarea($config['message'] ?? $default).'</textarea></td></tr>';
         }
@@ -695,9 +727,11 @@ final class Frontier {
             $rawMessage = $entry['message'] ?? '';
             $events[$event] = ['enabled'=>($entry['enabled'] ?? '') === '1',
                 'message'=>(is_string($rawMessage) ? sanitize_textarea_field(wp_unslash($rawMessage)) : '') ?: $default];
+            if (in_array($event,self::PROCUREMENT_REMINDERS,true)) {
+                $time = $entry['time'] ?? '';
+                $events[$event]['time'] = is_string($time) && preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D',$time) ? $time : '09:00';
+            }
         }
-        $time = $_POST['events']['pending_grn']['time'] ?? '';
-        $events['pending_grn']['time'] = is_string($time) && preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D',$time) ? $time : '09:00';
         $eventEnabled = in_array(true,array_column($events,'enabled'),true);
         if (($enabled || $approvalEnabled || $eventEnabled || $token !== '') && !preg_match('/^[0-9]+:[A-Za-z0-9_-]+$/D',$token)) {
             wp_die('Enter a valid Telegram bot token.','Frontier',['response'=>400,'back_link'=>true]);
