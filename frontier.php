@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.66
+ * Version: 1.9.67
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -817,34 +817,6 @@ final class Frontier {
             echo '</div>';
             return;
         }
-        if (in_array($mode,['choose','selected'],true)) {
-            $url = self::url(self::$screen);
-            $query = [];
-            parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$query);
-            echo '<form method="get" action="'.esc_url(remove_query_arg(array_keys($query),$url)).'">';
-            foreach ($query as $key=>$value) {
-                echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
-            }
-            $filter = self::indentGroupFilter();
-            echo '<p><label>Indent No. with Site Name<select name="indent_group"><option value="">Select indent</option>';
-            $listed = [];
-            foreach ($rows as $quote) {
-                if ($quote['kind'] !== 'quote' || $quote['status'] !== 'selected') {
-                    continue;
-                }
-                $indent = $rows[$quote['data']['indent'] ?? 0] ?? null;
-                if (!$indent || isset($listed[self::indentGroup($indent)])) {
-                    continue;
-                }
-                $group = self::indentGroup($indent);
-                $listed[$group] = true;
-                $details = self::supplierIndentDetails($indent,$rows);
-                $label = $details['indent_number'].' · '.$details['site_name'];
-                echo '<option value="'.esc_attr($group).'" '.selected($filter,$group,false).'>'.esc_html($label).'</option>';
-            }
-            echo '</select></label></p>';
-            echo '<button class="button">Filter</button> <a href="'.esc_url($url).'">Show all</a></form>';
-        }
         $canAdd = in_array($mode,['form','combined','register'],true) && self::can($kind === 'site' ? 'sites' : $kind);
         $showForm = $canAdd && $mode !== 'register' && ($editing || isset($_GET['add']));
         if ($canAdd && !$showForm && self::$screen !== 'quote') {
@@ -914,8 +886,7 @@ final class Frontier {
                 || ($mode === 'selected' && $row['status'] !== 'selected')) {
                 continue;
             }
-            $groupRow = self::$screen === 'choose_master' ? ($rows[$row['data']['indent'] ?? 0] ?? null) : $row;
-            if ($indentGroup !== '' && (!$groupRow || self::indentGroup($groupRow) !== $indentGroup)) {
+            if ($indentGroup !== '' && self::indentGroup($row) !== $indentGroup) {
                 continue;
             }
             if (self::$screen === 'po' && !empty($row['data']['po_group_id']) && (int)$row['id'] !== (int)$row['data']['po_group_id']) {
@@ -932,7 +903,7 @@ final class Frontier {
         if (self::$screen === 'quote') {
             self::quotationRegister($listing,$rows);
         } else {
-            self::renderRecords($listing,$rows,$kind,$indentGroup !== '' && self::$screen !== 'choose_master' ? 'register' : $mode);
+            self::renderRecords($listing,$rows,$kind,$indentGroup !== '' ? 'register' : $mode);
         }
         echo '</div>';
     }
@@ -2878,7 +2849,7 @@ HTML;
     }
 
     private static function indentGroupFilter() {
-        if (!in_array(self::$screen,['indent_items','choose_master'],true) || !is_string($_GET['indent_group'] ?? null)) {
+        if (self::$screen !== 'indent_items' || !is_string($_GET['indent_group'] ?? null)) {
             return '';
         }
         return sanitize_key(wp_unslash($_GET['indent_group']));
