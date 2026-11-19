@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.40
+ * Version: 1.9.41
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -523,6 +523,10 @@ final class Frontier {
         return round($sum,3);
     }
 
+    private static function canReceivePurchaseOrder($rows,$po) {
+        return in_array($po['status'],['draft','issued'],true) && self::balance($rows,$po) > 0;
+    }
+
     private static function balance($rows,$po) {
         $id = $po['id'];
         return round($po['data']['qty'] - self::sum($rows,'cancel','po',$id)
@@ -605,7 +609,9 @@ final class Frontier {
             switch ($field) {
                 case 'indent': return $row['status'] === 'approved';
                 case 'quote': return $row['status'] === 'selected' && self::available($rows,$rows[$row['data']['indent']]) > 0;
-                case 'po': return $row['status'] === 'issued' && ($kind === 'follow' || self::balance($rows,$row) > 0);
+                case 'po':
+                    return $kind === 'grn' ? self::canReceivePurchaseOrder($rows,$row)
+                        : $row['status'] === 'issued' && ($kind === 'follow' || self::balance($rows,$row) > 0);
                 case 'grn': return $row['status'] === 'approved' && $row['data']['qty'] > self::sum($rows,'match','grn',$row['id']);
                 default: return true;
             }
@@ -951,7 +957,7 @@ final class Frontier {
                         && (int)($selected[$indentId]['id'] ?? 0) === $id && self::available($rows,$indent) > 0;
                     break;
                 case 'pending_grn':
-                    $pending = $row['status'] === 'issued' && self::balance($rows,$row) > 0;
+                    $pending = self::canReceivePurchaseOrder($rows,$row);
                     break;
             }
             if ($pending) {
@@ -1448,7 +1454,7 @@ final class Frontier {
             $values['status_remark'] = $data['status_remark'] ?? '';
             $values['updated_by'] = $data['updated_by'] ?? '';
         }
-        if ($kind === 'po' && $row['status'] === 'issued') {
+        if ($kind === 'po' && ($row['status'] === 'issued' || self::$screen === 'pending_grn')) {
             $id = $row['id'];
             $values['received'] = self::sum($rows,'grn','po',$id,'qty','approved');
             $values['waiting'] = self::sum($rows,'grn','po',$id,'qty','pending');
@@ -3626,6 +3632,7 @@ HTML;
             $rows = self::rows();
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
+                || ($kind === 'grn' && $action === 'create')
                 || ($kind === 'po' && in_array($action,['create_purchase_orders','issue','delete','cancel_po'],true))
                 || ($kind === 'quote' && in_array($action,['save_quotations','save_supplier_selection'],true))
                 || ($kind === 'supplier' && $action === 'import_suppliers')
@@ -3688,13 +3695,16 @@ HTML;
                     $data['ref'] = self::formatMasterCode(self::lastMasterCode($rows,$kind)+1);
                 }
                 self::validateNew($rows,$kind,$data);
-                if ($transaction) {
+                if ($kind === 'employee') {
                     $accountId = self::employeeAccount($data);
                     $data['wp_user_id'] = $accountId;
                 }
                 $status = ['indent'=>'draft','po'=>'draft','grn'=>'pending','quote'=>'received','invoice'=>'pending_match'][$kind] ?? 'recorded';
                 $document = isset(self::FILES[$kind]) ? self::document($kind === 'invoice') : [];
                 $result = $wpdb->insert(self::table(),$document + ['kind'=>$kind,'status'=>$status,'details'=>wp_json_encode($data)]);
+                if ($result === 1 && $kind === 'grn' && $rows[$data['po']]['status'] === 'draft') {
+                    self::updatePurchaseOrderGroup($rows,$data['po'],'issue');
+                }
             } else {
                 $row = $rows[absint(self::input('id'))] ?? null;
                 self::requireRule($row && $row['kind'] === $kind,'Record could not be found.');
