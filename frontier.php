@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.67
+ * Version: 1.9.68
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -50,6 +50,7 @@ final class Frontier {
     ];
 
     private static $screen = '';
+    private static $exportBuffer = null;
 
     private const DEFAULT_UNITS = [
         'Kg','Pcs','Bags','Box','Cartons','Packets','Bundles','Cum',
@@ -127,6 +128,7 @@ final class Frontier {
         add_action('admin_post_frontier_grn_pdf', [self::class, 'downloadGoodsReceiptPdf']);
         add_action('admin_post_frontier_boq_excel', [self::class, 'boqExcel']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
+        add_action('admin_post_frontier_table_excel', [self::class, 'downloadTableExcel']);
         add_action('admin_post_frontier_save_logo', [self::class, 'saveLogo']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
     }
@@ -951,7 +953,7 @@ final class Frontier {
                 $data = $quote['data'] ?? [];
                 $name = self::supplierDisplay($data,$rows);
                 if (!empty($quote['filename']) && self::canFile('quote')) {
-                    $name .= ' '.$quote['filename'];
+                    $name = self::exportLink($name.' '.$quote['filename'],'frontier_file',$quote['id']);
                 }
                 $cells[] = $name;
                 $cells[] = $data['rate'] ?? '';
@@ -1111,6 +1113,58 @@ final class Frontier {
         return [$listing,$choiceItems];
     }
 
+    public static function downloadTableExcel() {
+        $view = sanitize_key(self::tableQuery('view'));
+        if (!isset(self::views()[$view]) || !self::canView($view)) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        check_admin_referer('frontier_table_excel_'.$view);
+        self::$front = self::tableQuery('surface') === 'front';
+        self::$exportBuffer = ob_get_level();
+        ob_start();
+        self::render($view);
+        ob_end_clean();
+        wp_die('This view has no table to export.','Frontier',['response'=>404]);
+    }
+
+    private static function sendTableExcel($columns,$rows,$values,$cache) {
+        while (ob_get_level() > self::$exportBuffer) {
+            ob_end_clean();
+        }
+        if (!class_exists('ZipArchive')) {
+            wp_die('Excel export requires PHP ZipArchive.','Frontier',['response'=>503]);
+        }
+        $records = [];
+        foreach ($rows as $id=>$row) {
+            $records[] = $cache[$id] ?? $values($row,$id);
+        }
+        $path = tempnam(sys_get_temp_dir(),'frontier-export-');
+        try {
+            if (!$path || !Frontier_Boq_Workbook::export($path,$columns,$records)) {
+                if ($path) {
+                    unlink($path);
+                }
+                wp_die('Could not create the Excel workbook.','Frontier',['response'=>500]);
+            }
+            $name = sanitize_file_name(str_replace(' ','-',self::views()[self::$screen]).'-'.current_time('Y-m-d').'.xlsx');
+            nocache_headers();
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment; filename="'.$name.'"');
+            header('Content-Length: '.filesize($path));
+            readfile($path);
+        } finally {
+            if ($path) {
+                unlink($path);
+            }
+        }
+        exit;
+    }
+
+    private static function exportLink($text,$action,$id) {
+        $url = add_query_arg(['action'=>$action,'id'=>$id],admin_url('admin-post.php'));
+        return ['text'=>$text,'url'=>html_entity_decode(wp_nonce_url($url,$action.'_'.$id),ENT_QUOTES,'UTF-8')];
+    }
+
     private static function tableQuery($key) {
         return is_string($_GET[$key] ?? null) ? sanitize_text_field(wp_unslash($_GET[$key])) : '';
     }
@@ -1155,7 +1209,7 @@ final class Frontier {
         $hasFacets = $from !== '' || $to !== '' || $site !== '' || $item !== '';
         $cellCache = [];
         $options = ['site'=>[],'item'=>[]];
-        if (isset($dimensions['site']) || isset($dimensions['item'])) {
+        if (self::$exportBuffer === null && (isset($dimensions['site']) || isset($dimensions['item']))) {
             foreach ($rows as $id=>$row) {
                 $cells = $values($row,$id);
                 if ($search !== '' || $hasFacets) {
@@ -1169,42 +1223,54 @@ final class Frontier {
                 }
             }
         }
-        $url = self::tableSearchUrl();
-        $query = [];
-        parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$query);
-        echo '<form method="get" role="search" aria-label="Search table" action="'.esc_url(remove_query_arg(array_keys($query),$url)).'">';
-        foreach ($query as $name=>$value) {
-            echo '<input type="hidden" name="'.esc_attr($name).'" value="'.esc_attr($value).'">';
-        }
-        echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
-        echo '<label>Search <input type="search" name="frontier_search" value="'.esc_attr($search).'" placeholder="Search all columns"'.($search !== '' ? ' autofocus' : '').'></label>';
-        if ($dimensions) {
-            echo '<button class="button" type="button" data-table-filter-toggle aria-controls="frontier-table-filters" aria-expanded="'.($hasFacets ? 'true' : 'false').'">Filter</button>';
-        }
-        if ($search !== '' || $hasFacets) {
-            echo '<a class="button" href="'.esc_url($url).'">Clear all</a>';
-        }
-        echo '</div>';
-        if ($dimensions) {
-            echo '<div id="frontier-table-filters"'.($hasFacets ? '' : ' hidden').'><div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin-top:8px">';
-            if (isset($dimensions['date'])) {
-                echo '<label>Date From <input type="date" name="boq_from" value="'.esc_attr($from).'"></label>';
-                echo '<label>Date To <input type="date" name="boq_to" value="'.esc_attr($to).'"></label>';
+        if (self::$exportBuffer === null) {
+            $url = self::tableSearchUrl();
+            $query = [];
+            parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$query);
+            echo '<form method="get" role="search" aria-label="Search table" action="'.esc_url(remove_query_arg(array_keys($query),$url)).'">';
+            foreach ($query as $name=>$value) {
+                echo '<input type="hidden" name="'.esc_attr($name).'" value="'.esc_attr($value).'">';
             }
-            foreach (['site'=>['Site',$site],'item'=>['Item',$item]] as $key=>[$label,$active]) {
-                if (!isset($dimensions[$key])) {
-                    continue;
-                }
-                natcasesort($options[$key]);
-                echo '<label>'.esc_html($label).' <select name="boq_'.esc_attr($key).'"><option value="">All</option>';
-                foreach ($options[$key] as $option) {
-                    echo '<option value="'.esc_attr($option).'" '.selected($active,$option,false).'>'.esc_html($option).'</option>';
-                }
-                echo '</select></label>';
+            echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
+            echo '<label>Search <input type="search" name="frontier_search" value="'.esc_attr($search).'" placeholder="Search all columns"'.($search !== '' ? ' autofocus' : '').'></label>';
+            if ($dimensions) {
+                echo '<button class="button" type="button" data-table-filter-toggle aria-controls="frontier-table-filters" aria-expanded="'.($hasFacets ? 'true' : 'false').'">Filter</button>';
             }
-            echo '<button class="button" type="submit">Apply filter</button></div></div>';
-        }
-        echo '</form>';
+            if ($search !== '' || $hasFacets) {
+                echo '<a class="button" href="'.esc_url($url).'">Clear all</a>';
+            }
+            $exportArgs = ['action'=>'frontier_table_excel','view'=>self::$screen,'surface'=>self::$front ? 'front' : 'admin'];
+            foreach (['frontier_search','boq_from','boq_to','boq_site','boq_item','indent'] as $key) {
+                if (($value = self::tableQuery($key)) !== '') {
+                    $exportArgs[$key] = $value;
+                }
+            }
+            if ($group = self::indentGroupFilter()) {
+                $exportArgs['indent_group'] = $group;
+            }
+            $exportUrl = wp_nonce_url(add_query_arg($exportArgs,admin_url('admin-post.php')),'frontier_table_excel_'.self::$screen);
+            echo '<a class="button frontier-download" href="'.esc_url($exportUrl).'">Download Excel</a>';
+            echo '</div>';
+            if ($dimensions) {
+                echo '<div id="frontier-table-filters"'.($hasFacets ? '' : ' hidden').'><div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin-top:8px">';
+                if (isset($dimensions['date'])) {
+                    echo '<label>Date From <input type="date" name="boq_from" value="'.esc_attr($from).'"></label>';
+                    echo '<label>Date To <input type="date" name="boq_to" value="'.esc_attr($to).'"></label>';
+                }
+                foreach (['site'=>['Site',$site],'item'=>['Item',$item]] as $key=>[$label,$active]) {
+                    if (!isset($dimensions[$key])) {
+                        continue;
+                    }
+                    natcasesort($options[$key]);
+                    echo '<label>'.esc_html($label).' <select name="boq_'.esc_attr($key).'"><option value="">All</option>';
+                    foreach ($options[$key] as $option) {
+                        echo '<option value="'.esc_attr($option).'" '.selected($active,$option,false).'>'.esc_html($option).'</option>';
+                    }
+                    echo '</select></label>';
+                }
+                echo '<button class="button" type="submit">Apply filter</button></div></div>';
+            }
+            echo '</form>';
         echo <<<'HTML'
 <script>
 (() => {
@@ -1232,6 +1298,7 @@ final class Frontier {
 })();
 </script>
 HTML;
+        }
         if ($search !== '' || $hasFacets) {
             $terms = preg_split('/\s+/u',$search,-1,PREG_SPLIT_NO_EMPTY) ?: [];
             $contains = static function ($value,$needle) {
@@ -1251,7 +1318,7 @@ HTML;
                     }
                 }
                 foreach ($cells as &$cell) {
-                    $cell = is_scalar($cell) ? (string)$cell : '';
+                    $cell = is_array($cell) ? ($cell['text'] ?? '') : (is_scalar($cell) ? (string)$cell : '');
                 }
                 unset($cell);
                 $text = implode(' ',$cells);
@@ -1262,6 +1329,9 @@ HTML;
                 }
                 return true;
             },ARRAY_FILTER_USE_BOTH);
+        }
+        if (self::$exportBuffer !== null) {
+            self::sendTableExcel($columns,$rows,$values,$cellCache);
         }
         $total = count($rows);
         $pages = max(1,(int)ceil($total / 25));
@@ -1414,18 +1484,25 @@ HTML;
         [$pageRows,$page,$pages,$total] = self::pagedRows($listing,$searchFields,static function ($row) use ($rowValues,$rows) {
             [$values,$status] = $rowValues($row);
             $values['_status'] = ucwords(str_replace('_',' ',$status));
-            $values['attachment'] = self::canFile($row['kind']) ? ($row['filename'] ?? '') : '';
+            $values['attachment'] = !empty($row['filename']) && self::canFile($row['kind'])
+                ? self::exportLink($row['filename'],'frontier_file',$row['id']) : '';
+            if (self::$screen === 'po') {
+                $values['pdf'] = self::exportLink('PDF','frontier_po_pdf',$row['id']);
+            } elseif (self::$screen === 'grn') {
+                $values['grn_pdf'] = self::exportLink('PDF','frontier_grn_pdf',$row['id']);
+            }
             if ($row['kind'] === 'grn' && self::canFile('grn')) {
                 foreach (self::goodsReceiptGroup($rows,$row) as $line) {
                     if (!empty($line['filename'])) {
-                        $values['grn_slip_copy'] = $line['filename'];
+                        $values['grn_slip_copy'] = self::exportLink($line['filename'],'frontier_file',$line['id']);
                         break;
                     }
                 }
             }
             foreach ($values as $key=>$value) {
                 if (strpos($key,'quotation_') === 0 && is_array($value)) {
-                    $values[$key] = self::canFile('quote') ? ($value['filename'] ?? '') : '';
+                    $values[$key] = !empty($value['filename']) && self::canFile('quote')
+                        ? self::exportLink($value['filename'],'frontier_file',$value['id']) : '';
                 }
             }
             return $values;
@@ -2607,7 +2684,10 @@ HTML;
         } else {
             $listing = $groups;
         }
-        [$pageRows,$page,$pages,$total] = self::pagedRows($listing,array_diff_key($columns,['pdf'=>true,'actions'=>true]),static function ($row) {
+        [$pageRows,$page,$pages,$total] = self::pagedRows($listing,array_diff_key($columns,['actions'=>true]),static function ($row) {
+            if (isset($row['pdf'])) {
+                $row['pdf'] = self::exportLink('PDF','frontier_boq_print',$row['pdf']);
+            }
             return $row;
         });
         echo '<div class="frontier-table" tabindex="0" role="region" aria-label="BOQ records"><table class="widefat striped"><thead><tr>';
@@ -3100,7 +3180,8 @@ HTML;
                 'total'=>'Total Quantity','pdf'=>'PDF','actions'=>'Actions',
             ];
         }
-        [$pageRows,$page,$pages,$total] = self::pagedRows($groups,array_diff_key($columns,['pdf'=>true,'actions'=>true]),static function ($row) {
+        [$pageRows,$page,$pages,$total] = self::pagedRows($groups,array_diff_key($columns,['actions'=>true]),static function ($row) {
+            $row['pdf'] = self::exportLink('PDF','frontier_indent_pdf',$row['id']);
             $row['status'] = implode(' / ',array_keys($row['statuses']));
             $row['remarks'] = implode(' · ',array_keys($row['remarks']));
             foreach (['date','target'] as $field) {
@@ -3366,7 +3447,7 @@ HTML;
             return array_merge($values,[$data['qty'] ?? '',$data['rate'] ?? '',
                 $data['invoice_identifier'] ?? ($invoice ? self::invoiceIdentifier($invoice,$rows) : ''),
                 $invoiceData['ref'] ?? '',self::indentDisplayDate($invoiceData['due'] ?? ''),
-                self::canFile('invoice') ? ($invoice['filename'] ?? '') : '',
+                !empty($invoice['filename']) && self::canFile('invoice') ? self::exportLink($invoice['filename'],'frontier_file',$invoice['id']) : '',
                 number_format((float)$data['qty'] * (float)$data['rate'],2)]);
         });
         if ($editable) {

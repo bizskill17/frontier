@@ -114,21 +114,67 @@ final class Frontier_Boq_Workbook {
     }
 
     public static function template($path) {
+        return self::export($path,self::HEADERS,[]);
+    }
+
+    public static function export($path,$headers,$rows) {
         $zip = new ZipArchive();
         if ($zip->open($path,ZipArchive::OVERWRITE) !== true) {
             return false;
         }
+        $main = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+        $rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+        $package = 'http://schemas.openxmlformats.org/package/2006/relationships';
         $files = [
-            '[Content_Types].xml'=>'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
-            '_rels/.rels'=>'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
-            'xl/workbook.xml'=>'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="BOQ Items" sheetId="1" r:id="rId1"/></sheets></workbook>',
-            'xl/_rels/workbook.xml.rels'=>'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+            '[Content_Types].xml'=>'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
+            '_rels/.rels'=>'<Relationships xmlns="'.$package.'"><Relationship Id="rId1" Type="'.$rel.'/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+            'xl/workbook.xml'=>'<workbook xmlns="'.$main.'" xmlns:r="'.$rel.'"><sheets><sheet name="Records" sheetId="1" r:id="rId1"/></sheets></workbook>',
+            'xl/_rels/workbook.xml.rels'=>'<Relationships xmlns="'.$package.'"><Relationship Id="rId1" Type="'.$rel.'/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="'.$rel.'/styles" Target="styles.xml"/></Relationships>',
+            'xl/styles.xml'=>'<styleSheet xmlns="'.$main.'"><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="dd/mm/yyyy hh:mm:ss"/></numFmts><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>',
         ];
-        $headings = '';
-        foreach (self::HEADERS as $index=>$heading) {
-            $headings .= '<c r="'.chr(65+$index).'1" t="inlineStr"><is><t>'.$heading.'</t></is></c>';
+        $links = $relations = $sheet = '';
+        $linkCount = 0;
+        array_unshift($rows,$headers);
+        foreach ($rows as $index=>$row) {
+            $number = $index+1;
+            $sheet .= '<row r="'.$number.'">';
+            $column = 0;
+            foreach ($headers as $key=>$header) {
+                $reference = self::columnName(++$column).$number;
+                $value = $row[$key] ?? '';
+                if (is_array($value)) {
+                    if (!empty($value['url'])) {
+                        $id = 'rId'.(++$linkCount);
+                        $links .= '<hyperlink ref="'.$reference.'" r:id="'.$id.'"/>';
+                        $relations .= '<Relationship Id="'.$id.'" Type="'.$rel.'/hyperlink" Target="'.self::escape($value['url']).'" TargetMode="External"/>';
+                    }
+                    $value = $value['text'] ?? '';
+                }
+                if ($number > 1 && preg_match('/\bdate\b|timestamp/i',$header)
+                    && preg_match('~^(\d{2})/(\d{2})/(\d{4})(?: (\d{2}):(\d{2}):(\d{2}))?$~D',(string)$value,$parts)
+                    && checkdate((int)$parts[2],(int)$parts[1],(int)$parts[3])) {
+                    $date = DateTimeImmutable::createFromFormat('!Y-m-d',$parts[3].'-'.$parts[2].'-'.$parts[1],new DateTimeZone('UTC'));
+                    $serial = $date->getTimestamp()/86400 + 25569;
+                    $time = isset($parts[4]);
+                    if ($time) {
+                        $serial += ((int)$parts[4]*3600+(int)$parts[5]*60+(int)$parts[6])/86400;
+                    }
+                    $sheet .= '<c r="'.$reference.'" s="'.($time ? 2 : 1).'"><v>'.$serial.'</v></c>';
+                } elseif ($number > 1 && (is_int($value) || is_float($value) || (preg_match('/quantity|qty|amount|rate|pending|received|ordered|total quantity/i',$header)
+                    && preg_match('/^-?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/D',(string)$value)))
+                    && !preg_match('/\b(?:no\.?|number|code|id|mobile|phone|pin)\b/i',$header)) {
+                    $sheet .= '<c r="'.$reference.'"><v>'.str_replace(',','',(string)$value).'</v></c>';
+                } else {
+                    $sheet .= '<c r="'.$reference.'" t="inlineStr"><is><t xml:space="preserve">'.self::escape($value).'</t></is></c>';
+                }
+            }
+            $sheet .= '</row>';
         }
-        $files['xl/worksheets/sheet1.xml'] = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">'.$headings.'</row></sheetData></worksheet>';
+        $files['xl/worksheets/sheet1.xml'] = '<worksheet xmlns="'.$main.'" xmlns:r="'.$rel.'"><sheetData>'.$sheet.'</sheetData>'
+            .($links === '' ? '' : '<hyperlinks>'.$links.'</hyperlinks>').'</worksheet>';
+        if ($links !== '') {
+            $files['xl/worksheets/_rels/sheet1.xml.rels'] = '<Relationships xmlns="'.$package.'">'.$relations.'</Relationships>';
+        }
         foreach ($files as $name=>$xml) {
             if (!$zip->addFromString($name,'<?xml version="1.0" encoding="UTF-8"?>'.$xml)) {
                 $zip->close();
@@ -136,5 +182,20 @@ final class Frontier_Boq_Workbook {
             }
         }
         return $zip->close();
+    }
+
+    private static function columnName($column) {
+        $name = '';
+        while ($column > 0) {
+            $column--;
+            $name = chr(65+$column%26).$name;
+            $column = intdiv($column,26);
+        }
+        return $name;
+    }
+
+    private static function escape($value) {
+        $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/','',(string)$value);
+        return htmlspecialchars($value,ENT_QUOTES | ENT_XML1 | ENT_SUBSTITUTE,'UTF-8');
     }
 }
