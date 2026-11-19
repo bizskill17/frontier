@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.23
+ * Version: 1.9.24
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.16');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.24');
         self::enqueueDropdownSearch();
     }
 
@@ -357,7 +357,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.16');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.24');
         }
     }
 
@@ -375,6 +375,7 @@ final class Frontier {
         ?>
         <a class="frontier-skip" href="#frontier-main">Skip to content</a>
         <div class="frontier-shell">
+            <?php self::workspaceNavigation($kind); ?>
             <div class="frontier-main-column">
                 <header class="frontier-topbar">
                     <span role="heading" aria-level="1"><?php echo esc_html($views[$kind]); ?></span>
@@ -391,6 +392,34 @@ final class Frontier {
             </div>
         </div>
         <?php
+    }
+
+    private static function workspaceNavigation($current) {
+        echo '<nav class="frontier-sidebar" aria-label="Frontier navigation">';
+        echo '<a class="frontier-sidebar-brand" href="'.esc_url(self::url('home')).'">Frontier</a>';
+        self::workspaceNavigationLink('home','Dashboard',$current);
+        foreach (self::GROUPS as $group=>$views) {
+            $visible = array_filter($views,[self::class,'canView'],ARRAY_FILTER_USE_KEY);
+            if (!$visible) {
+                continue;
+            }
+            echo '<details'.(isset($visible[$current]) ? ' open' : '').'><summary>'.esc_html($group).'</summary><ul>';
+            foreach ($visible as $view=>$label) {
+                echo '<li>';
+                self::workspaceNavigationLink($view,$label,$current);
+                echo '</li>';
+            }
+            echo '</ul></details>';
+        }
+        if (self::canView('stock')) {
+            self::workspaceNavigationLink('stock','Received Stock',$current);
+        }
+        echo '</nav>';
+    }
+
+    private static function workspaceNavigationLink($view,$label,$current) {
+        $active = $view === $current ? ' aria-current="page"' : '';
+        echo '<a href="'.esc_url(self::url($view)).'"'.$active.'>'.esc_html($label).'</a>';
     }
 
     public static function shortcode() {
