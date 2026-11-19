@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.45
+ * Version: 1.9.46
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -820,6 +820,14 @@ final class Frontier {
             $register = $kind === 'indent' ? 'indent_master' : $kind;
             echo '<p><a href="'.esc_url(self::url($register)).'">'.esc_html($tabs[$register]).'</a></p>';
         }
+        $receiptsWithSlips = [];
+        if (self::$screen === 'grn_slip') {
+            foreach ($rows as $receipt) {
+                if ($receipt['kind'] === 'grn' && !empty($receipt['filename'])) {
+                    $receiptsWithSlips[self::goodsReceiptNumberId($receipt)] = true;
+                }
+            }
+        }
         $listing = [];
         $indentGroup = self::indentGroupFilter();
         $indentFilter = absint($_GET['indent'] ?? 0);
@@ -844,8 +852,11 @@ final class Frontier {
             if (self::$screen === 'po' && !empty($row['data']['po_group_id']) && (int)$row['id'] !== (int)$row['data']['po_group_id']) {
                 continue;
             }
-            if (in_array(self::$screen,['grn','grn_slip'],true) && self::goodsReceiptNumberId($row) !== (int)$row['id']) {
-                continue;
+            if (in_array(self::$screen,['grn','grn_slip'],true)) {
+                $receiptId = self::goodsReceiptNumberId($row);
+                if ($receiptId !== (int)$row['id'] || (self::$screen === 'grn_slip' && isset($receiptsWithSlips[$receiptId]))) {
+                    continue;
+                }
             }
             $listing[] = $row;
         }
