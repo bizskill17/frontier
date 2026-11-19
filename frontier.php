@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.14
+ * Version: 1.9.15
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -353,7 +353,7 @@ final class Frontier {
     private static function enqueueDropdownSearch() {
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.0',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
-        wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.14',true);
+        wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.15',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
@@ -2742,7 +2742,16 @@ final class Frontier {
         self::requireRule($date && $date->format('Y-m-d') === $dateText,'Enter a valid quotation date.');
         $raw = $_POST['quotation_lines'] ?? '';
         $lines = is_string($raw) && strlen($raw) <= 200000 ? json_decode(wp_unslash($raw),true) : null;
-        self::requireRule(is_array($lines) && count($lines) > 0 && count($lines) <= 300,'Enter at least one supplier rate.');
+        self::requireRule(is_array($lines) && count($lines) > 0 && count($lines) <= 300,'Enter three supplier rates per item.');
+        $counts = [];
+        foreach ($lines as $line) {
+            self::requireRule(is_array($line) && is_int($line['indent'] ?? null),'Check the quotation entries.');
+            $indentId = $line['indent'];
+            $counts[$indentId] = ($counts[$indentId] ?? 0) + 1;
+        }
+        foreach ($counts as $count) {
+            self::requireRule($count === 3,'Every item being quoted must include three suppliers and three rates.');
+        }
         $existing = [];
         $locked = [];
         foreach ($rows as $row) {
@@ -2773,7 +2782,7 @@ final class Frontier {
             self::requireRule($supplier && $supplier['kind'] === 'supplier','Choose a supplier from Supplier Master.');
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$rate) && (float)$rate >= 0,'Enter a valid supplier rate.');
             self::requireRule(!isset($seen[$indentId][$supplierId]) && count($seen[$indentId] ?? []) < 3,
-                'Enter up to three distinct suppliers per item.');
+                'Enter three distinct suppliers per item.');
             $seen[$indentId][$supplierId] = true;
             $previous = $existing[$indentId][$supplierId] ?? null;
             $data = [

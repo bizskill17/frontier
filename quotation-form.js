@@ -25,12 +25,20 @@
         const lines = [];
         let error = '';
         for (const entry of entries) {
+            const started = entry.pairs.some(({ name, rate }) =>
+                name.value.trim() !== '' || rate.value !== '' || rate.validity.badInput
+            );
             const seen = new Set();
             for (const pair of entry.pairs) {
+                pair.name.required = started;
+                pair.rate.required = started;
+                if (!started) continue;
                 const name = pair.name.value.trim();
                 const rate = pair.rate.value.trim();
-                pair.rate.disabled = !name;
-                if (!name) continue;
+                if (!name || !rate) {
+                    error = 'Fill all three suppliers and rates for item ' + entry.number + '.';
+                    continue;
+                }
                 const supplier = ids.get(normalize(name));
                 if (!supplier || !rate || !pair.rate.validity.valid || seen.has(supplier)) {
                     error = 'Choose distinct suppliers and enter a valid rate for item ' + entry.number + '.';
