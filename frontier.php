@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.70
+ * Version: 1.9.71
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -438,6 +438,9 @@ final class Frontier {
         if ($logo) {
             echo '<p>'.wp_get_attachment_image($logo,'medium',false,['alt'=>'Current company logo']).'</p>';
         }
+        if (!current_user_can('manage_options') || !current_user_can('upload_files')) {
+            return;
+        }
         echo '<form class="frontier-entry" method="post" enctype="multipart/form-data" action="'.esc_url(admin_url('admin-post.php')).'">';
         wp_nonce_field('frontier_save_logo');
         echo '<input type="hidden" name="action" value="frontier_save_logo">';
@@ -448,7 +451,7 @@ final class Frontier {
     }
 
     public static function saveLogo() {
-        if (!self::canView('settings') || !current_user_can('upload_files')) {
+        if (!current_user_can('manage_options') || !current_user_can('upload_files')) {
             wp_die('Access denied.','Frontier',['response'=>403]);
         }
         check_admin_referer('frontier_save_logo');
@@ -507,23 +510,35 @@ final class Frontier {
         return ob_get_clean();
     }
 
+    private static function assignedViewAccess($userId) {
+        return $userId ? get_user_meta($userId,'frontier_view_access',true) : [];
+    }
+
     private static function canView($kind) {
-        if ($kind === 'settings') {
-            return current_user_can('manage_options');
+        $user = wp_get_current_user();
+        if (!user_can($user,'manage_options') && user_can($user,'frontier_read')) {
+            $access = self::assignedViewAccess($user->ID);
+            if (is_array($access) && isset($access['role'])) {
+                return isset(self::views()[$kind]) && ($kind === 'home' || $access['role'] === 'admin'
+                    || in_array($kind,$access['views'] ?? [],true));
+            }
         }
-        if (isset(self::PENDING_VIEWS[$kind])) {
-            return self::can('read') && self::can(self::PENDING_VIEWS[$kind][1]);
+        return self::defaultViewAccess($kind,$user);
+    }
+
+    private static function defaultViewAccess($kind,$user) {
+        if (user_can($user,'manage_options')) {
+            return true;
         }
-        if ($kind === 'choose_form' && !self::can('quote')) {
+        if (!user_can($user,'frontier_read') || $kind === 'settings' || isset(self::MASTERS[$kind])) {
             return false;
         }
-        if ($kind === 'grn_slip' && !self::can('grn')) {
-            return false;
+        $capability = self::PENDING_VIEWS[$kind][1] ?? ['choose_form'=>'quote','grn_slip'=>'grn'][$kind] ?? '';
+        if ($capability !== '') {
+            return user_can($user,'frontier_'.$capability);
         }
-        if (isset(self::MASTERS[$kind])) {
-            return current_user_can('manage_options');
-        }
-        return self::can('read') && (!in_array($kind,['invoice','match','po_invoice_master'],true) || self::can('invoice') || self::can('match'));
+        return !in_array($kind,['invoice','match','po_invoice_master'],true)
+            || user_can($user,'frontier_invoice') || user_can($user,'frontier_match');
     }
 
     private static function table() {
@@ -848,11 +863,17 @@ final class Frontier {
                 }
                 self::field($rows,$kind,$field,$label,$value,$editing && !empty($edit['data']['wp_user_id']));
             }
+            if ($kind === 'employee') {
+                self::employeeViewAccessFields($editing ? $edit['data'] : []);
+            }
             if (isset(self::FILES[$kind])) {
                 self::uploadField($kind,$kind === 'invoice');
             }
             if (self::$front) {
                 echo '</div>';
+            }
+            if ($kind === 'employee') {
+                self::employeeViewAccessGroups($editing ? $edit['data'] : []);
             }
             self::submitButton($editing ? 'Save changes' : ($kind === 'indent' ? 'Save draft' : 'Save'),true);
             echo ' <a class="button" href="'.esc_url(self::url(self::$screen)).'">Cancel</a></form></div>';
@@ -2264,6 +2285,47 @@ HTML;
         return $update + ['status'=>$status,'details'=>wp_json_encode($data)];
     }
 
+    private static function employeeViewAccessFields($data) {
+        $access = self::assignedViewAccess(absint($data['wp_user_id'] ?? 0));
+        $role = $access['role'] ?? 'employee';
+        echo '<p><label>'.self::requiredLabel('Role').'<select name="frontier_employee_role" required>';
+        foreach (['admin'=>'Admin','employee'=>'Employee'] as $key=>$label) {
+            echo '<option value="'.esc_attr($key).'" '.selected($role,$key,false).'>'.esc_html($label).'</option>';
+        }
+        echo '</select></label></p>';
+    }
+
+    private static function employeeViewAccessGroups($data) {
+        $id = absint($data['wp_user_id'] ?? 0);
+        $access = self::assignedViewAccess($id);
+        $user = $id ? get_userdata($id) : null;
+        echo '<section data-frontier-view-access'.(($access['role'] ?? '') === 'admin' ? ' hidden' : '').'><h2>View Access</h2>';
+        echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;margin-bottom:16px">';
+        foreach (self::GROUPS as $group=>$views) {
+            echo '<fieldset style="min-width:0;border:1px solid #cbd6e4;border-radius:8px;padding:10px"><legend>'.esc_html($group).'</legend>';
+            foreach ($views as $view=>$label) {
+                $checked = isset($access['role']) ? in_array($view,$access['views'] ?? [],true)
+                    : ($user && self::defaultViewAccess($view,$user));
+                echo '<label style="display:block;margin:4px 0"><input type="checkbox" name="frontier_employee_views[]" value="'
+                    .esc_attr($view).'" '.checked($checked,true,false).'> '.esc_html($label).'</label>';
+            }
+            echo '</fieldset>';
+        }
+        echo '</div></section>';
+        echo <<<'HTML'
+<script>
+(() => {
+    const form = document.currentScript.closest('form');
+    const role = form.elements.frontier_employee_role;
+    const access = form.querySelector('[data-frontier-view-access]');
+    const update = () => { access.hidden = role.value === 'admin'; };
+    role.addEventListener('change',update);
+    update();
+})();
+</script>
+HTML;
+    }
+
     private static function employeeAccount($data) {
         $linkedId = absint($data['wp_user_id'] ?? 0);
         $account = $linkedId ? get_userdata($linkedId) : null;
@@ -2276,6 +2338,16 @@ HTML;
             self::requireRule($account && $account->roles && !array_diff($account->roles,array_keys(self::EMPLOYEE_ROLES))
                 && !is_super_admin($linkedId) && $account->user_login === $data['login'],
                 'The linked account must keep its existing User ID and a Frontier role.');
+        }
+        $role = self::input('frontier_employee_role');
+        self::requireRule(in_array($role,['admin','employee'],true),'Select a valid Frontier role.');
+        $requested = $_POST['frontier_employee_views'] ?? [];
+        self::requireRule(is_array($requested),'Select valid Frontier views.');
+        $allowed = array_diff_key(self::views(),['home'=>true,'stock'=>true]);
+        $views = [];
+        foreach ($requested as $view) {
+            self::requireRule(is_string($view) && isset($allowed[$view]),'Select valid Frontier views.');
+            $views[$view] = true;
         }
         $input = $_POST['password'] ?? '';
         $password = is_string($input) ? wp_unslash($input) : '';
@@ -2291,6 +2363,10 @@ HTML;
         }
         $id = $linkedId ? wp_update_user(['ID'=>$linkedId] + $user) : wp_insert_user($user);
         self::requireRule(!is_wp_error($id), is_wp_error($id) ? $id->get_error_message() : '');
+        $access = ['role'=>$role,'views'=>$role === 'employee' ? array_keys($views) : []];
+        if (self::assignedViewAccess((int)$id) !== $access && update_user_meta((int)$id,'frontier_view_access',$access) === false) {
+            throw new RuntimeException('Frontier view access could not be saved.');
+        }
         return (int)$id;
     }
 
@@ -4570,7 +4646,12 @@ HTML;
         $kind = sanitize_key(self::input('kind'));
         $action = sanitize_key(self::input('operation'));
         $capability = ['approve'=>'approve','update_indent_group'=>'approve','return'=>'approve','approve_grn'=>'stock'][$action] ?? ($kind === 'site' ? 'sites' : $kind);
-        if (!isset(self::FIELDS[$kind]) || !self::canView($kind) || !self::can($capability)) {
+        $screen = sanitize_key(self::input('screen'));
+        $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
+        $access = self::assignedViewAccess(get_current_user_id());
+        $configured = !current_user_can('manage_options') && is_array($access) && isset($access['role']);
+        $allowedView = $configured ? ($sameKind && self::canView($screen)) : self::canView($kind);
+        if (!isset(self::FIELDS[$kind]) || !$allowedView || !self::can($capability)) {
             wp_die('Access denied.', '', ['response'=>403]);
         }
         $lock = 'frontier_'.md5(DB_NAME.'|'.self::table());
