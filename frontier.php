@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.43
+ * Version: 1.9.44
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -389,9 +389,6 @@ final class Frontier {
                     <?php endif; ?>
                 </header>
                 <main id="frontier-main" class="frontier-main">
-                    <?php if ($kind !== 'home') : ?>
-                        <a class="frontier-back" href="<?php echo esc_url(self::url('home')); ?>">← Back to Dashboard</a>
-                    <?php endif; ?>
                     <?php self::render($kind); ?>
                 </main>
             </div>
