@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.1
+ * Version: 1.8.2
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -716,7 +716,7 @@ final class Frontier {
             if ($showActions) {
                 echo '<td>';
                 self::actions($row,$rows);
-                if (in_array($kind,['employee','item'],true) && self::can($kind)) {
+                if (in_array($kind,['employee','item','units'],true) && self::can($kind)) {
                     echo ' <details><summary class="button">Delete</summary><p>Delete this record?</p>';
                     self::button($row,'delete_master','Confirm Delete');
                     echo '</details>';
@@ -1742,7 +1742,7 @@ final class Frontier {
                 $row = $rows[absint(self::input('id'))] ?? null;
                 self::requireRule($row && $row['kind'] === $kind,'Record could not be found.');
                 if ($action === 'delete_master') {
-                    self::requireRule(in_array($kind,['employee','item'],true),'This record cannot be deleted here.');
+                    self::requireRule(in_array($kind,['employee','item','units'],true),'This record cannot be deleted here.');
                     if ($kind === 'employee') {
                         self::requireRule(empty($row['data']['wp_user_id']),'This employee has a linked WordPress login. Resolve the login before deleting the record.');
                         foreach ($rows as $record) {
