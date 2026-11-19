@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.53
+ * Version: 1.9.54
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -345,7 +345,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.38');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.54');
         self::enqueueDropdownSearch();
     }
 
@@ -363,7 +363,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.38');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.54');
         }
     }
 
@@ -643,6 +643,7 @@ final class Frontier {
             if (self::$front) {
                 echo '<div class="frontier-overview">';
             }
+            $counts = self::dashboardCounts(self::rows());
             foreach (self::GROUPS as $group=>$views) {
                 $visible = array_filter(array_keys($views),[self::class,'canView']);
                 if (!$visible) {
@@ -650,7 +651,11 @@ final class Frontier {
                 }
                 echo '<section class="frontier-card-'.esc_attr(sanitize_title($group)).'"><h2>'.esc_html($group).'</h2><ul>';
                 foreach ($visible as $key) {
-                    echo '<li><a href="'.esc_url(self::url($key)).'">'.esc_html($views[$key]).'</a></li>';
+                    echo '<li><a class="frontier-dashboard-link" href="'.esc_url(self::url($key)).'"><span>'.esc_html($views[$key]).'</span>';
+                    if (isset($counts[$key])) {
+                        echo '<span class="frontier-dashboard-count">'.esc_html(number_format_i18n($counts[$key])).'</span>';
+                    }
+                    echo '</a></li>';
                 }
                 echo '</ul></section>';
             }
@@ -942,11 +947,78 @@ final class Frontier {
         self::pagination($page,$pages,$total);
     }
 
+    private static function dashboardCounts($rows) {
+        $direct = self::MASTERS + ['site'=>'','cancel'=>'','invoice'=>'',
+            'po_items'=>'','grn_items'=>'','indent_items'=>'','boq_items'=>'','match'=>'','po_invoice_master'=>''];
+        $counts = array_fill_keys(array_merge(array_keys($direct),
+            ['boq','indent_master','quote','choose_master','po','grn','grn_slip'],array_keys(self::PENDING_VIEWS)),0);
+        $viewsByKind = ['boq'=>'boq_items','indent'=>'indent_items','po'=>'po_items','grn'=>'grn_items','match'=>'po_invoice_master'];
+        $boqs = $indents = $pendingIndents = $quotes = $receipts = $slips = [];
+        foreach ($rows as $row) {
+            $kind = $row['kind'];
+            $key = $viewsByKind[$kind] ?? $kind;
+            if (isset($direct[$key])) {
+                $counts[$key]++;
+            }
+            switch ($kind) {
+                case 'boq':
+                    $boqs[self::boqGroup($row)] = true;
+                    break;
+                case 'indent':
+                    $group = self::indentGroup($row);
+                    $indents[$group] = true;
+                    if ($row['status'] === 'pending') {
+                        $pendingIndents[$group] = true;
+                    }
+                    break;
+                case 'quote':
+                    $id = (int)($row['data']['indent'] ?? 0);
+                    $quotes[$id] = ($quotes[$id] ?? 0) + 1;
+                    if ($row['status'] === 'selected') {
+                        $counts['choose_master']++;
+                    }
+                    break;
+                case 'po':
+                    $counts['match']++;
+                    if ((int)($row['data']['po_group_id'] ?? $row['id']) === (int)$row['id']) {
+                        $counts['po']++;
+                    }
+                    break;
+                case 'grn':
+                    $id = self::goodsReceiptNumberId($row);
+                    $receipts[$id] = true;
+                    if (!empty($row['filename'])) {
+                        $slips[$id] = true;
+                    }
+                    break;
+            }
+        }
+        $counts['boq'] = count($boqs);
+        $counts['indent_master'] = count($indents);
+        $counts['pending_indent'] = count($pendingIndents);
+        $counts['grn'] = count($receipts);
+        $counts['grn_slip'] = count(array_diff_key($receipts,$slips));
+        foreach ($quotes as $quantity) {
+            $counts['quote'] += (int)ceil($quantity / 3);
+        }
+        foreach (array_keys(self::PENDING_VIEWS) as $screen) {
+            if ($screen !== 'pending_indent' && self::canView($screen)) {
+                $counts[$screen] = count(self::pendingRows($rows,$screen)[0]);
+            }
+        }
+        return $counts;
+    }
+
     private static function pendingWork($rows,$screen) {
         if ($screen === 'pending_indent') {
             self::indentRegister($rows,true);
             return;
         }
+        [$listing,$choiceItems] = self::pendingRows($rows,$screen);
+        self::renderRecords($listing,$rows,self::PENDING_VIEWS[$screen][0],'queue',$choiceItems);
+    }
+
+    private static function pendingRows($rows,$screen) {
         $listing = [];
         $quoted = [];
         $selected = [];
@@ -994,7 +1066,7 @@ final class Frontier {
                 $listing[] = $row;
             }
         }
-        self::renderRecords($listing,$rows,$kind,'queue',$choiceItems);
+        return [$listing,$choiceItems];
     }
 
     private static function pagedRows($rows) {
