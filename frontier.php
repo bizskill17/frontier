@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.12
+ * Version: 1.7.13
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -488,6 +488,16 @@ final class Frontier {
         self::$screen = $kind;
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
+        if ($kind === 'site' && isset($_GET['site_action']) && self::can('sites')) {
+            $action = $_GET['site_action'];
+            $site = $rows[absint($_GET['site_id'] ?? 0)] ?? null;
+            if (in_array($action,['complete_site','cancel_site'],true) && $site && $site['kind'] === 'site'
+                && !in_array($site['status'],['completed','cancelled'],true)) {
+                self::siteStatusForm($site,$action);
+                echo '</div>';
+                return;
+            }
+        }
         $edit = $rows[absint($_GET['edit'] ?? 0)] ?? null;
         $editing = $edit && $edit['kind'] === $kind && ((isset(self::MASTERS[$kind]) || $kind === 'site')
             || ($kind === 'indent' && in_array($edit['status'],['draft','returned','approved'],true)));
@@ -602,7 +612,7 @@ final class Frontier {
         $fields = self::FIELDS[$kind];
         unset($fields['password']);
         $fields += [
-            'site'=>['combined_name'=>'Site Number with Name'],
+            'site'=>['combined_name'=>'Site Number with Name','status_date'=>'Status Date','status_remark'=>'Remark','updated_by'=>'Updated By'],
             'supplier'=>['combined_name'=>'Suppliers Name with Code'],
             'indent'=>['reason'=>'Reason'],
             'quote'=>['reason'=>'Selection Reason','attachment'=>'Quotation File'],
@@ -711,7 +721,7 @@ final class Frontier {
     }
 
     private static function formStart($kind,$action,$id=0) {
-        $class = in_array($action,['create','edit'],true) ? ' class="frontier-entry"' : '';
+        $class = in_array($action,['create','edit','complete_site','cancel_site'],true) ? ' class="frontier-entry"' : '';
         echo '<form'.$class.' method="post" enctype="multipart/form-data" action="'.esc_url(admin_url('admin-post.php')).'">';
         wp_nonce_field('frontier_save');
         foreach (['action'=>'frontier_save','kind'=>$kind,'operation'=>$action,'id'=>$id,'screen'=>self::$screen,'surface'=>self::$front ? 'front' : 'admin'] as $key=>$value) {
@@ -779,6 +789,17 @@ final class Frontier {
         echo '</label></p>';
     }
 
+    private static function siteStatusForm($site,$action) {
+        $label = $action === 'complete_site' ? 'Complete Site' : 'Cancel Site';
+        self::formStart('site',$action,$site['id']);
+        echo '<h2>'.esc_html($label.' · '.$site['data']['name']).'</h2><div class="frontier-fields">';
+        self::field([],'site','due','Date',current_time('Y-m-d'));
+        echo '<p><label>'.self::requiredLabel('Remark').'<textarea name="status_remark" rows="3" maxlength="2000" required></textarea></label></p>';
+        echo '<p><label>Updated By <input type="text" readonly value="'.esc_attr(wp_get_current_user()->display_name).'"></label></p></div>';
+        self::submitButton($label,true);
+        echo ' <a class="button" href="'.esc_url(self::url('site')).'">Back to Site Master</a></form>';
+    }
+
     private static function actions($row,$rows) {
         $kind = $row['kind'];
         $status = $row['status'];
@@ -788,6 +809,12 @@ final class Frontier {
         }
         if ((isset(self::MASTERS[$kind]) || $kind === 'site') && self::can($kind === 'site' ? 'sites' : $kind)) {
             echo '<a class="button" href="'.esc_url(add_query_arg('edit',$row['id'],self::url($kind))).'">Edit</a>';
+        }
+        if ($kind === 'site' && self::can('sites') && !in_array($status,['completed','cancelled'],true)) {
+            foreach (['complete_site'=>'Complete Site','cancel_site'=>'Cancel Site'] as $action=>$label) {
+                $url = add_query_arg(['site_action'=>$action,'site_id'=>$row['id']],self::url('site'));
+                echo ' <a class="button" href="'.esc_url($url).'">'.esc_html($label).'</a>';
+            }
         }
         if ($kind === 'indent') {
             if (self::can('indent') && in_array($status,['draft','returned','approved'],true)) {
@@ -858,6 +885,11 @@ final class Frontier {
             $values['combined_name'] = $data['ref'].' - '.$data['name'];
         }
         $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
+        if ($kind === 'site' && !empty($data['status_date'])) {
+            $values['status_date'] = implode('/',array_reverse(explode('-',$data['status_date'])));
+            $values['status_remark'] = $data['status_remark'] ?? '';
+            $values['updated_by'] = $data['updated_by'] ?? '';
+        }
         if ($kind === 'po' && $row['status'] === 'issued') {
             $id = $row['id'];
             $values['received'] = self::sum($rows,'grn','po',$id,'qty','approved');
@@ -1093,6 +1125,21 @@ final class Frontier {
         $data = $row['data'];
         $update = [];
         switch ($action) {
+            case 'complete_site':
+            case 'cancel_site':
+                self::requireRule($kind === 'site' && !in_array($status,['completed','cancelled'],true),'This site has already been closed or is unavailable.');
+                $dateText = self::input('due');
+                $date = DateTimeImmutable::createFromFormat('!Y-m-d',$dateText);
+                $remark = self::input('status_remark');
+                self::requireRule($date && $date->format('Y-m-d') === $dateText,'Enter a valid date.');
+                self::requireRule($remark !== '' && strlen($remark) <= 2000,'Enter a remark of up to 2,000 bytes.');
+                $user = wp_get_current_user();
+                $data['status_date'] = $dateText;
+                $data['status_remark'] = $remark;
+                $data['updated_by'] = $user->display_name;
+                $data['updated_by_id'] = $user->ID;
+                $status = $action === 'complete_site' ? 'completed' : 'cancelled';
+                break;
             case 'edit':
                 if (isset(self::MASTERS[$kind]) || $kind === 'site') {
                     $fields = self::readFields($rows,$kind);
