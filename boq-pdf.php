@@ -18,10 +18,10 @@ final class Frontier_Boq_Pdf {
         return "BT /F1 $size Tf $x $y Td ($escaped) Tj ET\n";
     }
 
-    public static function build($number,$site,$date,$prepared,$rows) {
+    public static function build($number,$site,$date,$prepared,$rows,$title='BOQ',$ownerLabel='Prepared By') {
         $heading = [
-            self::text('BOQ '.$number), self::text('Site: '.$site),
-            self::text('Date: '.$date), self::text('Prepared By: '.$prepared),
+            self::text($title.' '.$number), self::text('Site: '.$site),
+            self::text('Date: '.$date), self::text($ownerLabel.': '.$prepared),
         ];
         $pages = [];
         $start = static function () use ($heading) {

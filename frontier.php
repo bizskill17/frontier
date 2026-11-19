@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.1
+ * Version: 1.9.2
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -108,6 +108,7 @@ final class Frontier {
         add_action('admin_menu', [self::class, 'menu']);
         add_action('admin_enqueue_scripts', [self::class, 'adminDropdownSearch']);
         add_action('admin_post_frontier_template', [self::class, 'downloadTemplate']);
+        add_action('admin_post_frontier_indent_pdf', [self::class, 'downloadIndentPdf']);
         add_action('admin_post_frontier_boq_print', [self::class, 'printBoq']);
         add_action('admin_post_frontier_boq_excel', [self::class, 'boqExcel']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
@@ -588,6 +589,14 @@ final class Frontier {
         self::$screen = $kind;
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
+        if (self::$screen === 'indent_master') {
+            if (self::can('indent')) {
+                echo '<p><a class="button frontier-add" href="'.esc_url(self::url('indent')).'">Add</a></p>';
+            }
+            self::indentRegister($rows);
+            echo '</div>';
+            return;
+        }
         if ($kind === 'boq') {
             $editId = absint($_GET['edit'] ?? 0);
             if ($mode === 'form' || ($mode === 'register' && $editId)) {
@@ -686,6 +695,7 @@ final class Frontier {
             echo '<p><a href="'.esc_url(self::url($register)).'">'.esc_html($tabs[$register]).'</a></p>';
         }
         $listing = [];
+        $indentGroup = self::indentGroupFilter();
         $indentFilter = absint($_GET['indent'] ?? 0);
         foreach ($rows as $row) {
             if ($row['kind'] !== $kind && !($kind === 'follow' && $row['kind'] === 'po' && $row['status'] === 'issued' && self::balance($rows,$row) > 0)) {
@@ -701,9 +711,12 @@ final class Frontier {
                 || ($mode === 'selected' && $row['status'] !== 'selected')) {
                 continue;
             }
+            if ($indentGroup !== '' && self::indentGroup($row) !== $indentGroup) {
+                continue;
+            }
             $listing[] = $row;
         }
-        self::renderRecords($listing,$rows,$kind,$mode);
+        self::renderRecords($listing,$rows,$kind,$indentGroup !== '' ? 'register' : $mode);
         echo '</div>';
     }
 
@@ -721,6 +734,9 @@ final class Frontier {
         $url = self::url(self::$screen);
         if ($indent = absint($_GET['indent'] ?? 0)) {
             $url = add_query_arg('indent',$indent,$url);
+        }
+        if ($group = self::indentGroupFilter()) {
+            $url = add_query_arg('indent_group',$group,$url);
         }
         echo '<nav aria-label="Table pagination"><p>';
         if ($page > 1) {
@@ -1347,6 +1363,11 @@ final class Frontier {
             case 'return':
                 self::requireRule($kind === 'indent' && $status === 'pending','This indent is not pending approval.');
                 $status = $action === 'approve' ? 'approved' : 'returned';
+                $data['decision_at'] = current_time('mysql');
+                $data['decision_by'] = wp_get_current_user()->display_name;
+                if ($action === 'approve') {
+                    unset($data['reason']);
+                }
                 break;
             case 'select':
                 self::requireRule($kind === 'quote' && $status !== 'selected' && $rows[$data['indent']]['status'] === 'approved','This quotation cannot be selected.');
@@ -2031,6 +2052,175 @@ final class Frontier {
         }
     }
 
+    private static function indentGroup($row) {
+        $number = (int)($row['data']['indent_number'] ?? 0);
+        return $number ? 'number-'.$number : 'legacy-'.$row['id'];
+    }
+
+    private static function indentGroupFilter() {
+        if (self::$screen !== 'indent_items' || !is_string($_GET['indent_group'] ?? null)) {
+            return '';
+        }
+        return sanitize_key(wp_unslash($_GET['indent_group']));
+    }
+
+    private static function indentDisplayDate($date) {
+        return $date ? implode('/',array_reverse(explode('-',$date))) : '';
+    }
+
+    private static function indentRegister($rows) {
+        $pos = [];
+        $received = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'po' && $row['status'] === 'issued') {
+                $pos[$row['id']] = (float)$row['data']['qty'];
+            }
+        }
+        foreach ($rows as $row) {
+            $id = $row['data']['po'] ?? 0;
+            if (!isset($pos[$id])) {
+                continue;
+            }
+            if ($row['kind'] === 'cancel') {
+                $pos[$id] -= $row['data']['qty'];
+            } elseif ($row['kind'] === 'grn' && $row['status'] === 'approved') {
+                $received[$id] = ($received[$id] ?? 0) + $row['data']['qty'];
+            }
+        }
+        $byIndent = [];
+        foreach ($pos as $id=>$qty) {
+            $line = $rows[$id]['data']['indent'];
+            $byIndent[$line]['ordered'] = ($byIndent[$line]['ordered'] ?? 0) + max(0,$qty);
+            $byIndent[$line]['received'] = ($byIndent[$line]['received'] ?? 0) + ($received[$id] ?? 0);
+        }
+        $groups = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] !== 'indent') {
+                continue;
+            }
+            $data = $row['data'];
+            $id = $row['id'];
+            $group = self::indentGroup($row);
+            $boq = $rows[$data['boq']]['data'] ?? [];
+            $status = $row['status'];
+            if (!isset($groups[$group])) {
+                $groups[$group] = [
+                    'id'=>$id,'number'=>$data['indent_number'] ?? '#'.$id,'group'=>$group,
+                    'date'=>$data['indent_date'] ?? '',
+                    'site'=>self::siteNumberWithName($rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? []),
+                    'requested'=>$data['requested_name'] ?? '', 'timestamp'=>$data['indent_timestamp'] ?? '',
+                    'total'=>0,'received'=>0,'pending_receive'=>0,'ordered'=>0,'pending_order'=>0,
+                    'target'=>'','decision'=>'','by'=>'','statuses'=>[],'remarks'=>[],
+                ];
+            }
+            $entry = &$groups[$group];
+            $ordered = $byIndent[$id]['ordered'] ?? 0;
+            $receivedQty = $byIndent[$id]['received'] ?? 0;
+            $entry['statuses'][$status] = true;
+            $entry['total'] += $data['qty'];
+            $entry['ordered'] += $ordered;
+            $entry['received'] += $receivedQty;
+            $entry['pending_receive'] += max(0,$ordered-$receivedQty);
+            if ($status === 'approved') {
+                $entry['pending_order'] += max(0,$data['qty']-$ordered);
+            }
+            if (!empty($data['due']) && (!$entry['target'] || $data['due'] < $entry['target'])) {
+                $entry['target'] = $data['due'];
+            }
+            if (!empty($data['decision_at']) && $data['decision_at'] > $entry['decision']) {
+                $entry['decision'] = $data['decision_at'];
+                $entry['by'] = $data['decision_by'] ?? '';
+            }
+            if (!empty($data['reason'])) {
+                $entry['remarks'][$data['reason']] = true;
+            }
+            unset($entry);
+        }
+        $columns = [
+            'date'=>'Indent Date','number'=>'Indent No.','site'=>'Site Number with Name','requested'=>'Requested By',
+            'pdf'=>'PDF','timestamp'=>'Timestamp','total'=>'Total Quantity','received'=>'Quantity Received',
+            'pending_receive'=>'Pending to Receive','target'=>'Indent Target Date','decision'=>'Decision Timestamp',
+            'by'=>'Approved/Rejected By','status'=>'Status','remarks'=>'Remarks',
+            'pending_order'=>'Pending To Order','ordered'=>'Quantity Ordered',
+        ];
+        [$pageRows,$page,$pages,$total] = self::pagedRows($groups);
+        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Indent Master"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($pageRows as $entry) {
+            echo '<tr>';
+            foreach ($columns as $field=>$label) {
+                echo '<td>';
+                if ($field === 'number') {
+                    $url = add_query_arg('indent_group',$entry['group'],self::url('indent_items'));
+                    echo '<a href="'.esc_url($url).'">'.esc_html((string)$entry['number']).'</a>';
+                } elseif ($field === 'pdf') {
+                    $id = $entry['id'];
+                    $url = add_query_arg(['action'=>'frontier_indent_pdf','id'=>$id],admin_url('admin-post.php'));
+                    echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url($url,'frontier_indent_pdf_'.$id)).'">PDF</a>';
+                } else {
+                    $value = $entry[$field] ?? '';
+                    if ($field === 'status') {
+                        $value = implode(' / ',array_map('ucwords',array_keys($entry['statuses'])));
+                    } elseif ($field === 'remarks') {
+                        $value = implode(' · ',array_keys($entry['remarks']));
+                    } elseif (in_array($field,['date','target'],true)) {
+                        $value = self::indentDisplayDate($value);
+                    } elseif (in_array($field,['timestamp','decision'],true) && $value !== '') {
+                        $value = mysql2date('d/m/Y H:i:s',$value,false);
+                    } elseif (is_float($value)) {
+                        $value = round($value,3);
+                    }
+                    echo esc_html((string)$value);
+                }
+                echo '</td>';
+            }
+            echo '</tr>';
+        }
+        if (!$total) {
+            echo '<tr><td colspan="'.count($columns).'">No indents yet.</td></tr>';
+        }
+        echo '</tbody></table></div>';
+        self::pagination($page,$pages,$total);
+    }
+
+    public static function downloadIndentPdf() {
+        $id = absint($_GET['id'] ?? 0);
+        if (!self::canView('indent_master')) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        check_admin_referer('frontier_indent_pdf_'.$id);
+        $rows = self::rows();
+        $indent = $rows[$id] ?? null;
+        if (!$indent || $indent['kind'] !== 'indent') {
+            wp_die('Indent not found.','Frontier',['response'=>404]);
+        }
+        $group = self::indentGroup($indent);
+        $data = $indent['data'];
+        $boq = $rows[$data['boq']]['data'] ?? [];
+        $site = self::siteNumberWithName($rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? []);
+        $lines = [];
+        foreach (array_reverse($rows) as $row) {
+            if ($row['kind'] !== 'indent' || self::indentGroup($row) !== $group) {
+                continue;
+            }
+            $line = $row['data'];
+            $item = $rows[$line['boq']]['data'] ?? [];
+            $lines[] = [$line['line_number'] ?? 1,$item['name'] ?? '',$line['qty'],$line['unit'] ?? ($item['unit'] ?? '')];
+        }
+        $number = $data['indent_number'] ?? $id;
+        $pdf = Frontier_Boq_Pdf::build($number,$site,self::indentDisplayDate($data['indent_date'] ?? ''),
+            $data['requested_name'] ?? '',$lines,'Indent','Requested By');
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="indent-'.absint($number).'.pdf"');
+        header('Content-Length: '.strlen($pdf));
+        echo $pdf;
+        exit;
+    }
+
     private static function indentForm($rows) {
         $used = [];
         foreach ($rows as $row) {
@@ -2060,6 +2250,7 @@ final class Frontier {
         self::field($rows,'indent','due','Indent Date',current_time('Y-m-d'));
         self::field($rows,'indent','employee','Requested By','');
         self::field($sites,'indent','site','Site Number with Name','');
+        echo '<p><label>Indent Target Date <input type="date" name="target_date"></label></p>';
         echo '</div><div class="frontier-master-toolbar"><h2>Indent Items</h2><button type="button" class="button frontier-indent-add" disabled>＋ Add More</button></div>';
         echo '<p class="frontier-indent-message" role="status">Select a site to load its BOQ items.</p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
@@ -2096,7 +2287,13 @@ final class Frontier {
                 $last = max($last,(int)($row['data']['indent_number'] ?? 0));
             }
         }
+        $targetDate = self::input('target_date');
+        if ($targetDate !== '') {
+            $target = DateTimeImmutable::createFromFormat('!Y-m-d',$targetDate);
+            self::requireRule($target && $target->format('Y-m-d') === $targetDate,'Enter a valid indent target date.');
+        }
         $header = ['indent_number'=>$last+1,'indent_date'=>$dateText,'indent_token'=>$token,
+            'indent_timestamp'=>current_time('mysql'),'due'=>$targetDate,
             'requested_by'=>(int)$employee['id'],'requested_name'=>$employee['data']['name'],'site'=>(int)$site['id']];
         $selected = [];
         global $wpdb;
@@ -2247,6 +2444,10 @@ final class Frontier {
             $destination = 'indent_master';
         }
         $query = $imported === null ? [in_array($action,['delete_master','delete_boq'],true) ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
+        if ($kind === 'indent' && isset($row) && ($screen === 'indent_items' || $action === 'edit')) {
+            $destination = 'indent_items';
+            $query['indent_group'] = self::indentGroup($row);
+        }
         wp_safe_redirect(add_query_arg($query,self::url($destination)));
         exit;
     }
