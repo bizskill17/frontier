@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.0
+ * Version: 1.6.1
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -272,8 +272,10 @@ final class Frontier {
         <div class="frontier-shell">
             <div class="frontier-main-column">
                 <header class="frontier-topbar">
-                    <span><?php echo esc_html(get_bloginfo('name')); ?></span>
-                    <a href="<?php echo esc_url(wp_logout_url(home_url('/'))); ?>">Sign out</a>
+                    <span><?php echo esc_html($views[$kind]); ?></span>
+                    <?php if ($kind === 'home') : ?>
+                        <a href="<?php echo esc_url(wp_logout_url(home_url('/'))); ?>">Sign out</a>
+                    <?php endif; ?>
                 </header>
                 <main id="frontier-main" class="frontier-main">
                     <?php if ($kind !== 'home') : ?>
