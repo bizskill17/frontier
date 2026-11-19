@@ -307,3 +307,13 @@ body.frontier-workspace {
 }
 .frontier-pages .frontier-master-table td.frontier-pending-po-action { background: #fff; }
 .frontier-pages .frontier-pending-po-action .frontier-row-actions { justify-content: center; }
+
+.frontier-main .frontier-po-form { padding: clamp(12px, 1.4vw, 18px); }
+.frontier-po-form .frontier-fields { gap: 8px 12px; margin-bottom: 10px; }
+.frontier-po-form .frontier-fields p { margin: 0; }
+.frontier-po-form .frontier-po-delivery { grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr)); }
+.frontier-main .frontier-po-form input, .frontier-main .frontier-po-form select { padding-block: 5px; }
+.frontier-main .frontier-po-form h2 { margin: 10px 0 6px; }
+.frontier-main .frontier-po-form .frontier-table { margin-top: 6px; }
+.frontier-po-form textarea { width: 100%; padding: 7px 10px; border: 1px solid #aebed0; border-radius: 6px; font: inherit; resize: vertical; }
+.frontier-po-form [data-po-terms-supplier] textarea { display: block; margin-top: 4px; }

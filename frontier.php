@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.35
+ * Version: 1.9.36
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.35');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.36');
         self::enqueueDropdownSearch();
     }
 
@@ -357,7 +357,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.35');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.36');
         }
     }
 
@@ -829,6 +829,9 @@ final class Frontier {
             if ($indentGroup !== '' && (!$groupRow || self::indentGroup($groupRow) !== $indentGroup)) {
                 continue;
             }
+            if (self::$screen === 'po' && !empty($row['data']['po_group_id']) && (int)$row['id'] !== (int)$row['data']['po_group_id']) {
+                continue;
+            }
             $listing[] = $row;
         }
         if (self::$screen === 'quote') {
@@ -1180,6 +1183,9 @@ final class Frontier {
 
     private static function formStart($kind,$action,$id=0) {
         $class = in_array($action,['create','edit','complete_site','cancel_site','save_supplier_selection','create_purchase_orders'],true) ? ' class="frontier-entry"' : '';
+        if ($action === 'create_purchase_orders') {
+            $class = ' class="frontier-entry frontier-po-form"';
+        }
         if ($action === 'save_quotations') {
             $class = ' class="frontier-entry frontier-quotation-form"';
         }
@@ -1315,7 +1321,12 @@ final class Frontier {
             if ($status === 'draft') {
                 self::button($row,'issue','Issue PO');
                 self::deleteAction($row,'delete','Delete draft','Delete this draft?');
-            } elseif ($status === 'issued' && !self::linked($rows,$row['id'])) {
+            } elseif ($status === 'issued') {
+                foreach (self::purchaseOrderGroup($rows,$row) as $line) {
+                    if (self::linked($rows,$line['id'])) {
+                        return;
+                    }
+                }
                 self::button($row,'cancel_po','Cancel PO',true);
             }
         }
@@ -1442,6 +1453,26 @@ final class Frontier {
         }
         if ($kind === 'grn' && !$row['filename']) {
             $values['attachment'] = 'Slip pending';
+        }
+        if ($kind === 'po' && self::$screen === 'po' && !empty($data['po_group_id'])) {
+            foreach (['qty','received','waiting','invoiced','cancelled','open'] as $field) {
+                if (!isset($values[$field])) {
+                    continue;
+                }
+                $total = 0;
+                foreach (self::purchaseOrderGroup($rows,$row) as $line) {
+                    $lineId = $line['id'];
+                    switch ($field) {
+                        case 'qty': $total += $line['data']['qty']; break;
+                        case 'received': $total += self::sum($rows,'grn','po',$lineId,'qty','approved'); break;
+                        case 'waiting': $total += self::sum($rows,'grn','po',$lineId,'qty','pending'); break;
+                        case 'invoiced': $total += self::sum($rows,'match','po',$lineId); break;
+                        case 'cancelled': $total += self::sum($rows,'cancel','po',$lineId); break;
+                        case 'open': $total += self::balance($rows,$line); break;
+                    }
+                }
+                $values[$field] = round($total,3);
+            }
         }
         $status = $row['status'];
         if ($kind === 'invoice') {
@@ -2958,10 +2989,12 @@ final class Frontier {
         echo '</select></label></p>';
         self::field($rows,'po','employee','Prepared By','');
         echo '<p><label>'.self::requiredLabel('Target Date').'<input type="date" name="target_date" required></label></p></div>';
-        echo '<div class="frontier-fields">';
+        echo '<div class="frontier-fields frontier-po-delivery">';
         foreach (['indent-date'=>'Indent Date','compared'=>'Compared By','address'=>'Delivery Address',
             'contact'=>'Site Contact Person','mobile'=>'Site Mobile No.'] as $field=>$label) {
-            echo '<p><label>'.esc_html($label).'<input type="text" data-po-detail="'.esc_attr($field).'" readonly></label></p>';
+            $editable = in_array($field,['address','contact','mobile'],true);
+            $attributes = $editable ? ' name="delivery_'.esc_attr($field).'" maxlength="'.($field === 'address' ? 5000 : 200).'"' : ' readonly';
+            echo '<p><label>'.esc_html($label).'<input type="'.($field === 'mobile' ? 'tel' : 'text').'" data-po-detail="'.esc_attr($field).'"'.$attributes.'></label></p>';
         }
         echo '</div><h2>PO Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Purchase order items"><table class="widefat striped" style="min-width:1280px"><thead><tr>';
         foreach (['Sl No.','Item Name','Unit','Supplier Finalized','Rate Finalized','Pending to Order','Order Qty','Amount','Brand','Remarks'] as $label) {
@@ -2971,12 +3004,18 @@ final class Frontier {
         uasort($items,static function ($left,$right) {
             return ($left['indent']['data']['line_number'] ?? 1) <=> ($right['indent']['data']['line_number'] ?? 1);
         });
+        $suppliers = [];
         foreach ($items as $quoteId=>$item) {
             $quote = $item['quote']['data'];
+            $supplierKey = self::purchaseOrderSupplierKey($item['quote']);
+            $suppliers[$supplierKey] = [
+                'label'=>self::supplierDisplay($quote,$rows),
+                'terms'=>$rows[$quote['supplier'] ?? 0]['data']['term'] ?? '',
+            ];
             $indent = $item['indent'];
             $details = self::supplierIndentDetails($indent,$rows);
             $compared = $quote['compared_by'] ?? $quote['comparison_name'] ?? '';
-            echo '<tr data-po-group="'.esc_attr(self::indentGroup($indent)).'" data-rate="'.esc_attr($quote['rate']).'" data-compared="'.esc_attr($compared).'" hidden>';
+            echo '<tr data-po-group="'.esc_attr(self::indentGroup($indent)).'" data-po-supplier="'.esc_attr($supplierKey).'" data-rate="'.esc_attr($quote['rate']).'" data-compared="'.esc_attr($compared).'" hidden>';
             foreach ([$details['line_number'],$details['item_name'],$details['unit'],self::supplierDisplay($quote,$rows),
                 number_format((float)$quote['rate'],((float)$quote['rate'] * 100 == round((float)$quote['rate'] * 100)) ? 2 : 3),
                 $item['pending']] as $value) {
@@ -2993,18 +3032,28 @@ final class Frontier {
         }
         echo '</tbody></table></div><p><strong>Total Amount <output data-po-total aria-live="polite"></output></strong></p>';
         echo '<p><a class="button" href="'.esc_url(self::url('pending_po')).'">Cancel</a> <button type="submit" class="button button-primary" data-po-save disabled>Create Purchase Order</button></p>';
+        echo '<section data-po-terms hidden><h2>Supplier Terms</h2>';
+        foreach ($suppliers as $key=>$supplier) {
+            echo '<p data-po-terms-supplier="'.esc_attr($key).'" hidden><label>'.esc_html($supplier['label']);
+            echo '<textarea name="po_terms['.esc_attr($key).']" rows="3" maxlength="20000" disabled>'.esc_textarea($supplier['terms']).'</textarea></label></p>';
+        }
+        echo '</section>';
         echo <<<'HTML'
 <script>
 (() => {
     const form = document.currentScript.closest('form');
     const group = form.elements.po_group;
     const rows = Array.from(form.querySelectorAll('[data-po-group]'));
+    const terms = form.querySelector('[data-po-terms]');
+    const termFields = terms.querySelectorAll('[data-po-terms-supplier]');
+    let previousGroup;
     const currency = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' });
     function render() {
         let total = 0;
         let ready = false;
         let invalid = false;
         const compared = new Set();
+        const suppliers = new Set();
         for (const row of rows) {
             const visible = row.dataset.poGroup === group.value;
             row.hidden = !visible;
@@ -3017,13 +3066,23 @@ final class Frontier {
             const amount = valid ? Math.round((qty.valueAsNumber * Number(row.dataset.rate) + Number.EPSILON) * 100) : 0;
             row.querySelector('[data-po-amount]').textContent = valid ? currency.format(amount / 100) : '';
             total += amount;
+            if (valid) suppliers.add(row.dataset.poSupplier);
             ready ||= valid;
             invalid ||= !qty.validity.valid;
         }
         const option = group.selectedOptions[0];
         for (const field of form.querySelectorAll('[data-po-detail]')) {
-            field.value = field.dataset.poDetail === 'compared' ? Array.from(compared).join(', ')
-                : option?.getAttribute('data-' + field.dataset.poDetail) ?? '';
+            if (field.dataset.poDetail === 'compared') {
+                field.value = Array.from(compared).join(', ');
+            } else if (previousGroup !== group.value) {
+                field.value = option?.getAttribute('data-' + field.dataset.poDetail) ?? '';
+            }
+        }
+        previousGroup = group.value;
+        terms.hidden = suppliers.size === 0;
+        for (const field of termFields) {
+            field.hidden = !suppliers.has(field.dataset.poTermsSupplier);
+            field.querySelector('textarea').disabled = field.hidden;
         }
         form.querySelector('[data-po-total]').textContent = currency.format(total / 100);
         form.querySelector('[data-po-save]').disabled = !ready || invalid;
@@ -3037,6 +3096,39 @@ final class Frontier {
 </script>
 HTML;
         echo '</form>';
+    }
+
+    private static function purchaseOrderGroup($rows,$row) {
+        $group = $row['data']['po_group_id'] ?? 0;
+        if (!$group) {
+            return [$row];
+        }
+        return array_filter($rows,static function ($line) use ($group) {
+            return $line['kind'] === 'po' && ($line['data']['po_group_id'] ?? 0) === $group;
+        });
+    }
+
+    private static function updatePurchaseOrderGroup($rows,$id,$action) {
+        global $wpdb;
+        $row = $rows[$id] ?? null;
+        self::requireRule(($row['kind'] ?? '') === 'po','Purchase order not found.');
+        foreach (self::purchaseOrderGroup($rows,$row) as $line) {
+            if ($action === 'delete') {
+                self::requireRule($line['status'] === 'draft' && !self::linked($rows,$line['id']),
+                    'Only an unused draft PO may be deleted.');
+                $result = $wpdb->delete(self::table(),['id'=>$line['id']]);
+            } else {
+                $result = $wpdb->update(self::table(),self::transition($rows,$line,$action),['id'=>$line['id']]);
+            }
+            if ($result !== 1) {
+                throw new RuntimeException('Purchase order could not be updated.');
+            }
+        }
+    }
+
+    private static function purchaseOrderSupplierKey($quote) {
+        $supplier = (int)($quote['data']['supplier'] ?? 0);
+        return $supplier ? 'supplier-'.$supplier : 'quote-'.$quote['id'];
     }
 
     private static function savePurchaseOrders($rows) {
@@ -3053,7 +3145,14 @@ HTML;
         $submitted = $_POST['po_lines'] ?? [];
         self::requireRule(is_array($submitted),'Check the purchase order items.');
         $items = self::purchaseOrderItems($rows);
-        $saved = false;
+        $terms = $_POST['po_terms'] ?? [];
+        self::requireRule(is_array($terms),'Check Supplier Terms.');
+        $delivery = [];
+        foreach (['address'=>5000,'contact'=>200,'mobile'=>200] as $field=>$limit) {
+            $delivery['delivery_'.$field] = self::input('delivery_'.$field);
+            self::requireRule(strlen($delivery['delivery_'.$field]) <= $limit,'Check the delivery details.');
+        }
+        $orderGroups = [];
         foreach ($submitted as $quoteId=>$line) {
             self::requireRule(is_array($line) && is_string($line['qty'] ?? null),'Enter a valid Order Qty.');
             $qty = $line['qty'];
@@ -3076,17 +3175,28 @@ HTML;
             }
             self::validateNew($rows,'po',$data);
             $data['amount'] = round($data['qty'] * $data['rate'],2);
+            $quote = $item['quote'];
+            $key = self::purchaseOrderSupplierKey($quote);
+            $raw = $terms[$key] ?? ($rows[$quote['data']['supplier'] ?? 0]['data']['term'] ?? '');
+            self::requireRule(is_string($raw),'Check Supplier Terms.');
+            $data['terms'] = self::supplierText(wp_unslash($raw));
+            self::requireRule(strlen($data['terms']) <= self::SUPPLIER_TEXT_LIMITS['term'],'Supplier Terms exceed the maximum size.');
+            $data += $delivery;
+            if (isset($orderGroups[$key])) {
+                $data += $orderGroups[$key];
+            }
             if ($wpdb->insert(self::table(),['kind'=>'po','status'=>'draft','details'=>wp_json_encode($data)]) !== 1) {
                 throw new RuntimeException('Purchase order could not be saved.');
             }
-            $id = (int)$wpdb->insert_id;
-            $data['ref'] = 'PO - '.str_pad((string)$id,4,'0',STR_PAD_LEFT);
-            if ($wpdb->update(self::table(),['details'=>wp_json_encode($data)],['id'=>$id]) !== 1) {
-                throw new RuntimeException('Purchase order number could not be saved.');
+            if (!isset($orderGroups[$key])) {
+                $id = (int)$wpdb->insert_id;
+                $orderGroups[$key] = ['po_group_id'=>$id,'ref'=>'PO - '.str_pad((string)$id,4,'0',STR_PAD_LEFT)];
+                if ($wpdb->update(self::table(),['details'=>wp_json_encode($data + $orderGroups[$key])],['id'=>$id]) !== 1) {
+                    throw new RuntimeException('Purchase order number could not be saved.');
+                }
             }
-            $saved = true;
         }
-        self::requireRule($saved,'Enter an Order Qty for at least one item.');
+        self::requireRule($orderGroups,'Enter an Order Qty for at least one item.');
     }
 
     private static function supplierIndentDetails($indent,$rows) {
@@ -3412,7 +3522,7 @@ HTML;
             $rows = self::rows();
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
-                || ($kind === 'po' && $action === 'create_purchase_orders')
+                || ($kind === 'po' && in_array($action,['create_purchase_orders','issue','delete','cancel_po'],true))
                 || ($kind === 'quote' && in_array($action,['save_quotations','save_supplier_selection'],true))
                 || ($kind === 'supplier' && $action === 'import_suppliers')
                 || ($kind === 'indent' && in_array($action,['create_indent','update_indent_group'],true))
@@ -3427,6 +3537,9 @@ HTML;
                 $result = true;
             } elseif ($kind === 'po' && $action === 'create_purchase_orders') {
                 self::savePurchaseOrders($rows);
+                $result = true;
+            } elseif ($kind === 'po' && in_array($action,['issue','delete','cancel_po'],true)) {
+                self::updatePurchaseOrderGroup($rows,absint(self::input('id')),$action);
                 $result = true;
             } elseif ($kind === 'quote' && $action === 'save_supplier_selection') {
                 self::saveSupplierSelection($rows);
@@ -3490,9 +3603,6 @@ HTML;
                                 'Reassign this employee’s sites before deleting the record.');
                         }
                     }
-                    $result = $wpdb->delete(self::table(),['id'=>$row['id']]);
-                } elseif ($action === 'delete') {
-                    self::requireRule($kind === 'po' && $row['status'] === 'draft' && !self::linked($rows,$row['id']),'Only an unused draft PO may be deleted.');
                     $result = $wpdb->delete(self::table(),['id'=>$row['id']]);
                 } else {
                     $update = self::transition($rows,$row,$action);
