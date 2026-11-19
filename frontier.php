@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.63
+ * Version: 1.9.64
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1157,7 +1157,7 @@ final class Frontier {
 
     private static function pagedRows($rows,$columns,$values) {
         $search = self::tableQuery('frontier_search');
-        $showFilters = !isset(self::MASTERS[self::$screen]) && self::$screen !== 'site';
+        $showFilters = !isset(self::MASTERS[self::$screen]) && !in_array(self::$screen,['site','boq'],true);
         $column = $showFilters ? self::tableQuery('frontier_column') : '';
         $filter = $showFilters ? self::tableQuery('frontier_filter') : '';
         $url = self::tableSearchUrl();
