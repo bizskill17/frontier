@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.41
+ * Version: 1.9.42
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -675,6 +675,13 @@ final class Frontier {
             echo '</div>';
             return;
         }
+        if (self::$screen === 'grn_form') {
+            if (self::can('grn')) {
+                self::goodsReceiptForm($rows);
+            }
+            echo '</div>';
+            return;
+        }
         if (self::$screen === 'po_form') {
             if (self::can('po')) {
                 self::purchaseOrderForm($rows);
@@ -1208,7 +1215,7 @@ final class Frontier {
     }
 
     private static function formStart($kind,$action,$id=0) {
-        $class = in_array($action,['create','edit','complete_site','cancel_site','save_supplier_selection','create_purchase_orders'],true) ? ' class="frontier-entry"' : '';
+        $class = in_array($action,['create','edit','complete_site','cancel_site','save_supplier_selection','create_purchase_orders','create_goods_receipt'],true) ? ' class="frontier-entry"' : '';
         if ($action === 'create_purchase_orders') {
             $class = ' class="frontier-entry frontier-po-form"';
         }
@@ -2930,6 +2937,148 @@ final class Frontier {
         }
     }
 
+    private static function goodsReceiptForm($rows) {
+        $orders = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'po' && self::canReceivePurchaseOrder($rows,$row)) {
+                $orders[(int)($row['data']['po_group_id'] ?? $row['id'])][] = $row;
+            }
+        }
+        if (!$orders) {
+            echo '<p>No purchase orders have quantities pending receipt.</p>';
+            return;
+        }
+        $source = $rows[absint($_GET['source'] ?? 0)] ?? [];
+        $prefill = ($source['kind'] ?? '') === 'po' ? (int)($source['data']['po_group_id'] ?? $source['id']) : 0;
+        self::formStart('grn','create_goods_receipt');
+        echo '<div class="frontier-fields">';
+        self::field($rows,'grn','due','GRN Date',current_time('Y-m-d'));
+        echo '<p><label>'.self::requiredLabel('PO No. with Supplier').'<select name="receipt_order" required><option value="">Select purchase order</option>';
+        foreach ($orders as $id=>$lines) {
+            $data = self::purchaseOrderValues($rows,$lines[0]);
+            echo '<option value="'.esc_attr($id).'" '.selected($prefill,$id,false);
+            foreach (['supplier','po_date','indent_number','site_name'] as $field) {
+                echo ' data-'.esc_attr($field).'="'.esc_attr($data[$field]).'"';
+            }
+            echo '>'.esc_html($data['po_supplier']).'</option>';
+        }
+        echo '</select></label></p>';
+        self::field($rows,'grn','employee','GRN Prepared By','');
+        self::field($rows,'grn','ref','GRN Slip No.','');
+        echo '</div><div class="frontier-fields">';
+        foreach (['supplier'=>'Supplier','po_date'=>'PO Date','indent_number'=>'Indent No.','site_name'=>'Site Number with Name'] as $field=>$label) {
+            echo '<p><label>'.esc_html($label).'<input type="text" data-grn-detail="'.esc_attr($field).'" readonly></label></p>';
+        }
+        echo '</div><h2>PO Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Items to receive"><table class="widefat striped"><thead><tr>';
+        foreach (['Sl No.','PO Item No.','Item Name','Unit','Pending to Receive','Quantity Received'] as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($orders as $id=>$lines) {
+            usort($lines,static function ($left,$right) {
+                return (int)$left['id'] <=> (int)$right['id'];
+            });
+            foreach ($lines as $index=>$line) {
+                $data = self::purchaseOrderValues($rows,$line);
+                $pending = self::balance($rows,$line);
+                echo '<tr data-grn-order="'.esc_attr($id).'" hidden>';
+                foreach ([$index+1,$data['ref'].'/'.$data['line_number'],$data['item_name'],$data['unit'],$pending] as $value) {
+                    echo '<td>'.esc_html((string)$value).'</td>';
+                }
+                echo '<td><input type="number" min="0" step="0.001" max="'.esc_attr($pending).'" name="received['.esc_attr($line['id']).']" aria-label="'.esc_attr('Quantity received for '.$data['item_name']).'" disabled>';
+                echo '<small data-grn-warning hidden>Exceeds Pending to Receive</small></td></tr>';
+            }
+        }
+        echo '</tbody></table></div><p><a class="button" href="'.esc_url(self::url('pending_grn')).'">Cancel</a> ';
+        echo '<button type="submit" class="button button-primary" data-grn-save disabled>Create GRN</button></p>';
+        echo <<<'HTML'
+<script>
+(() => {
+    const form = document.currentScript.closest('form');
+    const order = form.elements.receipt_order;
+    const rows = form.querySelectorAll('[data-grn-order]');
+    const save = form.querySelector('[data-grn-save]');
+    const refresh = () => {
+        const option = order.selectedOptions[0];
+        for (const field of form.querySelectorAll('[data-grn-detail]')) {
+            field.value = option?.getAttribute('data-' + field.dataset.grnDetail) ?? '';
+        }
+        let hasQuantity = false;
+        let invalid = false;
+        for (const row of rows) {
+            const input = row.querySelector('input');
+            const visible = row.dataset.grnOrder === order.value;
+            row.hidden = !visible;
+            input.disabled = !visible;
+            if (!visible) continue;
+            row.querySelector('[data-grn-warning]').hidden = !input.validity.rangeOverflow;
+            invalid ||= !input.validity.valid || (input.value !== '' && !/^\d{1,10}(?:\.\d{1,3})?$/.test(input.value));
+            hasQuantity ||= input.valueAsNumber > 0;
+        }
+        save.disabled = invalid || !hasQuantity || !form.elements.due.value
+            || !form.elements.employee.value || !form.elements.ref.value.trim();
+    };
+    form.addEventListener('change', refresh);
+    form.addEventListener('input', refresh);
+    refresh();
+})();
+</script>
+HTML;
+        echo '</form>';
+    }
+
+    private static function saveGoodsReceipt($rows) {
+        global $wpdb;
+        $orderId = absint(self::input('receipt_order'));
+        $order = $rows[$orderId] ?? [];
+        self::requireRule(($order['kind'] ?? '') === 'po'
+            && (int)($order['data']['po_group_id'] ?? $order['id']) === $orderId,'Select a purchase order.');
+        $employee = $rows[absint(self::input('employee'))] ?? [];
+        self::requireRule(($employee['kind'] ?? '') === 'employee','Select GRN Prepared By.');
+        $due = self::input('due');
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d',$due);
+        self::requireRule($date && $date->format('Y-m-d') === $due,'Enter a valid GRN Date.');
+        $ref = self::input('ref');
+        self::requireRule($ref !== '' && strlen($ref) <= 200,'Enter a valid GRN Slip No.');
+        $submitted = $_POST['received'] ?? [];
+        self::requireRule(is_array($submitted),'Check the quantities received.');
+        $group = 0;
+        foreach ($submitted as $id=>$qty) {
+            self::requireRule(is_string($qty),'Enter a valid Quantity Received.');
+            if ($qty === '') {
+                continue;
+            }
+            self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty),'Enter a valid Quantity Received.');
+            if ((float)$qty === 0.0) {
+                continue;
+            }
+            $line = $rows[$id] ?? [];
+            self::requireRule(($line['kind'] ?? '') === 'po'
+                && (int)($line['data']['po_group_id'] ?? $line['id']) === $orderId
+                && self::canReceivePurchaseOrder($rows,$line),'This PO item is no longer available for receipt.');
+            $data = ['po'=>(int)$id,'ref'=>$ref,'due'=>$due,'qty'=>(float)$qty,'reject'=>0,
+                'prepared_employee'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name']];
+            self::validateNew($rows,'grn',$data);
+            if ($group) {
+                $data['grn_group_id'] = $group;
+            }
+            if ($wpdb->insert(self::table(),['kind'=>'grn','status'=>'pending','details'=>wp_json_encode($data)]) !== 1) {
+                throw new RuntimeException('Goods receipt could not be saved.');
+            }
+            if (!$group) {
+                $group = (int)$wpdb->insert_id;
+                $data['grn_group_id'] = $group;
+                if ($wpdb->update(self::table(),['details'=>wp_json_encode($data)],['id'=>$group]) !== 1) {
+                    throw new RuntimeException('Goods receipt could not be grouped.');
+                }
+            }
+        }
+        self::requireRule($group,'Enter Quantity Received for at least one item.');
+        if ($order['status'] === 'draft') {
+            self::updatePurchaseOrderGroup($rows,$orderId,'issue');
+        }
+    }
+
     private static function purchaseOrderItems($rows) {
         $quotes = [];
         foreach ($rows as $quote) {
@@ -3632,7 +3781,7 @@ HTML;
             $rows = self::rows();
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
-                || ($kind === 'grn' && $action === 'create')
+                || ($kind === 'grn' && in_array($action,['create','create_goods_receipt'],true))
                 || ($kind === 'po' && in_array($action,['create_purchase_orders','issue','delete','cancel_po'],true))
                 || ($kind === 'quote' && in_array($action,['save_quotations','save_supplier_selection'],true))
                 || ($kind === 'supplier' && $action === 'import_suppliers')
@@ -3645,6 +3794,9 @@ HTML;
             }
             if ($kind === 'quote' && $action === 'save_quotations') {
                 self::saveQuotations($rows);
+                $result = true;
+            } elseif ($kind === 'grn' && $action === 'create_goods_receipt') {
+                self::saveGoodsReceipt($rows);
                 $result = true;
             } elseif ($kind === 'po' && $action === 'create_purchase_orders') {
                 self::savePurchaseOrders($rows);
@@ -3763,6 +3915,8 @@ HTML;
             $destination = 'choose_master';
         } elseif ($action === 'create_purchase_orders') {
             $destination = 'po';
+        } elseif ($action === 'create_goods_receipt') {
+            $destination = 'grn';
         }
         $query = $imported === null ? [in_array($action,['delete_master','delete_boq'],true) ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
         if ($kind === 'indent' && isset($row) && ($screen === 'indent_items' || $action === 'edit')) {
