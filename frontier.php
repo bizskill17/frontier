@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.16
+ * Version: 1.9.17
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -753,8 +753,75 @@ final class Frontier {
             }
             $listing[] = $row;
         }
-        self::renderRecords($listing,$rows,$kind,$indentGroup !== '' ? 'register' : $mode);
+        if (self::$screen === 'quote') {
+            self::quotationRegister($listing,$rows);
+        } else {
+            self::renderRecords($listing,$rows,$kind,$indentGroup !== '' ? 'register' : $mode);
+        }
         echo '</div>';
+    }
+
+    private static function quotationRegister($listing,$rows) {
+        $grouped = [];
+        foreach ($listing as $quote) {
+            $grouped[(int)($quote['data']['indent'] ?? 0)][] = $quote;
+        }
+
+        $entries = [];
+        foreach ($grouped as $quotes) {
+            foreach (array_chunk($quotes,3) as $comparison) {
+                $entries[] = $comparison;
+            }
+        }
+        [$pageRows,$page,$pages,$total] = self::pagedRows($entries);
+        $columns = ['Indent No. with Site Name','Timestamp','Date','Prepared By','Sl','Item Name','Qty',
+            'Supplier1','Rate1','Supplier2','Rate2','Supplier3','Rate3','Site Name'];
+
+        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Supplier Quotation Master"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($pageRows as $quotes) {
+            $latest = $quotes[0]['data'];
+            foreach ($quotes as $quote) {
+                if (($quote['data']['quote_timestamp'] ?? '') > ($latest['quote_timestamp'] ?? '')) {
+                    $latest = $quote['data'];
+                }
+            }
+            $indentId = (int)($latest['indent'] ?? 0);
+            $indent = $rows[$indentId]['data'] ?? [];
+            $boq = $rows[$indent['boq'] ?? 0]['data'] ?? [];
+            $site = $rows[$indent['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
+            $number = $indent['indent_number'] ?? ($indentId ? '#'.$indentId : '');
+            $siteLabel = self::siteNumberWithName($site);
+            $indentLabel = implode(' · ',array_filter([(string)$number,$siteLabel],'strlen'));
+            $timestamp = $latest['quote_timestamp'] ?? '';
+            $values = [$indentLabel,$timestamp ? mysql2date('d/m/Y H:i:s',$timestamp,false) : '',
+                self::indentDisplayDate($latest['quote_date'] ?? ''),$latest['comparison_name'] ?? '',
+                $indent ? ($indent['line_number'] ?? 1) : '',$boq['name'] ?? '',$indent['qty'] ?? ''];
+
+            echo '<tr>';
+            foreach ($values as $value) {
+                echo '<td>'.esc_html((string)$value).'</td>';
+            }
+            for ($slot = 0; $slot < 3; $slot++) {
+                $quote = $quotes[$slot] ?? null;
+                $data = $quote['data'] ?? [];
+                echo '<td>'.esc_html(self::supplierDisplay($data,$rows));
+                if (!empty($quote['filename']) && self::canFile('quote')) {
+                    $url = add_query_arg(['action'=>'frontier_file','id'=>$quote['id']],admin_url('admin-post.php'));
+                    echo '<br><a href="'.esc_url(wp_nonce_url($url,'frontier_file_'.$quote['id'])).'">'.esc_html($quote['filename']).'</a>';
+                }
+                echo '</td><td>'.esc_html((string)($data['rate'] ?? '')).'</td>';
+            }
+            echo '<td>'.esc_html($site['name'] ?? '').'</td></tr>';
+        }
+        if (!$total) {
+            echo '<tr><td colspan="'.count($columns).'">No supplier quotations found.</td></tr>';
+        }
+        echo '</tbody></table></div>';
+        self::pagination($page,$pages,$total);
     }
 
     private static function pendingWork($rows,$screen) {
