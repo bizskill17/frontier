@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.3.0
+ * Version: 1.3.1
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -221,6 +221,8 @@ final class Frontier {
         if (!self::canView($kind)) {
             wp_die('Access denied.', '', ['response'=>403]);
         }
+        show_admin_bar(false);
+        remove_action('wp_head', '_admin_bar_bump_cb');
         wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.3.0');
     }
 
