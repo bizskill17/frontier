@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.4
+ * Version: 1.6.5
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -56,7 +56,7 @@ final class Frontier {
         'invoice'=>['name'=>'Supplier', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.6.0';
+    private const PAGE_VERSION = '1.6.5';
     private const PAGE_SLUGS = [
         'boq_form'=>'create-boq', 'boq_items'=>'boq-item-master',
         'indent_master'=>'indent-master', 'indent_items'=>'indents-item-master',
@@ -456,9 +456,6 @@ final class Frontier {
             echo '<div class="notice notice-success" role="status"><p>Saved.</p></div>';
         }
         self::$screen = $kind;
-        if (isset(self::IMPORT_TEMPLATES[$kind]) && !isset($_GET['add']) && !isset($_GET['edit'])) {
-            self::templateControls($kind);
-        }
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
         $edit = $rows[absint($_GET['edit'] ?? 0)] ?? null;
@@ -486,7 +483,12 @@ final class Frontier {
             $formScreen = $mode === 'register' ? ([
                 'boq'=>'boq_form','indent'=>'indent','quote'=>'quote_form','po'=>'po_form','grn'=>'grn_form',
             ][$kind] ?? self::$screen) : self::$screen;
-            echo '<p><a class="button frontier-add" href="'.esc_url(add_query_arg('add',1,self::url($formScreen))).'">Add</a></p>';
+            $addUrl = add_query_arg('add',1,self::url($formScreen));
+            if (isset(self::IMPORT_TEMPLATES[$kind])) {
+                self::templateControls($kind,$addUrl);
+            } else {
+                echo '<p><a class="button frontier-add" href="'.esc_url($addUrl).'">Add</a></p>';
+            }
         }
         if ($showForm) {
             self::formStart($kind,$editing ? 'edit' : 'create',$editing ? $edit['id'] : 0);
@@ -512,6 +514,11 @@ final class Frontier {
                 echo '</div>';
                 return;
             }
+        }
+        if (isset(self::IMPORT_TEMPLATES[$kind])) {
+            self::renderMasterTable($rows,$kind);
+            echo '</div>';
+            return;
         }
         if ($mode === 'items') {
             self::renderItems($rows,$kind);
@@ -542,6 +549,41 @@ final class Frontier {
             echo '<tr><td colspan="4">No records yet.</td></tr>';
         }
         echo '</tbody></table></div></div>';
+    }
+
+    private static function renderMasterTable($rows,$kind) {
+        $fields = self::FIELDS[$kind];
+        unset($fields['password']);
+        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="'.esc_attr(self::MASTERS[$kind]).'">';
+        echo '<table class="widefat striped"><thead><tr>';
+        foreach ($fields as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '<th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>';
+        $count = 0;
+        foreach ($rows as $row) {
+            if ($row['kind'] !== $kind) {
+                continue;
+            }
+            $count++;
+            echo '<tr>';
+            foreach ($fields as $field=>$label) {
+                $value = $row['data'][$field] ?? '';
+                if ($field === 'role') {
+                    $value = self::EMPLOYEE_ROLES[$value] ?? $value;
+                } elseif (isset(self::FIELDS[$field])) {
+                    $value = $rows[$value]['data']['name'] ?? '';
+                }
+                echo '<td>'.esc_html($value === '' ? '—' : (string)$value).'</td>';
+            }
+            echo '<td>'.esc_html(ucwords(str_replace('_',' ',$row['status']))).'</td><td>';
+            self::actions($row,$rows);
+            echo '</td></tr>';
+        }
+        if (!$count) {
+            echo '<tr><td colspan="'.(count($fields)+2).'">No records yet.</td></tr>';
+        }
+        echo '</tbody></table></div>';
     }
 
     private static function renderItems($rows,$kind) {
@@ -1054,17 +1096,19 @@ final class Frontier {
         return (int)$id;
     }
 
-    private static function templateControls($kind) {
+    private static function templateControls($kind,$addUrl) {
         if (isset($_GET['imported'])) {
             echo '<p role="status">'.esc_html(absint($_GET['imported']).' '.$kind.' records added.').'</p>';
         }
         $download = add_query_arg(['action'=>'frontier_template','kind'=>$kind],admin_url('admin-post.php'));
-        echo '<p><a class="button" href="'.esc_url(wp_nonce_url($download,'frontier_template_'.$kind)).'">Download Template</a></p>';
+        echo '<div class="frontier-master-toolbar">';
+        echo '<a class="button frontier-add" href="'.esc_url($addUrl).'">Add</a>';
+        echo '<a class="button" href="'.esc_url(wp_nonce_url($download,'frontier_template_'.$kind)).'">Download Template</a>';
         echo '<details><summary class="button">Upload Template</summary>';
         self::formStart($kind,$kind === 'employee' ? 'import' : 'import_items');
         echo '<p><label>CSV file <input type="file" name="import_template" accept=".csv,text/csv" required></label></p>';
         self::submitButton('Import',true);
-        echo '</form></details>';
+        echo '</form></details></div>';
     }
 
     public static function downloadTemplate() {

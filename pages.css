@@ -59,3 +59,11 @@ body.frontier-workspace {
 .frontier-overview .frontier-card-purchase-order { background: #e0f1ff; }
 .frontier-overview .frontier-card-goods-receipt { background: #e5f4e6; }
 .frontier-overview .frontier-card-invoice { background: #f8e5ee; }
+
+.frontier-master-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.frontier-master-toolbar summary { cursor: pointer; list-style: none; }
+.frontier-master-toolbar summary::-webkit-details-marker { display: none; }
+.frontier-main .frontier-master-table { margin-top: 12px; }
+.frontier-main .frontier-master-table th, .frontier-main .frontier-master-table td { padding: 6px 10px; vertical-align: middle; }
+.frontier-main .frontier-master-table th { white-space: nowrap; }
+.frontier-main .frontier-master-table .button { padding: 3px 8px; }
