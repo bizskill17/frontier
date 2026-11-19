@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.30
+ * Version: 1.9.31
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -993,8 +993,14 @@ final class Frontier {
             'grn'=>['attachment'=>'GRN Slip'],
             'invoice'=>['matched'=>'Matched Quantity','attachment'=>'Invoice Copy'],
         ][$kind] ?? [];
-        if (self::$screen === 'pending_po') {
-            $fields['pending_quantity'] = 'Pending To Order';
+        $pendingPo = self::$screen === 'pending_po';
+        if ($pendingPo) {
+            $fields = [
+                'site_name'=>'Site Number with Name','indent_number'=>'Indent No.','indent_date'=>'Indent Date',
+                'due'=>'Required By','line_number'=>'Sl No.','item_name'=>'Item Name','unit'=>'Unit',
+                'qty'=>'Indent Qty','ordered_quantity'=>'Qty Ordered','pending_quantity'=>'Pending to Order',
+                'supplier'=>'Supplier Finalized','rate'=>'Rate Finalized',
+            ];
         }
         $choosePending = self::$screen === 'pending_choose';
         $chooseMaster = self::$screen === 'choose_master';
@@ -1026,7 +1032,7 @@ final class Frontier {
         if ($indentItems) {
             $fields = self::indentItemColumns();
         }
-        $showStatus = !$indentItems && !$chooseMaster;
+        $showStatus = !$indentItems && !$chooseMaster && !$pendingPo;
         $showActions = !in_array($mode,['items','selected'],true);
         [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
@@ -1364,7 +1370,11 @@ final class Frontier {
             $values['combined_name'] = $data['ref'].' - '.$data['name'];
         }
         if (self::$screen === 'pending_po' && isset($rows[$data['indent'] ?? 0])) {
-            $values['pending_quantity'] = self::available($rows,$rows[$data['indent']]);
+            $indent = $rows[$data['indent']];
+            $values = self::supplierIndentDetails($indent,$rows) + $values;
+            $values['due'] = self::indentDisplayDate($indent['data']['due'] ?? '');
+            $values['pending_quantity'] = self::available($rows,$indent);
+            $values['ordered_quantity'] = round($indent['data']['qty'] - $values['pending_quantity'],3);
         }
         $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
         if ($kind === 'quote') {
