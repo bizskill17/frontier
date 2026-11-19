@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.0
+ * Version: 1.7.1
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1148,7 +1148,11 @@ final class Frontier {
         header('Content-Disposition: attachment; filename="frontier-'.$kind.($export ? '-data' : '-template').'.csv"');
         $output = fopen('php://output','wb');
         fwrite($output,"\xEF\xBB\xBF");
-        fputcsv($output,self::IMPORT_TEMPLATES[$kind],',','"','');
+        $headers = self::IMPORT_TEMPLATES[$kind];
+        if ($kind === 'supplier' && !$export) {
+            unset($headers[0],$headers[2]);
+        }
+        fputcsv($output,array_values($headers),',','"','');
         foreach ($records as $row) {
             if ($row['kind'] !== 'supplier') {
                 continue;
@@ -1194,7 +1198,10 @@ final class Frontier {
             self::requireRule(fwrite($stream,$contents) === strlen($contents) && rewind($stream),'Could not read the CSV file.');
             $headers = fgetcsv($stream,0,',','"','');
             $expected = self::IMPORT_TEMPLATES[$kind];
-            self::requireRule($headers && array_map('trim',$headers) === $expected,
+            $headers = $headers ? array_map('trim',$headers) : [];
+            $supplierColumns = array_values(array_diff(self::IMPORT_TEMPLATES['supplier'],['Supplier Code','Suppliers Name with Code']));
+            $supplierUpload = $kind === 'supplier' && $headers === $supplierColumns;
+            self::requireRule($supplierUpload || $headers === $expected,
                 'Use the template headers in this order: '.implode(', ',$expected).'.');
             $rows = [];
             $line = 1;
@@ -1209,10 +1216,18 @@ final class Frontier {
                     }
                     return trim(sanitize_text_field((string)$value));
                 },$row);
-                if ($row === [''] || $row === array_fill(0,count($expected),'')) {
+                if ($row === [''] || $row === array_fill(0,count($headers),'')) {
                     continue;
                 }
-                self::requireRule(count($row) === count($expected),'Check the column count on CSV row '.$line.'.');
+                self::requireRule(count($row) === count($headers),'Check the column count on CSV row '.$line.'.');
+                if ($supplierUpload) {
+                    array_unshift($row,'');
+                    array_splice($row,2,0,['']);
+                }
+                if ($kind === 'supplier') {
+                    $row[0] = '';
+                    $row[2] = '';
+                }
                 foreach ($row as $index=>$value) {
                     $optional = $kind === 'supplier' && $index !== 1;
                     $length = $kind === 'supplier' && $index === 2 ? 403 : 200;
@@ -1315,18 +1330,17 @@ final class Frontier {
     private static function importSuppliers($records) {
         $rows = self::readImportTemplate('supplier',5000);
         $last = self::lastMasterCode($records,'supplier');
+        $fields = array_values(array_diff(array_keys(self::FIELDS['supplier']),['ref']));
+        $signature = static function ($data) use ($fields) {
+            return wp_json_encode(array_map(static function ($field) use ($data) {
+                return strtolower(trim($data[$field] ?? ''));
+            },$fields));
+        };
         $used = [];
         foreach ($records as $record) {
             if ($record['kind'] === 'supplier') {
-                $ref = $record['data']['ref'] ?? '';
-                $used[strtolower($ref)] = true;
-                if ($number = self::masterCodeNumber($ref)) {
-                    $used[strtolower(self::formatMasterCode($number))] = true;
-                }
+                $used[$signature($record['data'])] = true;
             }
-        }
-        foreach ($rows as $row) {
-            $last = max($last,self::masterCodeNumber($row[0]));
         }
         $count = 0;
         foreach ($rows as $index=>$row) {
@@ -1334,23 +1348,13 @@ final class Frontier {
             $data = array_combine(array_keys(self::FIELDS['supplier']),$row);
             self::requireRule($data['email'] === '' || is_email($data['email']),
                 'Check the supplier email on data row '.($index+1).'.');
-            $code = strtolower($data['ref']);
-            if (isset($used[$code])) {
+            $key = $signature($data);
+            if (isset($used[$key])) {
                 continue;
             }
-            if ($data['ref'] === '') {
-                $data['ref'] = self::formatMasterCode(++$last);
-            } else {
-                $number = self::masterCodeNumber($data['ref']);
-                self::requireRule($number > 0,'Use a supplier code like S - 0001 on data row '.($index+1).', or leave it blank.');
-                $data['ref'] = self::formatMasterCode($number);
-            }
-            $code = strtolower($data['ref']);
-            if (isset($used[$code])) {
-                continue;
-            }
+            $data['ref'] = self::formatMasterCode(++$last);
             self::insertImportedRecord('supplier',$data);
-            $used[$code] = true;
+            $used[$key] = true;
             $count++;
         }
         return $count;
