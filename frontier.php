@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.17
+ * Version: 1.9.18
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -920,6 +920,15 @@ final class Frontier {
         if (self::$screen === 'pending_po') {
             $fields['pending_quantity'] = 'Pending To Order';
         }
+        $pendingQuote = self::$screen === 'pending_quote';
+        if ($pendingQuote) {
+            $fields = [
+                'site_name'=>'Site Number with Name','item_name'=>'Item Name','qty'=>'Required Quantity',
+                'due'=>'Required by','indent_number'=>'Indent No.','indent_date'=>'Indent Date',
+                'requested_name'=>'Requested By','line_number'=>'Sl No.','unit'=>'Unit',
+                'excess'=>'Excess Quantity','reason'=>'Reason',
+            ];
+        }
         $indentItems = self::$screen === 'indent_items';
         if ($indentItems) {
             $fields = self::indentItemColumns();
@@ -939,6 +948,17 @@ final class Frontier {
         echo '</tr></thead><tbody>';
         foreach ($pageRows as $row) {
             [$values,$status] = $indentItems ? [self::indentItemValues($row,$rows),$row['status']] : self::recordValues($row,$rows,$kind);
+            if ($pendingQuote) {
+                $indent = $row['data'];
+                $boq = $rows[$indent['boq'] ?? 0]['data'] ?? [];
+                $site = $rows[$indent['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
+                $values['site_name'] = self::siteNumberWithName($site);
+                $values['item_name'] = $boq['name'] ?? '';
+                $values['indent_number'] = $indent['indent_number'] ?? '#'.$row['id'];
+                $values['line_number'] = $indent['line_number'] ?? 1;
+                $values['unit'] = $indent['unit'] ?? ($boq['unit'] ?? '');
+                $status = 'pending_supplier_quotation';
+            }
             echo '<tr>';
             foreach ($fields as $field=>$label) {
                 echo '<td>';
