@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.79
+ * Version: 1.9.80
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -130,6 +130,7 @@ final class Frontier {
         add_action('admin_post_frontier_boq_excel', [self::class, 'boqExcel']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
         add_action('admin_post_frontier_table_excel', [self::class, 'downloadTableExcel']);
+        add_action('admin_post_frontier_save_indent_telegram', [self::class, 'saveIndentTelegramSettings']);
         add_action('admin_post_frontier_save_org_name', [self::class, 'saveOrgName']);
         add_action('admin_post_frontier_save_logo', [self::class, 'saveLogo']);
         add_action('admin_post_frontier_save_numbering', [self::class, 'saveNumbering']);
@@ -472,6 +473,77 @@ final class Frontier {
 })();
         </script>
         <?php
+    }
+
+    private const INDENT_MESSAGE = "A new Indent {indent_number} was created for {site_name}.\nIndent Date: {indent_date}\nRequested By: {requested_by}";
+
+    private static function indentTelegramSettings() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        $settings = (array)get_option('frontier_indent_telegram',[]);
+        echo '<form class="frontier-entry" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><h2>Create Indent · Telegram</h2>';
+        wp_nonce_field('frontier_save_indent_telegram');
+        echo '<input type="hidden" name="action" value="frontier_save_indent_telegram">';
+        echo '<input type="hidden" name="surface" value="'.(self::$front ? 'front' : 'admin').'">';
+        echo '<p><label><input type="checkbox" name="telegram_enabled" value="1" '.checked(!empty($settings['enabled']),true,false).'> Send new indents to Telegram</label></p>';
+        echo '<p><label>Bot Token<input type="password" name="telegram_token" autocomplete="new-password"></label> '.(empty($settings['token']) ? 'Not configured' : 'Saved').'</p>';
+        echo '<p><label>Message Format<textarea name="telegram_message" rows="4" maxlength="700">'.esc_textarea($settings['message'] ?? self::INDENT_MESSAGE).'</textarea></label></p>';
+        echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{indent_date}</code> <code>{requested_by}</code></p>';
+        self::submitButton('Save Telegram Settings',true);
+        echo '</form>';
+    }
+
+    public static function saveIndentTelegramSettings() {
+        if (!current_user_can('manage_options')) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        check_admin_referer('frontier_save_indent_telegram');
+        $existing = (array)get_option('frontier_indent_telegram',[]);
+        $token = self::input('telegram_token') ?: ($existing['token'] ?? '');
+        $enabled = self::input('telegram_enabled') === '1';
+        if (($enabled || $token !== '') && !preg_match('/^[0-9]+:[A-Za-z0-9_-]+$/D',$token)) {
+            wp_die('Enter a valid Telegram bot token.','Frontier',['response'=>400,'back_link'=>true]);
+        }
+        $raw = $_POST['telegram_message'] ?? '';
+        $message = is_string($raw) ? sanitize_textarea_field(wp_unslash($raw)) : '';
+        update_option('frontier_indent_telegram',['enabled'=>$enabled,'token'=>$token,'message'=>$message ?: self::INDENT_MESSAGE],false);
+        self::$front = self::input('surface') === 'front';
+        wp_safe_redirect(add_query_arg('saved',1,self::url('settings')));
+        exit;
+    }
+
+    private static function sendIndentTelegram($header,$rows,$items) {
+        $settings = (array)get_option('frontier_indent_telegram',[]);
+        if (empty($settings['enabled'])) {
+            return true;
+        }
+        $site = $rows[$header['site']]['data'];
+        $chat = trim((string)($site['telegram'] ?? ''));
+        if (!preg_match('/^-?[0-9]+$/D',$chat) || empty($settings['token'])) {
+            return false;
+        }
+        $number = (int)$header['indent_number'];
+        $siteName = (string)($site['name'] ?? '');
+        $date = self::indentDisplayDate($header['indent_date']);
+        $message = strtr($settings['message'],['{indent_number}'=>(string)$number,'{site_name}'=>$siteName,
+            '{indent_date}'=>$date,'{requested_by}'=>$header['requested_name']]);
+        $message = wp_html_excerpt($message,1000);
+        $pdf = Frontier_Boq_Pdf::build($number,self::siteNumberWithName($site),$date,$header['requested_name'],$items,'Indent','Requested By');
+        $boundary = 'frontier-'.wp_generate_uuid4();
+        $body = "--$boundary\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n$chat\r\n";
+        $body .= "--$boundary\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n$message\r\n";
+        $body .= "--$boundary\r\nContent-Disposition: form-data; name=\"document\"; filename=\"indent-$number.pdf\"\r\n";
+        $body .= "Content-Type: application/pdf\r\n\r\n$pdf\r\n--$boundary--\r\n";
+        $response = wp_remote_post('https://api.telegram.org/bot'.$settings['token'].'/sendDocument',[
+            'headers'=>['Content-Type'=>'multipart/form-data; boundary='.$boundary],
+            'body'=>$body,'timeout'=>10,'redirection'=>0,
+        ]);
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+            return false;
+        }
+        $result = json_decode(wp_remote_retrieve_body($response),true);
+        return !empty($result['ok']);
     }
 
     private static function orgNameSettings() {
@@ -926,9 +998,13 @@ final class Frontier {
             $message = isset($_GET['deleted']) ? 'Record deleted.' : 'Saved.';
             echo '<div class="notice notice-success" role="status"><p>'.esc_html($message).'</p></div>';
         }
+        if (isset($_GET['indent_telegram_failed'])) {
+            echo '<div class="notice notice-warning" role="status"><p>Indent saved. Telegram delivery failed. Check the bot token and the site Telegram Group Id.</p></div>';
+        }
         self::$screen = $kind;
         if ($kind === 'settings') {
             self::orgNameSettings();
+            self::indentTelegramSettings();
             self::logoSettings();
             self::numberingSettings();
             echo '</div>';
@@ -3667,6 +3743,7 @@ HTML;
             'indent_timestamp'=>current_time('mysql'),'due'=>$targetDate,
             'requested_by'=>(int)$employee['id'],'requested_name'=>$employee['data']['name'],'site'=>(int)$site['id']];
         $selected = [];
+        $items = [];
         global $wpdb;
         foreach (array_values($lines) as $index=>$line) {
             $number = $index+1;
@@ -3677,12 +3754,15 @@ HTML;
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0,
                 'Enter a valid quantity on row '.$number.'.');
             $selected[$id] = true;
+            $item = $rows[$id]['data'];
+            $items[] = [$number,$item['name'] ?? '',(float)$qty,$item['unit'] ?? ''];
             $data = $header + ['boq'=>$id,'qty'=>(float)$qty,'line_number'=>$number];
             self::validateIndent($rows,$data,0);
             if ($wpdb->insert(self::table(),['kind'=>'indent','status'=>'pending','details'=>wp_json_encode($data)]) !== 1) {
                 throw new RuntimeException('Indent could not be saved.');
             }
         }
+        return [$header,$items];
     }
 
     private static function pendingInvoiceQuantity($rows,$po) {
@@ -4918,7 +4998,7 @@ HTML;
                 self::updateIndentGroup($rows,absint(self::input('id')));
                 $result = true;
             } elseif ($kind === 'indent' && $action === 'create_indent') {
-                self::saveIndent($rows);
+                $indentTelegram = self::saveIndent($rows);
                 $result = true;
             } elseif ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true)) {
                 $id = absint(self::input('id'));
@@ -5032,6 +5112,16 @@ HTML;
         if ($kind === 'indent' && isset($row) && ($screen === 'indent_items' || $action === 'edit')) {
             $destination = 'indent_items';
             $query['indent_group'] = self::indentGroup($row);
+        }
+        if (!empty($indentTelegram)) {
+            try {
+                $sent = self::sendIndentTelegram($indentTelegram[0],$rows,$indentTelegram[1]);
+            } catch (Throwable $exception) {
+                $sent = false;
+            }
+            if (!$sent) {
+                $query['indent_telegram_failed'] = 1;
+            }
         }
         wp_safe_redirect(add_query_arg($query,self::url($destination)));
         exit;
