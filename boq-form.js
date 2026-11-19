@@ -10,6 +10,7 @@ if (boqForm) {
     const normalize = (value) => String(value).trim().replace(/\s+/gu, ' ').toLowerCase();
     const byName = new Map();
     const byLabel = new Map();
+    const labelsById = new Map();
     data.items.forEach((item) => {
         const key = normalize(item.name);
         if (!byName.has(key)) byName.set(key, []);
@@ -20,6 +21,7 @@ if (boqForm) {
         entries.forEach((item) => {
             const label = entries.length === 1 ? item.name : item.name + ' — ' + item.category + ' / ' + item.type + ' (#' + item.id + ')';
             byLabel.set(normalize(label), item);
+            labelsById.set(item.id, label);
             options.append(new Option(label, label));
         });
     }
@@ -32,16 +34,22 @@ if (boqForm) {
         return byLabel.get(normalize(name));
     }
 
+    function itemForRow(row) {
+        if (row.id && row.name.value === row.initialName) return { id: row.initialItem };
+        return match(row.name.value);
+    }
+
     function sync() {
         let unresolved = 0;
         rows.forEach((row, index) => {
             row.number.textContent = index + 1;
-            const item = match(row.name.value);
+            const item = itemForRow(row);
             const unmatched = row.name.value.trim() !== '' && !item;
             row.element.classList.toggle('frontier-boq-unmatched', unmatched);
             const ambiguous = unmatched && byName.has(normalize(row.name.value));
             row.status.textContent = item ? '✓ Matched' : (ambiguous ? '⚠ Multiple matches' : (unmatched ? '⚠ Not in Item Master' : ''));
-            row.selectItem.hidden = !unmatched;
+            row.selectItem.style.display = unmatched && !row.locked ? '' : 'none';
+            if (row.locked) row.status.textContent = 'Used in indent';
             row.status.classList.toggle('frontier-boq-matched', !!item);
             if (!item) unresolved++;
         });
@@ -53,6 +61,7 @@ if (boqForm) {
         const element = table.insertRow();
         const number = element.insertCell();
         const inputs = {};
+        const initialName = labelsById.get(values.item) || values.name || '';
         for (const [key, title] of [['name', 'Item Name'], ['qty', 'Quantity'], ['unit', 'Unit']]) {
             const input = document.createElement('input');
             input.type = key === 'qty' ? 'number' : 'text';
@@ -67,7 +76,8 @@ if (boqForm) {
             } else {
                 input.maxLength = 200;
             }
-            input.value = values[key] ?? '';
+            input.value = key === 'name' ? initialName : (values[key] ?? '');
+            input.readOnly = !!values.locked;
             element.insertCell().append(input);
             inputs[key] = input;
         }
@@ -84,8 +94,13 @@ if (boqForm) {
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.textContent = 'Remove';
-        actions.append(' ', remove);
-        const row = { element, number, status, selectItem, ...inputs };
+        if (values.locked) {
+            actions.textContent = 'Locked';
+        } else {
+            actions.append(' ', remove);
+        }
+        const row = { element, number, status, selectItem, id: values.id || 0,
+            initialName, initialItem: values.item || 0, locked: !!values.locked, ...inputs };
         remove.addEventListener('click', () => {
             element.remove();
             rows = rows.filter((entry) => entry !== row);
@@ -146,12 +161,17 @@ if (boqForm) {
             return;
         }
         payload.value = JSON.stringify(rows.map((row) => ({
-            item: match(row.name.value).id,
+            id: row.id,
+            item: itemForRow(row).id,
             qty: row.qty.value,
             unit: row.unit.value,
         })));
         save.disabled = true;
     });
-    addRow();
+    if (data.lines.length) {
+        data.lines.forEach(addRow);
+    } else {
+        addRow();
+    }
     sync();
 }

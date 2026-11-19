@@ -2,11 +2,12 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.5
+ * Version: 1.8.6
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
 require_once __DIR__.'/boq-workbook.php';
+require_once __DIR__.'/boq-pdf.php';
 
 final class Frontier {
     private const MASTERS = [
@@ -339,7 +340,7 @@ final class Frontier {
     private static function enqueueDropdownSearch() {
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.8.3',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
-        wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.8.3',true);
+        wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.8.6',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.0');
         }
@@ -552,9 +553,14 @@ final class Frontier {
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
         if ($kind === 'boq') {
-            if ($mode === 'form') {
+            $editId = absint($_GET['edit'] ?? 0);
+            if ($mode === 'form' || ($mode === 'register' && $editId)) {
                 if (self::can('boq')) {
-                    self::boqForm($rows);
+                    if ($editId && (!isset($rows[$editId]) || $rows[$editId]['kind'] !== 'boq')) {
+                        wp_die('BOQ not found.','Frontier',['response'=>404]);
+                    }
+                    $lines = $editId ? self::boqLines($rows,$editId) : [];
+                    self::boqForm($rows,$lines);
                 } else {
                     echo '<p>You do not have permission to create a BOQ.</p>';
                 }
@@ -798,7 +804,7 @@ final class Frontier {
 
     private static function formStart($kind,$action,$id=0) {
         $class = in_array($action,['create','edit','complete_site','cancel_site'],true) ? ' class="frontier-entry"' : '';
-        if ($action === 'create_boq') {
+        if (in_array($action,['create_boq','edit_boq'],true)) {
             $class = ' class="frontier-entry frontier-boq-form"';
         }
         echo '<form'.$class.' method="post" enctype="multipart/form-data" action="'.esc_url(admin_url('admin-post.php')).'">';
@@ -1582,7 +1588,27 @@ final class Frontier {
         return $number ? 'number-'.$number : 'legacy-'.$row['id'];
     }
 
+    private static function boqLines($rows,$id) {
+        $boq = $rows[$id] ?? null;
+        self::requireRule($boq && $boq['kind'] === 'boq','BOQ not found.');
+        $key = self::boqGroup($boq);
+        return array_filter(array_reverse($rows,true),static function ($row) use ($key) {
+            return $row['kind'] === 'boq' && self::boqGroup($row) === $key;
+        });
+    }
+
+    private static function boqReferences($rows) {
+        $used = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'indent' && !empty($row['data']['boq'])) {
+                $used[(int)$row['data']['boq']] = true;
+            }
+        }
+        return $used;
+    }
+
     private static function boqRegister($rows,$itemsOnly) {
+        $used = $itemsOnly ? [] : self::boqReferences($rows);
         $indents = [];
         $approvedOrders = [];
         foreach ($rows as $row) {
@@ -1647,8 +1673,9 @@ final class Frontier {
                 'received'=>$receipt,'pending_receive'=>max(0,$order-$receipt),
             ];
             if (!isset($groups[$key])) {
-                $groups[$key] = $header + ['pdf'=>$id,'qty'=>0,'indented'=>0,'pending_indent'=>0];
+                $groups[$key] = $header + ['pdf'=>$id,'qty'=>0,'indented'=>0,'pending_indent'=>0,'used'=>false];
             }
+            $groups[$key]['used'] = $groups[$key]['used'] || isset($used[$id]);
             $groups[$key]['qty'] += $quantity;
             $groups[$key]['indented'] += $indented;
             $groups[$key]['pending_indent'] += max(0,$quantity-$indented);
@@ -1662,6 +1689,9 @@ final class Frontier {
             'date'=>'BOQ Date','number'=>'BOQ No.','site'=>'Site Number with Name','prepared'=>'Prepared By','pdf'=>'Pdf',
             'timestamp'=>'Timestamp','qty'=>'Total Quantity','indented'=>'Quantity Indented','pending_indent'=>'Pending to Indent',
         ];
+        if (!$itemsOnly && self::can('boq')) {
+            $columns['actions'] = 'Actions';
+        }
         if ($itemsOnly) {
             $listing = [];
             foreach ($items as $lines) {
@@ -1685,7 +1715,15 @@ final class Frontier {
                 if ($key === 'pdf') {
                     $id = $record['pdf'];
                     $url = add_query_arg(['action'=>'frontier_boq_print','id'=>$id],admin_url('admin-post.php'));
-                    echo '<a target="_blank" rel="noopener" href="'.esc_url(wp_nonce_url($url,'frontier_boq_print_'.$id)).'">Print / Save PDF</a>';
+                    echo '<a href="'.esc_url(wp_nonce_url($url,'frontier_boq_print_'.$id)).'">PDF</a>';
+                } elseif ($key === 'actions') {
+                    $id = $record['pdf'];
+                    echo '<a class="button" aria-label="Edit BOQ" title="Edit BOQ" href="'.esc_url(add_query_arg('edit',$id,self::url('boq'))).'">✎</a>';
+                    if (!$record['used']) {
+                        echo ' <details><summary class="button" aria-label="Delete BOQ" title="Delete BOQ">🗑</summary><p>Delete this BOQ?</p>';
+                        self::button($rows[$id],'delete_boq','Confirm Delete');
+                        echo '</details>';
+                    }
                 } else {
                     $value = $record[$key];
                     echo esc_html(is_float($value) ? (string)round($value,3) : (string)$value);
@@ -1712,35 +1750,36 @@ final class Frontier {
         if (!$boq || $boq['kind'] !== 'boq') {
             wp_die('BOQ not found.','Frontier',['response'=>404]);
         }
-        $key = self::boqGroup($boq);
         $header = $boq['data'];
         $number = $header['boq_number'] ?? '#'.$id;
         $site = self::siteNumberWithName($rows[$header['site'] ?? 0]['data'] ?? []);
-        $siteDate = !empty($header['boq_date']) ? implode('/',array_reverse(explode('-',$header['boq_date']))) : '';
-        nocache_headers();
-        header('Content-Type: text/html; charset=UTF-8');
-        echo '<!doctype html><html lang="en"><meta charset="utf-8"><title>'.esc_html('BOQ '.$number).'</title>';
-        echo '<style>body{font:15px system-ui;margin:32px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:8px;text-align:left}@media print{button{display:none}}</style>';
-        echo '<button type="button" onclick="window.print()">Print / Save PDF</button><h1>'.esc_html('BOQ '.$number).'</h1>';
-        echo '<p>'.esc_html($site).'<br>'.esc_html($siteDate).'<br>'.esc_html($header['prepared_name'] ?? '').'</p>';
-        echo '<table><thead><tr><th>Sl No.</th><th>Item Name</th><th>Quantity</th><th>Units</th></tr></thead><tbody>';
-        foreach (array_reverse($rows) as $row) {
-            if ($row['kind'] !== 'boq' || self::boqGroup($row) !== $key) {
-                continue;
-            }
+        $date = !empty($header['boq_date']) ? implode('/',array_reverse(explode('-',$header['boq_date']))) : '';
+        $lines = [];
+        foreach (self::boqLines($rows,$id) as $row) {
             $data = $row['data'];
-            echo '<tr>';
-            foreach ([$data['line_number'] ?? 1,$data['name'] ?? '',$data['qty'] ?? '',$data['unit'] ?? ''] as $value) {
-                echo '<td>'.esc_html((string)$value).'</td>';
-            }
-            echo '</tr>';
+            $lines[] = [$data['line_number'] ?? 1,$data['name'] ?? '',$data['qty'] ?? '',$data['unit'] ?? ''];
         }
-        echo '</tbody></table></html>';
+        $pdf = Frontier_Boq_Pdf::build($number,$site,$date,$header['prepared_name'] ?? '',$lines);
+        $fileNumber = absint($header['boq_number'] ?? $id);
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="boq-'.$fileNumber.'.pdf"');
+        header('Content-Length: '.strlen($pdf));
+        echo $pdf;
         exit;
     }
 
-    private static function boqForm($rows) {
+    private static function boqForm($rows,$lines=[]) {
         $items = [];
+        $first = reset($lines);
+        $header = $first['data'] ?? [];
+        $used = $lines ? array_intersect_key(self::boqReferences($rows),$lines) : [];
+        $initialRows = [];
+        foreach ($lines as $id=>$line) {
+            $data = $line['data'];
+            $initialRows[] = ['id'=>(int)$id,'item'=>(int)($data['item_id'] ?? 0),'name'=>$data['name'],
+                'qty'=>$data['qty'],'unit'=>$data['unit'],'locked'=>isset($used[$id])];
+        }
         foreach ($rows as $row) {
             $data = $row['data'];
             if ($row['kind'] === 'item') {
@@ -1752,12 +1791,21 @@ final class Frontier {
         $endpoint = add_query_arg('action','frontier_boq_excel',admin_url('admin-post.php'));
         $template = wp_nonce_url(add_query_arg('download',1,$endpoint),'frontier_boq_excel');
         $upload = add_query_arg('_wpnonce',wp_create_nonce('frontier_boq_excel'),$endpoint);
-        self::formStart('boq','create_boq');
+        self::formStart('boq',$first ? 'edit_boq' : 'create_boq',$first['id'] ?? 0);
         echo '<input type="hidden" name="boq_lines"><input type="hidden" name="boq_token" value="'.esc_attr(wp_generate_uuid4()).'">';
+        if ($first) {
+            echo '<input type="hidden" name="boq_revision" value="'.esc_attr(hash('sha256',wp_json_encode($lines))).'">';
+        }
         echo '<div class="frontier-fields">';
-        self::field($rows,'boq','due','BOQ Date',current_time('Y-m-d'));
-        self::field($rows,'boq','site','Site Number with Name','');
-        self::field($rows,'boq','employee','Prepared By','');
+        self::field($rows,'boq','due','BOQ Date',$header['boq_date'] ?? current_time('Y-m-d'));
+        if ($used) {
+            $siteId = $header['site'];
+            echo '<input type="hidden" name="site" value="'.esc_attr($siteId).'"><p><label>Site Number with Name <input readonly value="';
+            echo esc_attr(self::siteNumberWithName($rows[$siteId]['data'] ?? [])).'"></label></p>';
+        } else {
+            self::field($rows,'boq','site','Site Number with Name',$header['site'] ?? '');
+        }
+        self::field($rows,'boq','employee','Prepared By',$header['prepared_by'] ?? '');
         echo '</div>';
         echo '<h2>BOQ Items</h2><div class="frontier-master-toolbar">';
         echo '<button type="button" class="button frontier-boq-add">Add Row</button>';
@@ -1770,7 +1818,7 @@ final class Frontier {
         }
         echo '</tr></thead><tbody></tbody></table></div>';
         echo '<datalist id="frontier-boq-items"></datalist>';
-        echo '<script type="application/json" class="frontier-boq-data">'.wp_json_encode(['items'=>$items],
+        echo '<script type="application/json" class="frontier-boq-data">'.wp_json_encode(['items'=>$items,'lines'=>$initialRows],
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
         echo '<p><button type="submit" class="button button-primary frontier-boq-save" disabled>Save BOQ</button> ';
         echo '<a class="button" href="'.esc_url(self::url('boq')).'">Cancel</a></p>';
@@ -1812,7 +1860,14 @@ final class Frontier {
         }
     }
 
-    private static function saveBoq($rows) {
+    private static function saveBoq($rows,$id=0) {
+        global $wpdb;
+        $existing = $id ? self::boqLines($rows,$id) : [];
+        self::requireRule(!$id || hash_equals(hash('sha256',wp_json_encode($existing)),self::input('boq_revision')),
+            'This BOQ has changed. Reopen it before editing.');
+        $first = reset($existing);
+        $previous = $first['data'] ?? [];
+        $used = $existing ? array_intersect_key(self::boqReferences($rows),$existing) : [];
         $site = $rows[absint(self::input('site'))] ?? null;
         $employee = $rows[absint(self::input('employee'))] ?? null;
         $dateText = self::input('due');
@@ -1825,32 +1880,59 @@ final class Frontier {
         self::requireRule(is_array($lines) && count($lines) > 0 && count($lines) <= 500,'Add between 1 and 500 BOQ item rows.');
         $token = self::input('boq_token');
         self::requireRule(wp_is_uuid($token,4),'Reopen the BOQ form and try again.');
-        $last = 0;
+        self::requireRule(!$used || (int)$site['id'] === (int)$previous['site'],'The site cannot change once the BOQ is used in an indent.');
+        $last = (int)get_option('frontier_last_deleted_boq',0);
         foreach ($rows as $row) {
             if ($row['kind'] !== 'boq') {
                 continue;
             }
-            if (($row['data']['boq_token'] ?? '') === $token) {
+            if (!$id && ($row['data']['boq_token'] ?? '') === $token) {
                 return;
             }
             $last = max($last,(int)($row['data']['boq_number'] ?? 0));
         }
         $header = ['site'=>(int)$site['id'],'prepared_by'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name'],
-            'group_id'=>$site['data']['telegram'] ?? '', 'boq_date'=>$dateText,'boq_number'=>$last+1,
-            'boq_token'=>$token,'boq_timestamp'=>current_time('mysql')];
+            'group_id'=>$site['data']['telegram'] ?? '', 'boq_date'=>$dateText,'boq_number'=>$previous['boq_number'] ?? ($last+1),
+            'boq_token'=>$previous['boq_token'] ?? $token,'boq_timestamp'=>$id ? ($previous['boq_timestamp'] ?? '') : current_time('mysql')];
+        $seen = [];
         foreach (array_values($lines) as $index=>$line) {
             $number = $index+1;
             self::requireRule(is_array($line),'Check BOQ row '.$number.'.');
+            $lineId = $line['id'] ?? 0;
+            self::requireRule(is_int($lineId) && (!$lineId || (isset($existing[$lineId]) && !isset($seen[$lineId]))),
+                'BOQ item line is invalid or has already changed.');
+            $old = $existing[$lineId]['data'] ?? [];
             $itemId = $line['item'] ?? null;
             $item = is_int($itemId) ? ($rows[$itemId] ?? null) : null;
             $qty = is_string($line['qty'] ?? null) ? trim($line['qty']) : '';
             $unit = is_string($line['unit'] ?? null) ? sanitize_text_field($line['unit']) : '';
-            self::requireRule($item && $item['kind'] === 'item','Choose an Item Master entry on row '.$number.'.');
+            $sameSavedItem = $lineId && $itemId === (int)($old['item_id'] ?? 0);
+            self::requireRule($sameSavedItem || ($item && $item['kind'] === 'item'),'Choose an Item Master entry on row '.$number.'.');
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0,'Enter a valid quantity on row '.$number.'.');
             self::requireRule($unit !== '' && strlen($unit) <= 200,'Enter a unit on row '.$number.'.');
-            self::insertImportedRecord('boq',$header + ['item_id'=>$itemId,'name'=>$item['data']['name'],
-                'qty'=>(float)$qty,'unit'=>$unit,'section'=>'','line_number'=>$number,
-                'item_category'=>$rows[$item['data']['category'] ?? 0]['data']['name'] ?? '']);
+            if (isset($used[$lineId])) {
+                self::requireRule($sameSavedItem && (float)$qty === (float)$old['qty'] && $unit === $old['unit'],
+                    'An item already used in an indent cannot be changed.');
+            }
+            $data = $header + [
+                'item_id'=>$itemId,'name'=>$sameSavedItem ? $old['name'] : $item['data']['name'],
+                'qty'=>(float)$qty,'unit'=>$unit,'section'=>$old['section'] ?? '', 'line_number'=>$number,
+                'item_category'=>$sameSavedItem ? ($old['item_category'] ?? '') : ($rows[$item['data']['category'] ?? 0]['data']['name'] ?? ''),
+            ];
+            if ($lineId) {
+                $seen[$lineId] = true;
+                if ($wpdb->update(self::table(),['details'=>wp_json_encode($data + $old)],['id'=>$lineId]) === false) {
+                    throw new RuntimeException('BOQ line could not be saved.');
+                }
+            } else {
+                self::insertImportedRecord('boq',$data);
+            }
+        }
+        self::requireRule(!array_diff_key($used,$seen),'An item already used in an indent cannot be removed.');
+        foreach (array_diff_key($existing,$seen) as $lineId=>$line) {
+            if ($wpdb->delete(self::table(),['id'=>$lineId]) !== 1) {
+                throw new RuntimeException('BOQ line could not be removed.');
+            }
         }
     }
 
@@ -1876,14 +1958,30 @@ final class Frontier {
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
                 || ($kind === 'supplier' && $action === 'import_suppliers')
-                || ($kind === 'boq' && $action === 'create_boq')) {
+                || ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true))) {
                 if ($wpdb->query('START TRANSACTION') === false) {
                     throw new RuntimeException('Database transaction could not start.');
                 }
                 $transaction = true;
             }
-            if ($kind === 'boq' && $action === 'create_boq') {
-                self::saveBoq($rows);
+            if ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true)) {
+                $id = absint(self::input('id'));
+                self::requireRule($action === 'create_boq' || $id,'BOQ not found.');
+                if ($action === 'delete_boq') {
+                    $lines = self::boqLines($rows,$id);
+                    self::requireRule(!array_intersect_key(self::boqReferences($rows),$lines),'A BOQ used in an indent cannot be deleted.');
+                    $number = (int)($rows[$id]['data']['boq_number'] ?? 0);
+                    if ($number > (int)get_option('frontier_last_deleted_boq',0)) {
+                        update_option('frontier_last_deleted_boq',$number,false);
+                    }
+                    foreach ($lines as $line) {
+                        if ($wpdb->delete(self::table(),['id'=>$line['id']]) !== 1) {
+                            throw new RuntimeException('BOQ could not be deleted.');
+                        }
+                    }
+                } else {
+                    self::saveBoq($rows,$action === 'edit_boq' ? $id : 0);
+                }
                 $result = true;
             } elseif ($kind === 'supplier' && $action === 'import_suppliers') {
                 $imported = self::importSuppliers($rows);
@@ -1960,7 +2058,7 @@ final class Frontier {
         $screen = sanitize_key(self::input('screen'));
         $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
         $destination = $action !== 'create_boq' && $sameKind && self::canView($screen) ? $screen : $kind;
-        $query = $imported === null ? [$action === 'delete_master' ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
+        $query = $imported === null ? [in_array($action,['delete_master','delete_boq'],true) ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
         wp_safe_redirect(add_query_arg($query,self::url($destination)));
         exit;
     }
