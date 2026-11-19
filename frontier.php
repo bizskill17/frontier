@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.64
+ * Version: 1.9.65
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1158,6 +1158,11 @@ final class Frontier {
     private static function pagedRows($rows,$columns,$values) {
         $search = self::tableQuery('frontier_search');
         $showFilters = !isset(self::MASTERS[self::$screen]) && !in_array(self::$screen,['site','boq'],true);
+        $boqFilters = self::$screen === 'boq_items';
+        $showFilters = $showFilters && !$boqFilters;
+        $facets = $boqFilters ? array_map([self::class,'tableQuery'],['boq_from','boq_to','boq_site','boq_item']) : ['','','',''];
+        [$from,$to,$site,$item] = $facets;
+        $hasFacets = count(array_filter($facets,'strlen')) > 0;
         $column = $showFilters ? self::tableQuery('frontier_column') : '';
         $filter = $showFilters ? self::tableQuery('frontier_filter') : '';
         $url = self::tableSearchUrl();
@@ -1169,10 +1174,28 @@ final class Frontier {
         }
         echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
         echo '<label>Search <input type="search" name="frontier_search" value="'.esc_attr($search).'" placeholder="Search all columns"'.($search !== '' ? ' autofocus' : '').'></label>';
-        if ($search !== '' || $filter !== '') {
+        if ($boqFilters) {
+            echo '<button class="button" type="button" data-boq-filter-toggle aria-controls="frontier-boq-filters" aria-expanded="'.($hasFacets ? 'true' : 'false').'">Filter</button>';
+        }
+        if ($search !== '' || $filter !== '' || $hasFacets) {
             echo '<a class="button" href="'.esc_url($url).'">Clear all</a>';
         }
         echo '</div>';
+        if ($boqFilters) {
+            echo '<div id="frontier-boq-filters"'.($hasFacets ? '' : ' hidden').'><div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin-top:8px">';
+            echo '<label>Date From <input type="date" name="boq_from" value="'.esc_attr($from).'"></label>';
+            echo '<label>Date To <input type="date" name="boq_to" value="'.esc_attr($to).'"></label>';
+            foreach (['site'=>['Site',$site],'item'=>['Item',$item]] as $key=>[$label,$active]) {
+                $options = array_unique(array_filter(array_column($rows,$key),'strlen'));
+                natcasesort($options);
+                echo '<label>'.esc_html($label).' <select name="boq_'.esc_attr($key).'"><option value="">All</option>';
+                foreach ($options as $option) {
+                    echo '<option value="'.esc_attr($option).'" '.selected($active,$option,false).'>'.esc_html($option).'</option>';
+                }
+                echo '</select></label>';
+            }
+            echo '<button class="button" type="submit">Apply filter</button></div></div>';
+        }
         if ($showFilters) {
             echo '<details'.($filter !== '' ? ' open' : '').'><summary>Filters</summary>';
             echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
@@ -1190,6 +1213,14 @@ final class Frontier {
     const form = document.currentScript.previousElementSibling;
     const search = form.elements.frontier_search;
     const initial = search.value;
+    const toggle = form.querySelector('[data-boq-filter-toggle]');
+    if (toggle) {
+        const panel = document.getElementById(toggle.getAttribute('aria-controls'));
+        toggle.addEventListener('click', () => {
+            panel.hidden = !panel.hidden;
+            toggle.setAttribute('aria-expanded', String(!panel.hidden));
+        });
+    }
     let timer;
     if (document.activeElement === search) search.setSelectionRange(initial.length,initial.length);
     const schedule = event => {
@@ -1203,12 +1234,19 @@ final class Frontier {
 })();
 </script>
 HTML;
-        if ($search !== '' || ($filter !== '' && isset($columns[$column]))) {
+        if ($search !== '' || $hasFacets || ($filter !== '' && isset($columns[$column]))) {
             $terms = preg_split('/\s+/u',$search,-1,PREG_SPLIT_NO_EMPTY) ?: [];
             $contains = static function ($value,$needle) {
                 return function_exists('mb_stripos') ? mb_stripos($value,$needle,0,'UTF-8') !== false : stripos($value,$needle) !== false;
             };
-            $rows = array_filter($rows,static function ($row,$id) use ($values,$columns,$column,$filter,$terms,$contains) {
+            $rows = array_filter($rows,static function ($row,$id) use ($values,$columns,$column,$filter,$terms,$contains,$hasFacets,$from,$to,$site,$item) {
+                if ($hasFacets) {
+                    $date = implode('-',array_reverse(explode('/',$row['date'] ?? '')));
+                    if (($from !== '' && ($date === '' || $date < $from)) || ($to !== '' && ($date === '' || $date > $to))
+                        || ($site !== '' && ($row['site'] ?? '') !== $site) || ($item !== '' && ($row['item'] ?? '') !== $item)) {
+                        return false;
+                    }
+                }
                 $cells = array_intersect_key($values($row,$id),$columns);
                 foreach ($cells as &$cell) {
                     $cell = is_scalar($cell) ? (string)$cell : '';
@@ -1234,7 +1272,7 @@ HTML;
 
     private static function pagination($page,$pages,$total) {
         $url = self::tableSearchUrl();
-        foreach (['frontier_search','frontier_column','frontier_filter'] as $key) {
+        foreach (['frontier_search','frontier_column','frontier_filter','boq_from','boq_to','boq_site','boq_item'] as $key) {
             $value = self::tableQuery($key);
             if ($value !== '') {
                 $url = add_query_arg($key,$value,$url);
