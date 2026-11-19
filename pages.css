@@ -296,3 +296,14 @@ body.frontier-workspace {
 .frontier-sidebar details { margin-block: 3px; }
 .frontier-sidebar ul { border-left: 1px solid #415771; padding-left: 5px; }
 .frontier-sidebar li a { font-size: .9rem; }
+
+.frontier-pages .frontier-master-table .frontier-pending-po-action {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    min-width: 112px;
+    text-align: center;
+    box-shadow: -2px 0 4px #17243b18;
+}
+.frontier-pages .frontier-master-table td.frontier-pending-po-action { background: #fff; }
+.frontier-pages .frontier-pending-po-action .frontier-row-actions { justify-content: center; }
