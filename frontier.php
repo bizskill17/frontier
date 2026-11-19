@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.21
+ * Version: 1.9.22
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1144,7 +1144,7 @@ final class Frontier {
         $status = $row['status'];
         $mode = self::SCREENS[self::$screen][1] ?? 'combined';
         $next = [
-            'pending_quote'=>['quote_form','Add Quotation'],
+            'pending_quote'=>['quote_form','Update'],
             'pending_po'=>['po_form','Create Purchase Order'],
             'pending_grn'=>['grn_form','Create Goods Receipt'],
         ][self::$screen] ?? null;
