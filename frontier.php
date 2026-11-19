@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.62
+ * Version: 1.9.63
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1157,8 +1157,9 @@ final class Frontier {
 
     private static function pagedRows($rows,$columns,$values) {
         $search = self::tableQuery('frontier_search');
-        $column = self::tableQuery('frontier_column');
-        $filter = self::tableQuery('frontier_filter');
+        $showFilters = !isset(self::MASTERS[self::$screen]) && self::$screen !== 'site';
+        $column = $showFilters ? self::tableQuery('frontier_column') : '';
+        $filter = $showFilters ? self::tableQuery('frontier_filter') : '';
         $url = self::tableSearchUrl();
         $query = [];
         parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$query);
@@ -1167,19 +1168,41 @@ final class Frontier {
             echo '<input type="hidden" name="'.esc_attr($name).'" value="'.esc_attr($value).'">';
         }
         echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
-        echo '<label>Search <input type="search" name="frontier_search" value="'.esc_attr($search).'" placeholder="Search all columns"></label>';
-        echo '<button class="button" type="submit">Search</button>';
+        echo '<label>Search <input type="search" name="frontier_search" value="'.esc_attr($search).'" placeholder="Search all columns"'.($search !== '' ? ' autofocus' : '').'></label>';
         if ($search !== '' || $filter !== '') {
             echo '<a class="button" href="'.esc_url($url).'">Clear all</a>';
         }
-        echo '</div><details'.($filter !== '' ? ' open' : '').'><summary>Filters</summary>';
-        echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
-        echo '<label>Column <select name="frontier_column"><option value="">Select column</option>';
-        foreach ($columns as $key=>$label) {
-            echo '<option value="'.esc_attr((string)$key).'" '.selected((string)$key,$column,false).'>'.esc_html($label).'</option>';
+        echo '</div>';
+        if ($showFilters) {
+            echo '<details'.($filter !== '' ? ' open' : '').'><summary>Filters</summary>';
+            echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
+            echo '<label>Column <select name="frontier_column"><option value="">Select column</option>';
+            foreach ($columns as $key=>$label) {
+                echo '<option value="'.esc_attr((string)$key).'" '.selected((string)$key,$column,false).'>'.esc_html($label).'</option>';
+            }
+            echo '</select></label><label>Contains <input type="text" name="frontier_filter" value="'.esc_attr($filter).'"></label>';
+            echo '<button class="button" type="submit">Apply filter</button></div></details>';
         }
-        echo '</select></label><label>Contains <input type="text" name="frontier_filter" value="'.esc_attr($filter).'"></label>';
-        echo '<button class="button" type="submit">Apply filter</button></div></details></form>';
+        echo '</form>';
+        echo <<<'HTML'
+<script>
+(() => {
+    const form = document.currentScript.previousElementSibling;
+    const search = form.elements.frontier_search;
+    const initial = search.value;
+    let timer;
+    if (document.activeElement === search) search.setSelectionRange(initial.length,initial.length);
+    const schedule = event => {
+        if (event.isComposing) return;
+        clearTimeout(timer);
+        if (search.value !== initial) timer = setTimeout(() => form.requestSubmit(),650);
+    };
+    search.addEventListener('input',schedule);
+    search.addEventListener('compositionend',schedule);
+    form.addEventListener('submit',() => clearTimeout(timer));
+})();
+</script>
+HTML;
         if ($search !== '' || ($filter !== '' && isset($columns[$column]))) {
             $terms = preg_split('/\s+/u',$search,-1,PREG_SPLIT_NO_EMPTY) ?: [];
             $contains = static function ($value,$needle) {
