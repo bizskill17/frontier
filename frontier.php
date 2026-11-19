@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.3
+ * Version: 1.9.4
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -22,16 +22,25 @@ final class Frontier {
     private const GROUPS = [
         'Master' => self::MASTERS + ['site'=>'Site Master'],
         'BOQ' => ['boq_form'=>'Create BOQ', 'boq'=>'BOQ', 'boq_items'=>'BOQ Item Master'],
-        'Indent' => ['indent'=>'Indents Form', 'indent_master'=>'Indent Master', 'indent_items'=>'Indents Item Master'],
-        'Supplier Quotation' => ['quote_form'=>'Supplier Quotation Form', 'quote'=>'Supplier Quotation Master'],
-        'Choose Supplier' => ['choose_form'=>'Choose Supplier Form', 'choose_master'=>'Choose Supplier Master'],
-        'Purchase Order' => ['po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items', 'follow'=>'Follow Up PO Master'],
-        'Goods Receipt' => ['grn_form'=>'Goods Receipt Form', 'grn'=>'Goods Receipt Notes', 'grn_items'=>'Goods Receipt Items', 'grn_slip'=>'Upload GRN Slip'],
+        'Indent' => ['pending_indent'=>'Pending Approve Indent', 'indent'=>'Indents Form', 'indent_master'=>'Indent Master', 'indent_items'=>'Indents Item Master'],
+        'Supplier Quotation' => ['pending_quote'=>'Pending Supplier Quotation', 'quote_form'=>'Supplier Quotation Form', 'quote'=>'Supplier Quotation Master'],
+        'Choose Supplier' => ['pending_choose'=>'Pending Choose Supplier', 'choose_form'=>'Choose Supplier Form', 'choose_master'=>'Choose Supplier Master'],
+        'Purchase Order' => ['pending_po'=>'Pending Purchase Order', 'po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items', 'follow'=>'Follow Up PO Master'],
+        'Goods Receipt' => ['pending_grn'=>'Pending Goods Receipt', 'grn_form'=>'Goods Receipt Form', 'grn'=>'Goods Receipt Notes', 'grn_items'=>'Goods Receipt Items', 'grn_slip'=>'Upload GRN Slip'],
         'Invoice' => ['invoice'=>'Upload Invoice', 'match'=>'Link PO Items With Invoice'],
     ];
 
     // Each screen uses the existing procurement record type and workflow.
+    private const PENDING_VIEWS = [
+        'pending_indent'=>['indent','approve'],
+        'pending_quote'=>['indent','quote'],
+        'pending_choose'=>['quote','quote'],
+        'pending_po'=>['quote','po'],
+        'pending_grn'=>['po','grn'],
+    ];
+
     private const SCREENS = [
+        'pending_indent'=>['indent','queue'], 'pending_choose'=>['quote','choose'],
         'boq_form'=>['boq','form'], 'boq'=>['boq','register'], 'boq_items'=>['boq','items'],
         'indent'=>['indent','form'], 'indent_master'=>['indent','register'], 'indent_items'=>['indent','items'],
         'quote_form'=>['quote','form'], 'quote'=>['quote','register'],
@@ -65,8 +74,11 @@ final class Frontier {
         'invoice'=>['supplier'=>'Supplier Name with Code', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.8.1';
+    private const PAGE_VERSION = '1.9.4';
     private const PAGE_SLUGS = [
+        'pending_indent'=>'pending-approve-indent', 'pending_quote'=>'pending-supplier-quotation',
+        'pending_choose'=>'pending-choose-supplier', 'pending_po'=>'pending-purchase-order',
+        'pending_grn'=>'pending-goods-receipt',
         'boq_form'=>'create-boq', 'boq_items'=>'boq-item-master',
         'indent_master'=>'indent-master', 'indent_items'=>'indents-item-master',
         'quote_form'=>'supplier-quotation-form', 'choose_form'=>'choose-supplier-form', 'choose_master'=>'choose-supplier-master',
@@ -393,6 +405,9 @@ final class Frontier {
     }
 
     private static function canView($kind) {
+        if (isset(self::PENDING_VIEWS[$kind])) {
+            return self::can('read') && self::can(self::PENDING_VIEWS[$kind][1]);
+        }
         if ($kind === 'choose_form' && !self::can('quote')) {
             return false;
         }
@@ -589,6 +604,11 @@ final class Frontier {
         self::$screen = $kind;
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
+        if (isset(self::PENDING_VIEWS[self::$screen])) {
+            self::pendingWork($rows,self::$screen);
+            echo '</div>';
+            return;
+        }
         if (self::$screen === 'indent_master') {
             if (self::can('indent')) {
                 echo '<p><a class="button frontier-add" href="'.esc_url(self::url('indent')).'">Add</a></p>';
@@ -678,7 +698,12 @@ final class Frontier {
                 if ($field === 'ref' && in_array($kind,['site','supplier'],true)) {
                     continue;
                 }
-                self::field($rows,$kind,$field,$label,$editing ? ($edit['data'][$field] ?? '') : '',$editing && !empty($edit['data']['wp_user_id']));
+                $value = $editing ? ($edit['data'][$field] ?? '') : '';
+                $prefill = ['quote_form'=>'indent','po_form'=>'quote','grn_form'=>'po'][self::$screen] ?? '';
+                if (!$editing && $field === $prefill) {
+                    $value = absint($_GET['source'] ?? 0);
+                }
+                self::field($rows,$kind,$field,$label,$value,$editing && !empty($edit['data']['wp_user_id']));
             }
             if (isset(self::FILES[$kind])) {
                 self::uploadField($kind,$kind === 'invoice');
@@ -718,6 +743,55 @@ final class Frontier {
         }
         self::renderRecords($listing,$rows,$kind,$indentGroup !== '' ? 'register' : $mode);
         echo '</div>';
+    }
+
+    private static function pendingWork($rows,$screen) {
+        $listing = [];
+        $quoted = [];
+        $selected = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'quote') {
+                $indent = (int)$row['data']['indent'];
+                $quoted[$indent] = true;
+                if ($row['status'] === 'selected') {
+                    $previous = $selected[$indent] ?? null;
+                    if (!$previous || ($row['data']['compared_at'] ?? '') > ($previous['data']['compared_at'] ?? '')) {
+                        $selected[$indent] = $row;
+                    }
+                }
+            }
+        }
+        [$kind] = self::PENDING_VIEWS[$screen];
+        foreach ($rows as $row) {
+            if ($row['kind'] !== $kind) {
+                continue;
+            }
+            $id = (int)$row['id'];
+            $indentId = (int)($row['data']['indent'] ?? 0);
+            $indent = $rows[$indentId] ?? null;
+            switch ($screen) {
+                case 'pending_indent':
+                    $pending = $row['status'] === 'pending';
+                    break;
+                case 'pending_quote':
+                    $pending = $row['status'] === 'approved' && !isset($quoted[$id]);
+                    break;
+                case 'pending_choose':
+                    $pending = ($indent['status'] ?? '') === 'approved' && !isset($selected[$indentId]);
+                    break;
+                case 'pending_po':
+                    $pending = ($indent['status'] ?? '') === 'approved'
+                        && (int)($selected[$indentId]['id'] ?? 0) === $id && self::available($rows,$indent) > 0;
+                    break;
+                case 'pending_grn':
+                    $pending = $row['status'] === 'issued' && self::balance($rows,$row) > 0;
+                    break;
+            }
+            if ($pending) {
+                $listing[] = $row;
+            }
+        }
+        self::renderRecords($listing,$rows,$kind,'queue');
     }
 
     private static function pagedRows($rows) {
@@ -763,6 +837,9 @@ final class Frontier {
             'grn'=>['attachment'=>'GRN Slip'],
             'invoice'=>['matched'=>'Matched Quantity','attachment'=>'Invoice Copy'],
         ][$kind] ?? [];
+        if (self::$screen === 'pending_po') {
+            $fields['pending_quantity'] = 'Pending To Order';
+        }
         $indentItems = self::$screen === 'indent_items';
         if ($indentItems) {
             $fields = self::indentItemColumns();
@@ -963,6 +1040,16 @@ final class Frontier {
         $kind = $row['kind'];
         $status = $row['status'];
         $mode = self::SCREENS[self::$screen][1] ?? 'combined';
+        $next = [
+            'pending_quote'=>['quote_form','Add Quotation'],
+            'pending_po'=>['po_form','Create Purchase Order'],
+            'pending_grn'=>['grn_form','Create Goods Receipt'],
+        ][self::$screen] ?? null;
+        if ($next) {
+            $url = add_query_arg(['add'=>1,'source'=>$row['id']],self::url($next[0]));
+            echo '<a class="button frontier-add" href="'.esc_url($url).'">'.esc_html($next[1]).'</a>';
+            return;
+        }
         if (in_array($mode,['items','selected'],true)) {
             return;
         }
@@ -1057,6 +1144,9 @@ final class Frontier {
         }
         if (in_array($kind,['supplier','site'],true) && !empty($data['ref'])) {
             $values['combined_name'] = $data['ref'].' - '.$data['name'];
+        }
+        if (self::$screen === 'pending_po' && isset($rows[$data['indent'] ?? 0])) {
+            $values['pending_quantity'] = self::available($rows,$rows[$data['indent']]);
         }
         $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
         if ($kind === 'indent' && !empty($data['indent_number'])) {
