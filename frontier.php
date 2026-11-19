@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.46
+ * Version: 1.9.47
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2623,7 +2623,7 @@ final class Frontier {
             }
             if ($record['kind'] === 'cancel') {
                 $orders[$po] -= $record['data']['qty'];
-            } elseif ($record['kind'] === 'grn' && $record['status'] === 'approved') {
+            } elseif ($record['kind'] === 'grn' && in_array($record['status'],['pending','approved'],true)) {
                 $received += $record['data']['qty'];
             }
         }
