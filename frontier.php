@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.65
+ * Version: 1.9.66
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1157,14 +1157,47 @@ final class Frontier {
 
     private static function pagedRows($rows,$columns,$values) {
         $search = self::tableQuery('frontier_search');
-        $showFilters = !isset(self::MASTERS[self::$screen]) && !in_array(self::$screen,['site','boq'],true);
-        $boqFilters = self::$screen === 'boq_items';
-        $showFilters = $showFilters && !$boqFilters;
-        $facets = $boqFilters ? array_map([self::class,'tableQuery'],['boq_from','boq_to','boq_site','boq_item']) : ['','','',''];
-        [$from,$to,$site,$item] = $facets;
-        $hasFacets = count(array_filter($facets,'strlen')) > 0;
-        $column = $showFilters ? self::tableQuery('frontier_column') : '';
-        $filter = $showFilters ? self::tableQuery('frontier_filter') : '';
+        $dimensions = [];
+        if (!isset(self::GROUPS['Master'][self::$screen])) {
+            $names = array_map('strtolower',$columns);
+            $labels = [
+                'date'=>['boq date','indent date','quotation date','selection date','po date','grn date','invoice date','receipt date','site date','date','required by','target date','expected delivery'],
+                'site'=>['site number with name','site name','site'],
+                'item'=>['item name','item','boq item'],
+            ];
+            foreach ($labels as $dimension=>$alternatives) {
+                foreach ($alternatives as $label) {
+                    $key = array_search($label,$names,true);
+                    if ($key !== false) {
+                        $dimensions[$dimension] = $key;
+                        break;
+                    }
+                }
+            }
+        }
+        [$from,$to,$site,$item] = array_map([self::class,'tableQuery'],['boq_from','boq_to','boq_site','boq_item']);
+        if (!isset($dimensions['date'])) {
+            $from = $to = '';
+        }
+        $site = isset($dimensions['site']) ? $site : '';
+        $item = isset($dimensions['item']) ? $item : '';
+        $hasFacets = $from !== '' || $to !== '' || $site !== '' || $item !== '';
+        $cellCache = [];
+        $options = ['site'=>[],'item'=>[]];
+        if (isset($dimensions['site']) || isset($dimensions['item'])) {
+            foreach ($rows as $id=>$row) {
+                $cells = $values($row,$id);
+                if ($search !== '' || $hasFacets) {
+                    $cellCache[$id] = $cells;
+                }
+                foreach (['site','item'] as $dimension) {
+                    $value = isset($dimensions[$dimension]) ? ($cells[$dimensions[$dimension]] ?? '') : '';
+                    if (is_scalar($value) && (string)$value !== '') {
+                        $options[$dimension][(string)$value] = (string)$value;
+                    }
+                }
+            }
+        }
         $url = self::tableSearchUrl();
         $query = [];
         parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$query);
@@ -1174,37 +1207,31 @@ final class Frontier {
         }
         echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
         echo '<label>Search <input type="search" name="frontier_search" value="'.esc_attr($search).'" placeholder="Search all columns"'.($search !== '' ? ' autofocus' : '').'></label>';
-        if ($boqFilters) {
-            echo '<button class="button" type="button" data-boq-filter-toggle aria-controls="frontier-boq-filters" aria-expanded="'.($hasFacets ? 'true' : 'false').'">Filter</button>';
+        if ($dimensions) {
+            echo '<button class="button" type="button" data-table-filter-toggle aria-controls="frontier-table-filters" aria-expanded="'.($hasFacets ? 'true' : 'false').'">Filter</button>';
         }
-        if ($search !== '' || $filter !== '' || $hasFacets) {
+        if ($search !== '' || $hasFacets) {
             echo '<a class="button" href="'.esc_url($url).'">Clear all</a>';
         }
         echo '</div>';
-        if ($boqFilters) {
-            echo '<div id="frontier-boq-filters"'.($hasFacets ? '' : ' hidden').'><div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin-top:8px">';
-            echo '<label>Date From <input type="date" name="boq_from" value="'.esc_attr($from).'"></label>';
-            echo '<label>Date To <input type="date" name="boq_to" value="'.esc_attr($to).'"></label>';
+        if ($dimensions) {
+            echo '<div id="frontier-table-filters"'.($hasFacets ? '' : ' hidden').'><div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin-top:8px">';
+            if (isset($dimensions['date'])) {
+                echo '<label>Date From <input type="date" name="boq_from" value="'.esc_attr($from).'"></label>';
+                echo '<label>Date To <input type="date" name="boq_to" value="'.esc_attr($to).'"></label>';
+            }
             foreach (['site'=>['Site',$site],'item'=>['Item',$item]] as $key=>[$label,$active]) {
-                $options = array_unique(array_filter(array_column($rows,$key),'strlen'));
-                natcasesort($options);
+                if (!isset($dimensions[$key])) {
+                    continue;
+                }
+                natcasesort($options[$key]);
                 echo '<label>'.esc_html($label).' <select name="boq_'.esc_attr($key).'"><option value="">All</option>';
-                foreach ($options as $option) {
+                foreach ($options[$key] as $option) {
                     echo '<option value="'.esc_attr($option).'" '.selected($active,$option,false).'>'.esc_html($option).'</option>';
                 }
                 echo '</select></label>';
             }
             echo '<button class="button" type="submit">Apply filter</button></div></div>';
-        }
-        if ($showFilters) {
-            echo '<details'.($filter !== '' ? ' open' : '').'><summary>Filters</summary>';
-            echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
-            echo '<label>Column <select name="frontier_column"><option value="">Select column</option>';
-            foreach ($columns as $key=>$label) {
-                echo '<option value="'.esc_attr((string)$key).'" '.selected((string)$key,$column,false).'>'.esc_html($label).'</option>';
-            }
-            echo '</select></label><label>Contains <input type="text" name="frontier_filter" value="'.esc_attr($filter).'"></label>';
-            echo '<button class="button" type="submit">Apply filter</button></div></details>';
         }
         echo '</form>';
         echo <<<'HTML'
@@ -1213,7 +1240,7 @@ final class Frontier {
     const form = document.currentScript.previousElementSibling;
     const search = form.elements.frontier_search;
     const initial = search.value;
-    const toggle = form.querySelector('[data-boq-filter-toggle]');
+    const toggle = form.querySelector('[data-table-filter-toggle]');
     if (toggle) {
         const panel = document.getElementById(toggle.getAttribute('aria-controls'));
         toggle.addEventListener('click', () => {
@@ -1234,27 +1261,28 @@ final class Frontier {
 })();
 </script>
 HTML;
-        if ($search !== '' || $hasFacets || ($filter !== '' && isset($columns[$column]))) {
+        if ($search !== '' || $hasFacets) {
             $terms = preg_split('/\s+/u',$search,-1,PREG_SPLIT_NO_EMPTY) ?: [];
             $contains = static function ($value,$needle) {
                 return function_exists('mb_stripos') ? mb_stripos($value,$needle,0,'UTF-8') !== false : stripos($value,$needle) !== false;
             };
-            $rows = array_filter($rows,static function ($row,$id) use ($values,$columns,$column,$filter,$terms,$contains,$hasFacets,$from,$to,$site,$item) {
+            $rows = array_filter($rows,static function ($row,$id) use ($values,$columns,$terms,$contains,$hasFacets,$from,$to,$site,$item,$dimensions,$cellCache) {
+                $cells = array_intersect_key($cellCache[$id] ?? $values($row,$id),$columns);
                 if ($hasFacets) {
-                    $date = implode('-',array_reverse(explode('/',$row['date'] ?? '')));
+                    $date = isset($dimensions['date']) ? ($cells[$dimensions['date']] ?? '') : '';
+                    if (preg_match('~^(\d{2})/(\d{2})/(\d{4})$~D',$date,$parts)) {
+                        $date = $parts[3].'-'.$parts[2].'-'.$parts[1];
+                    }
                     if (($from !== '' && ($date === '' || $date < $from)) || ($to !== '' && ($date === '' || $date > $to))
-                        || ($site !== '' && ($row['site'] ?? '') !== $site) || ($item !== '' && ($row['item'] ?? '') !== $item)) {
+                        || ($site !== '' && (string)($cells[$dimensions['site']] ?? '') !== $site)
+                        || ($item !== '' && (string)($cells[$dimensions['item']] ?? '') !== $item)) {
                         return false;
                     }
                 }
-                $cells = array_intersect_key($values($row,$id),$columns);
                 foreach ($cells as &$cell) {
                     $cell = is_scalar($cell) ? (string)$cell : '';
                 }
                 unset($cell);
-                if ($filter !== '' && isset($columns[$column]) && !$contains($cells[$column] ?? '',$filter)) {
-                    return false;
-                }
                 $text = implode(' ',$cells);
                 foreach ($terms as $term) {
                     if (!$contains($text,$term)) {
@@ -1272,7 +1300,7 @@ HTML;
 
     private static function pagination($page,$pages,$total) {
         $url = self::tableSearchUrl();
-        foreach (['frontier_search','frontier_column','frontier_filter','boq_from','boq_to','boq_site','boq_item'] as $key) {
+        foreach (['frontier_search','boq_from','boq_to','boq_site','boq_item'] as $key) {
             $value = self::tableQuery($key);
             if ($value !== '') {
                 $url = add_query_arg($key,$value,$url);
