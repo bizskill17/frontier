@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.6
+ * Version: 1.7.7
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -236,7 +236,21 @@ final class Frontier {
     }
 
     private static function requestedFrontView() {
-        return is_page() ? (string)get_post_meta(get_queried_object_id(),'_frontier_view',true) : '';
+        if (!is_page()) {
+            return '';
+        }
+        $view = (string)get_post_meta(get_queried_object_id(),'_frontier_view',true);
+        if ($view === 'home' && !empty($_GET['frontier_view']) && is_string($_GET['frontier_view'])) {
+            $target = sanitize_key(wp_unslash($_GET['frontier_view']));
+            $frontId = (int)get_option('page_on_front');
+            if ($frontId && $target !== 'home' && isset(self::views()[$target])
+                && get_option('show_on_front') === 'page'
+                && get_post_status($frontId) === 'publish'
+                && get_post_meta($frontId,'_frontier_view',true) === $target) {
+                return $target;
+            }
+        }
+        return $view;
     }
 
     public static function protectPage() {
@@ -661,7 +675,14 @@ final class Frontier {
     private static function frontUrl($kind) {
         $pages = (array)get_option('frontier_pages',[]);
         $id = absint($pages[$kind] ?? 0);
-        return $id && get_post_status($id) === 'publish' ? get_permalink($id) : false;
+        if (!$id || get_post_status($id) !== 'publish') {
+            return false;
+        }
+        if ($kind !== 'home' && get_option('show_on_front') === 'page'
+            && $id === (int)get_option('page_on_front') && ($dashboard = self::frontUrl('home'))) {
+            return add_query_arg('frontier_view',$kind,$dashboard);
+        }
+        return get_permalink($id);
     }
 
     private static function url($kind) {
