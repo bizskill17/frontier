@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.68
+ * Version: 1.9.69
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3452,6 +3452,11 @@ HTML;
         });
         if ($editable) {
             self::formStart('match','link_po_invoice');
+            if ($total) {
+                echo '<p>';
+                self::submitButton('Save Invoice Links',true);
+                echo '</p>';
+            }
         }
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="PO item invoices"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $column) {
@@ -3492,16 +3497,24 @@ HTML;
         }
         echo '</tbody></table></div>';
         if ($editable) {
-            if ($total) {
-                echo '<p>';
-                self::submitButton('Save Invoice Links',true);
-                echo '</p>';
-            }
             echo '</form>';
             echo <<<'HTML'
 <script>
 (() => {
     const form = document.currentScript.previousElementSibling;
+    form.addEventListener('change', event => {
+        if (!event.target.matches('[data-invoice-identifier]')) return;
+        const row = event.target.closest('tr');
+        const qty = row.querySelector('[data-invoice-qty]');
+        const rate = row.querySelector('[data-invoice-rate]');
+        if (event.target.value) {
+            if (qty.value === '') qty.value = qty.max;
+            if (rate.value === '') rate.value = rate.dataset.defaultRate;
+        } else {
+            if (qty.value === qty.max) qty.value = '';
+            if (rate.value === rate.dataset.defaultRate) rate.value = '';
+        }
+    });
     const hasChanges = () => Array.from(form.elements).some(field =>
         field.name.startsWith('invoice_links[') && field.value !== '');
     const warn = event => {
@@ -3535,9 +3548,9 @@ HTML;
             return;
         }
         $prefix = 'invoice_links['.esc_attr($po['id']).']';
-        echo '<td><input type="number" min="0.001" max="'.esc_attr($pending).'" step="0.001" style="min-width:96px" aria-label="Invoice Qty" name="'.$prefix.'[qty]"></td>';
-        echo '<td><input type="number" min="0" step="0.001" style="min-width:96px" aria-label="Invoice Rate" name="'.$prefix.'[rate]"></td>';
-        echo '<td style="min-width:260px"><select name="'.$prefix.'[invoice]" aria-label="Invoice Identifier" data-dropdown-overlay><option value="">Select invoice</option>';
+        echo '<td><input type="number" min="0.001" max="'.esc_attr($pending).'" step="0.001" style="min-width:96px" aria-label="Invoice Qty" data-invoice-qty name="'.$prefix.'[qty]"></td>';
+        echo '<td><input type="number" min="0" step="0.001" style="min-width:96px" aria-label="Invoice Rate" data-invoice-rate data-default-rate="'.esc_attr($po['data']['rate'] ?? '').'" name="'.$prefix.'[rate]"></td>';
+        echo '<td style="min-width:260px"><select name="'.$prefix.'[invoice]" aria-label="Invoice Identifier" data-invoice-identifier data-dropdown-overlay><option value="">Select invoice</option>';
         foreach ($invoices as $invoice) {
             echo '<option value="'.esc_attr($invoice['id']).'">'.esc_html(self::invoiceIdentifier($invoice,$rows)).'</option>';
         }
