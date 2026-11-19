@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.48
+ * Version: 1.9.49
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -25,7 +25,7 @@ final class Frontier {
         'Indent' => ['pending_indent'=>'Pending Approve Indent', 'indent'=>'Indents Form', 'indent_master'=>'Indent Master', 'indent_items'=>'Indents Item Master'],
         'Supplier Quotation' => ['pending_quote'=>'Pending Supplier Quotation', 'quote_form'=>'Supplier Quotation Form', 'quote'=>'Supplier Quotation Master'],
         'Choose Supplier' => ['pending_choose'=>'Pending Choose Supplier', 'choose_form'=>'Choose Supplier Form', 'choose_master'=>'Choose Supplier Master'],
-        'Purchase Order' => ['pending_po'=>'Pending Purchase Order', 'po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items', 'follow'=>'Follow Up PO Master'],
+        'Purchase Order' => ['pending_po'=>'Pending Purchase Order', 'po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items'],
         'Goods Receipt' => ['pending_grn'=>'Pending Goods Receipt', 'grn_form'=>'Goods Receipt Form', 'grn'=>'Goods Receipt Notes', 'grn_items'=>'Goods Receipt Items', 'grn_slip'=>'Upload GRN Slip'],
         'Invoice' => ['invoice'=>'Upload Invoice', 'match'=>'Link PO Items With Invoice', 'po_invoice_master'=>'PO Item Invoice Master'],
     ];
@@ -87,7 +87,7 @@ final class Frontier {
         'employee'=>'employee-master', 'item'=>'item-master',
         'category'=>'item-categories', 'item_type'=>'item-type', 'supplier'=>'supplier-master', 'units'=>'units',
         'home'=>'frontier', 'site'=>'site-master', 'boq'=>'boq', 'indent'=>'indents',
-        'quote'=>'quotation-comparison', 'po'=>'purchase-orders', 'follow'=>'delivery-follow-up',
+        'quote'=>'quotation-comparison', 'po'=>'purchase-orders',
         'cancel'=>'cancel-po-items', 'grn'=>'goods-receipt-notes', 'stock'=>'received-stock',
         'invoice'=>'supplier-invoices', 'match'=>'invoice-matching', 'po_invoice_master'=>'po-item-invoice-master',
     ];
@@ -322,6 +322,10 @@ final class Frontier {
 
     public static function protectPage() {
         $kind = self::requestedFrontView();
+        if ($kind === 'follow' && ($orders = self::frontUrl('po'))) {
+            wp_safe_redirect($orders);
+            exit;
+        }
         if (!isset(self::views()[$kind])) {
             return;
         }
