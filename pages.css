@@ -80,3 +80,13 @@ body.frontier-workspace {
 .frontier-term[open] .frontier-term-label { display: inline; }
 .frontier-term[open] .frontier-term-arrow { transform: rotate(180deg); }
 .frontier-term-full { margin-top: 6px; overflow-wrap: anywhere; }
+
+.frontier-boq-form .frontier-boq-file { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.frontier-boq-form label.button:focus-within { outline: 2px solid #368ee4; outline-offset: 3px; }
+.frontier-boq-form .frontier-boq-unmatched td { background: #ffe8e8; }
+.frontier-boq-form .frontier-boq-unmatched td:nth-child(5) { color: #a32121; font-weight: 650; }
+.frontier-boq-form .frontier-boq-matched { color: #216936; font-weight: 650; }
+.frontier-boq-form td:nth-child(2) { min-width: 230px; }
+.frontier-boq-form td:nth-child(3), .frontier-boq-form td:nth-child(4) { min-width: 110px; }
+.frontier-boq-form td:nth-child(5), .frontier-boq-form td:nth-child(6) { white-space: nowrap; }
+.frontier-boq-form .frontier-boq-save:disabled { opacity: .55; cursor: not-allowed; }
