@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.2
+ * Version: 1.6.3
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -459,6 +459,17 @@ final class Frontier {
             echo '<p><label>Employee names <textarea name="employee_names" rows="10" cols="44" required></textarea></label></p>';
             echo '<p>Enter one name per line or paste a single-column table.</p>';
             self::submitButton('Import Employees',true);
+            echo '</form></details>';
+        }
+        if ($kind === 'item' && !isset($_GET['add']) && !isset($_GET['edit'])) {
+            if (isset($_GET['imported'])) {
+                echo '<p role="status">'.esc_html(absint($_GET['imported']).' item records added.').'</p>';
+            }
+            echo '<details><summary>Bulk Add Items</summary>';
+            self::formStart('item','import_items');
+            echo '<p><label>Items <textarea name="item_rows" rows="12" cols="75" required></textarea></label></p>';
+            echo '<p>Paste a three-column table in this order: Name, Item Category, Item Type.</p>';
+            self::submitButton('Import Items',true);
             echo '</form></details>';
         }
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
@@ -1105,6 +1116,71 @@ final class Frontier {
         return $count;
     }
 
+    private static function importItems($records) {
+        global $wpdb;
+        $raw = $_POST['item_rows'] ?? '';
+        self::requireRule(is_string($raw) && strlen($raw) <= 500000,'Paste up to 1,000 item rows.');
+        $items = [];
+        foreach (preg_split('/\R/',wp_unslash($raw)) as $index=>$line) {
+            if (trim($line) === '') {
+                continue;
+            }
+            $cells = strpos($line,"\t") !== false ? explode("\t",$line) : explode('|',trim(trim($line),'|'));
+            $cells = array_map(static function ($cell) {
+                return trim(sanitize_text_field(html_entity_decode($cell, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+            },$cells);
+            self::requireRule(count($cells) === 3,'Expected three columns on row '.($index+1).'.');
+            if (preg_match('/^:?-{3,}:?$/D',$cells[0]) || array_map('strtolower',$cells) === ['name','item category','item type']) {
+                continue;
+            }
+            foreach ($cells as $value) {
+                self::requireRule($value !== '' && strlen($value) <= 200,'Check the values on row '.($index+1).'.');
+            }
+            $items[] = $cells;
+        }
+        self::requireRule(count($items) > 0 && count($items) <= 1000,'Paste between 1 and 1,000 item rows.');
+        $lookup = ['category'=>[], 'item_type'=>[]];
+        $existing = [];
+        foreach ($records as $record) {
+            $kind = $record['kind'];
+            $data = $record['data'];
+            if (isset($lookup[$kind])) {
+                $lookup[$kind][strtolower(trim($data['name']))] = (int)$record['id'];
+            } elseif ($kind === 'item') {
+                $existing[$data['category'] ?? 0][$data['item_type'] ?? 0][strtolower(trim($data['name']))] = true;
+            }
+        }
+        $added = 0;
+        foreach ($items as [$name,$category,$type]) {
+            foreach (['category'=>$category,'item_type'=>$type] as $kind=>$label) {
+                $key = strtolower($label);
+                if (!isset($lookup[$kind][$key])) {
+                    self::insertImportedItemRecord($kind,['name'=>$label]);
+                    $lookup[$kind][$key] = (int)$wpdb->insert_id;
+                }
+            }
+            $categoryId = $lookup['category'][strtolower($category)];
+            $typeId = $lookup['item_type'][strtolower($type)];
+            $nameKey = strtolower($name);
+            if (isset($existing[$categoryId][$typeId][$nameKey])) {
+                continue;
+            }
+            self::insertImportedItemRecord('item',['name'=>$name,'category'=>$categoryId,'item_type'=>$typeId]);
+            $existing[$categoryId][$typeId][$nameKey] = true;
+            $added++;
+        }
+        return $added;
+    }
+
+    private static function insertImportedItemRecord($kind,$data) {
+        global $wpdb;
+        if ($wpdb->insert(self::table(),[
+            'kind'=>$kind, 'status'=>'recorded', 'details'=>wp_json_encode($data),
+        ]) !== 1) {
+            throw new RuntimeException('Item import could not be saved.');
+        }
+    }
+
     public static function save() {
         global $wpdb;
         check_admin_referer('frontier_save');
@@ -1124,13 +1200,17 @@ final class Frontier {
         $imported = null;
         try {
             $rows = self::rows();
-            if ($kind === 'employee' && in_array($action,['create','edit','import'],true)) {
+            if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
+                || ($kind === 'item' && $action === 'import_items')) {
                 if ($wpdb->query('START TRANSACTION') === false) {
-                    throw new RuntimeException('Employee account transaction could not start.');
+                    throw new RuntimeException('Database transaction could not start.');
                 }
                 $transaction = true;
             }
-            if ($kind === 'employee' && $action === 'import') {
+            if ($kind === 'item' && $action === 'import_items') {
+                $imported = self::importItems($rows);
+                $result = true;
+            } elseif ($kind === 'employee' && $action === 'import') {
                 $imported = self::importEmployees($rows);
                 $result = true;
             } elseif ($action === 'create') {
@@ -1165,7 +1245,7 @@ final class Frontier {
                 throw new RuntimeException('The record could not be saved.');
             }
             if ($transaction && $wpdb->query('COMMIT') === false) {
-                throw new RuntimeException('Employee account transaction could not finish.');
+                throw new RuntimeException('Database transaction could not finish.');
             }
             $transaction = false;
         } catch (Throwable $exception) {
