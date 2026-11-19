@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.7
+ * Version: 1.9.8
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.5');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.8');
         self::enqueueDropdownSearch();
     }
 
@@ -353,10 +353,10 @@ final class Frontier {
     private static function enqueueDropdownSearch() {
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.0',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.8',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.5');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.8');
         }
     }
 
@@ -2333,6 +2333,7 @@ final class Frontier {
             $byIndent[$line]['received'] = ($byIndent[$line]['received'] ?? 0) + ($received[$id] ?? 0);
         }
         $groups = [];
+        $groupItems = [];
         foreach ($rows as $row) {
             if ($row['kind'] !== 'indent') {
                 continue;
@@ -2342,6 +2343,12 @@ final class Frontier {
             $group = self::indentGroup($row);
             $boq = $rows[$data['boq']]['data'] ?? [];
             $status = $row['status'];
+            if ($pendingOnly) {
+                $groupItems[$group][] = [
+                    $data['line_number'] ?? 1,$boq['name'] ?? '',$data['unit'] ?? ($boq['unit'] ?? ''),
+                    $data['qty'],$data['excess'] ?? '',ucwords($status),
+                ];
+            }
             if (!isset($groups[$group])) {
                 $groups[$group] = [
                     'id'=>$id,'number'=>$data['indent_number'] ?? '#'.$id,'group'=>$group,
@@ -2400,14 +2407,17 @@ final class Frontier {
         }
         echo '</tr></thead><tbody>';
         foreach ($pageRows as $entry) {
-            echo '<tr>';
+            $id = (int)$entry['id'];
+            echo $pendingOnly ? '<tr class="frontier-indent-approval-row" data-indent-row="'.esc_attr($id).'">' : '<tr>';
             foreach ($columns as $field=>$label) {
                 echo '<td>';
-                if ($field === 'number') {
+                if ($field === 'number' && $pendingOnly) {
+                    echo '<button type="button" class="frontier-indent-number" data-indent-toggle="items" aria-expanded="false" aria-controls="frontier-indent-items-'.esc_attr($id).'">'.esc_html((string)$entry['number']).'</button>';
+                } elseif ($field === 'number') {
                     $url = add_query_arg('indent_group',$entry['group'],self::url('indent_items'));
                     echo '<a href="'.esc_url($url).'">'.esc_html((string)$entry['number']).'</a>';
                 } elseif ($field === 'actions') {
-                    self::button($rows[$entry['id']],'approve_indent_group','Approve Indent');
+                    echo '<button type="button" class="button frontier-add" data-indent-toggle="update" aria-expanded="false" aria-controls="frontier-indent-update-'.esc_attr($id).'">Update</button>';
                 } elseif ($field === 'pdf') {
                     $id = $entry['id'];
                     $url = add_query_arg(['action'=>'frontier_indent_pdf','id'=>$id],admin_url('admin-post.php'));
@@ -2430,12 +2440,41 @@ final class Frontier {
                 echo '</td>';
             }
             echo '</tr>';
+            if ($pendingOnly) {
+                self::indentApprovalPanels($id,$groupItems[$entry['group']],count($columns));
+            }
         }
         if (!$total) {
             echo '<tr><td colspan="'.count($columns).'">'.($pendingOnly ? 'No indents pending approval.' : 'No indents yet.').'</td></tr>';
         }
         echo '</tbody></table></div>';
         self::pagination($page,$pages,$total);
+    }
+
+    private static function indentApprovalPanels($id,$items,$colspan) {
+        echo '<tr class="frontier-indent-panel" id="frontier-indent-items-'.esc_attr($id).'" hidden><td colspan="'.(int)$colspan.'">';
+        echo '<table class="frontier-indent-item-table" aria-label="Indent items"><thead><tr>';
+        foreach (['Sl No.','Item','Unit','Quantity Requested','Excess Quantity','Status'] as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach (array_reverse($items) as $item) {
+            echo '<tr>';
+            foreach ($item as $value) {
+                echo '<td>'.esc_html((string)$value).'</td>';
+            }
+            echo '</tr>';
+        }
+        echo '</tbody></table></td></tr>';
+        echo '<tr class="frontier-indent-panel" id="frontier-indent-update-'.esc_attr($id).'" hidden><td colspan="'.(int)$colspan.'">';
+        self::formStart('indent','update_indent_group',$id);
+        echo '<div class="frontier-fields">';
+        echo '<p><label>'.self::requiredLabel('Status').'<select name="approval_status" required><option value="">Select</option>';
+        echo '<option value="approved">Approved</option><option value="rejected">Rejected</option></select></label></p>';
+        echo '<p><label>Update By <input readonly value="'.esc_attr(wp_get_current_user()->display_name).'"></label></p>';
+        echo '<p><label>Remarks <textarea name="approval_remarks" rows="2" maxlength="2000"></textarea></label></p></div>';
+        self::submitButton('Save Update',true);
+        echo '</form></td></tr>';
     }
 
     public static function downloadIndentPdf() {
@@ -2566,18 +2605,28 @@ final class Frontier {
         }
     }
 
-    private static function approveIndentGroup($rows,$id) {
+    private static function updateIndentGroup($rows,$id) {
         global $wpdb;
         $anchor = $rows[$id] ?? null;
         self::requireRule($anchor && $anchor['kind'] === 'indent','Indent not found.');
         $group = self::indentGroup($anchor);
+        $status = self::input('approval_status');
+        $remarks = self::input('approval_remarks');
+        self::requireRule(in_array($status,['approved','rejected'],true),'Choose Approved or Rejected.');
+        self::requireRule(strlen($remarks) <= 2000,'Enter remarks of up to 2,000 bytes.');
+        $actor = wp_get_current_user()->display_name;
+        $time = current_time('mysql');
         foreach ($rows as $row) {
             if ($row['kind'] !== 'indent' || $row['status'] !== 'pending' || self::indentGroup($row) !== $group) {
                 continue;
             }
-            $update = self::transition($rows,$row,'approve');
+            $data = $row['data'];
+            $data['decision_at'] = $time;
+            $data['decision_by'] = $actor;
+            $data['reason'] = $remarks;
+            $update = ['status'=>$status,'details'=>wp_json_encode($data)];
             if ($wpdb->update(self::table(),$update,['id'=>$row['id']]) !== 1) {
-                throw new RuntimeException('Indent approval could not be saved.');
+                throw new RuntimeException('Indent update could not be saved.');
             }
         }
     }
@@ -2587,7 +2636,7 @@ final class Frontier {
         check_admin_referer('frontier_save');
         $kind = sanitize_key(self::input('kind'));
         $action = sanitize_key(self::input('operation'));
-        $capability = ['approve'=>'approve','approve_indent_group'=>'approve','return'=>'approve','approve_grn'=>'stock'][$action] ?? ($kind === 'site' ? 'sites' : $kind);
+        $capability = ['approve'=>'approve','update_indent_group'=>'approve','return'=>'approve','approve_grn'=>'stock'][$action] ?? ($kind === 'site' ? 'sites' : $kind);
         if (!isset(self::FIELDS[$kind]) || !self::canView($kind) || !self::can($capability)) {
             wp_die('Access denied.', '', ['response'=>403]);
         }
@@ -2604,15 +2653,15 @@ final class Frontier {
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
                 || ($kind === 'supplier' && $action === 'import_suppliers')
-                || ($kind === 'indent' && in_array($action,['create_indent','approve_indent_group'],true))
+                || ($kind === 'indent' && in_array($action,['create_indent','update_indent_group'],true))
                 || ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true))) {
                 if ($wpdb->query('START TRANSACTION') === false) {
                     throw new RuntimeException('Database transaction could not start.');
                 }
                 $transaction = true;
             }
-            if ($kind === 'indent' && $action === 'approve_indent_group') {
-                self::approveIndentGroup($rows,absint(self::input('id')));
+            if ($kind === 'indent' && $action === 'update_indent_group') {
+                self::updateIndentGroup($rows,absint(self::input('id')));
                 $result = true;
             } elseif ($kind === 'indent' && $action === 'create_indent') {
                 self::saveIndent($rows);

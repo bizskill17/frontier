@@ -149,3 +149,11 @@ body.frontier-workspace {
 .frontier-return-action label { display: block; }
 .frontier-return-action input[name="reason"] { width: 100%; min-width: 0; }
 .frontier-return-action form button { margin-top: 4px; }
+
+.frontier-indent-approval-row { cursor: pointer; }
+.frontier-indent-approval-row:hover > td { background: #eef5ff; }
+.frontier-pages .frontier-indent-number { border: 0; padding: 0; background: transparent; color: #164f8a; text-decoration: underline; cursor: pointer; }
+.frontier-pages .frontier-indent-panel[hidden] { display: none; }
+.frontier-pages .frontier-indent-panel > td { background: #f4f8fc; padding: 12px; }
+.frontier-indent-panel .frontier-fields label { display: grid; gap: 4px; }
+.frontier-indent-panel .frontier-fields textarea { width: 100%; box-sizing: border-box; }

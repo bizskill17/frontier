@@ -108,3 +108,19 @@
     });
     loadSite();
 })();
+
+document.addEventListener('click', (event) => {
+    const row = event.target.closest('[data-indent-row]');
+    if (!row) return;
+
+    let control = event.target.closest('[data-indent-toggle]');
+    if (!control) {
+        if (event.target.closest('a, button, input, select, textarea, label, form, summary')) return;
+        control = row.querySelector('[data-indent-toggle="items"]');
+    }
+    if (!control) return;
+
+    const panel = document.getElementById(control.getAttribute('aria-controls'));
+    panel.hidden = !panel.hidden;
+    control.setAttribute('aria-expanded', String(!panel.hidden));
+});
