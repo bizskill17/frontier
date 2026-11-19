@@ -17,15 +17,7 @@ body.frontier-workspace {
 .frontier-shell a { color: #14518b; text-decoration: none; }
 .frontier-shell a:hover { text-decoration: underline; }
 .frontier-shell :focus-visible { outline: 2px solid #368ee4; outline-offset: 3px; }
-.frontier-shell { display: grid; grid-template-columns: 238px minmax(0, 1fr); min-height: 100vh; }
-.frontier-sidebar { background: #17283e; color: #eef5ff; padding: 24px 14px; }
-.frontier-sidebar .frontier-brand { display: flex; align-items: center; gap: 11px; color: #fff; font-size: 23px; font-weight: 750; padding: 0 10px; }
-.frontier-brand span { display: grid; place-items: center; width: 36px; height: 36px; background: #2570c2; border-radius: 8px; }
-.frontier-nav { margin-top: 24px; }
-.frontier-nav a { display: block; color: #e8eff8; padding: 6px 10px; border-radius: 6px; }
-.frontier-nav a:hover { background: #263c57; text-decoration: none; }
-.frontier-nav a[aria-current="page"] { background: #294e75; color: white; font-weight: 650; }
-.frontier-nav h2 { color: #adc1d7; margin: 14px 10px 3px; font-size: 12px; font-weight: 700; }
+.frontier-shell { min-height: 100vh; }
 .frontier-topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px clamp(16px, 3vw, 42px); background: white; border-bottom: 1px solid #dce4ee; }
 .frontier-topbar span { font-weight: 650; }
 .frontier-main { padding: clamp(16px, 3vw, 42px); }
@@ -52,29 +44,18 @@ body.frontier-workspace {
 .frontier-overview li + li { margin-top: 8px; }
 .frontier-skip { position: fixed; z-index: 100000; top: 12px; left: 12px; padding: 10px; background: #fff; transform: translateY(-200%); }
 .frontier-skip:focus { transform: none; }
-@media (max-width: 720px) {
-    .frontier-shell { display: block; }
-    .frontier-sidebar { padding: 10px; }
-    .frontier-nav { display: flex; align-items: flex-start; overflow-x: auto; gap: 12px; margin-top: 8px; padding-bottom: 4px; }
-    .frontier-nav-group { flex: 0 0 auto; }
-    .frontier-nav a { white-space: nowrap; }
-    .frontier-nav h2 { margin-top: 0; }
-}
 
-/* Section backgrounds remain distinct in both sidebar layouts. */
-.frontier-nav .frontier-nav-group { margin-block: 8px; padding: 4px 5px 6px; border-radius: 8px; }
-.frontier-nav .frontier-nav-group h2 { margin: 4px 8px; color: #edf4ff; }
-.frontier-nav-master { background: #273c59; }
-.frontier-nav-boq { background: #214b50; }
-.frontier-nav-indent { background: #443752; }
-.frontier-nav-supplier-quotation { background: #4c3e37; }
-.frontier-nav-choose-supplier { background: #394654; }
-.frontier-nav-purchase-order { background: #25456a; }
-.frontier-nav-goods-receipt { background: #28473e; }
-.frontier-nav-invoice { background: #543849; }
-.frontier-nav .frontier-nav-group a { padding-inline: 8px; }
-.frontier-nav .frontier-nav-group a:hover { background: rgba(255,255,255,.12); }
-.frontier-nav .frontier-nav-group a[aria-current="page"] { background: #e7f1ff; color: #173452; }
-@media (max-width: 720px) {
-    .frontier-nav .frontier-nav-group { margin-block: 0; }
-}
+
+
+
+.frontier-back { display: inline-block; margin-bottom: 12px; font-weight: 650; }
+.frontier-main .frontier-add { background: #164f8a; border-color: #164f8a; color: #fff; }
+.frontier-overview { grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); }
+.frontier-overview .frontier-card-master { background: #e6efff; }
+.frontier-overview .frontier-card-boq { background: #dcf4f3; }
+.frontier-overview .frontier-card-indent { background: #eee7fa; }
+.frontier-overview .frontier-card-supplier-quotation { background: #fff0d7; }
+.frontier-overview .frontier-card-choose-supplier { background: #e6eef5; }
+.frontier-overview .frontier-card-purchase-order { background: #e0f1ff; }
+.frontier-overview .frontier-card-goods-receipt { background: #e5f4e6; }
+.frontier-overview .frontier-card-invoice { background: #f8e5ee; }

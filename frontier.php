@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.5.0
+ * Version: 1.6.0
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -56,7 +56,7 @@ final class Frontier {
         'invoice'=>['name'=>'Supplier', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.5.0';
+    private const PAGE_VERSION = '1.6.0';
     private const PAGE_SLUGS = [
         'boq_form'=>'create-boq', 'boq_items'=>'boq-item-master',
         'indent_master'=>'indent-master', 'indent_items'=>'indents-item-master',
@@ -184,7 +184,7 @@ final class Frontier {
     }
 
     private static function views() {
-        return ['home'=>'Frontier'] + array_merge(...array_values(self::GROUPS)) + ['stock'=>'Received Stock'];
+        return ['home'=>'Dashboard'] + array_merge(...array_values(self::GROUPS)) + ['stock'=>'Received Stock'];
     }
 
     public static function installPages() {
@@ -247,6 +247,10 @@ final class Frontier {
         if (!self::canView($kind)) {
             wp_die('Access denied.', '', ['response'=>403]);
         }
+        if ($kind !== 'home' && is_front_page() && ($dashboard = self::frontUrl('home'))) {
+            wp_safe_redirect($dashboard);
+            exit;
+        }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
         wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],self::PAGE_VERSION);
@@ -266,42 +270,21 @@ final class Frontier {
         ?>
         <a class="frontier-skip" href="#frontier-main">Skip to content</a>
         <div class="frontier-shell">
-            <aside class="frontier-sidebar">
-                <a class="frontier-brand" href="<?php echo esc_url(self::url('home')); ?>">
-                    <span aria-hidden="true">F</span> Frontier
-                </a>
-                <nav class="frontier-nav" aria-label="Frontier">
-                    <?php self::workspaceLink('home','Overview',$kind); ?>
-                    <?php foreach (self::GROUPS as $group=>$links) : ?>
-                        <?php $visible = array_filter(array_keys($links), [self::class,'canView']); ?>
-                        <?php if ($visible) : ?>
-                            <div class="frontier-nav-group frontier-nav-<?php echo esc_attr(sanitize_title($group)); ?>">
-                                <h2><?php echo esc_html($group); ?></h2>
-                                <?php foreach ($visible as $key) {
-                                    self::workspaceLink($key,$links[$key],$kind);
-                                } ?>
-                            </div>
-                        <?php endif; ?>
-                    <?php endforeach; ?>
-                </nav>
-            </aside>
             <div class="frontier-main-column">
                 <header class="frontier-topbar">
                     <span><?php echo esc_html(get_bloginfo('name')); ?></span>
                     <a href="<?php echo esc_url(wp_logout_url(home_url('/'))); ?>">Sign out</a>
                 </header>
                 <main id="frontier-main" class="frontier-main">
-                    <h1><?php echo esc_html($kind === 'home' ? 'Overview' : $views[$kind]); ?></h1>
+                    <?php if ($kind !== 'home') : ?>
+                        <a class="frontier-back" href="<?php echo esc_url(self::url('home')); ?>">← Back to Dashboard</a>
+                    <?php endif; ?>
+                    <h1><?php echo esc_html($views[$kind]); ?></h1>
                     <?php self::render($kind); ?>
                 </main>
             </div>
         </div>
         <?php
-    }
-
-    private static function workspaceLink($key,$label,$current) {
-        printf('<a href="%s"%s>%s</a>',esc_url(self::url($key)),
-            $key === $current ? ' aria-current="page"' : '',esc_html($label));
     }
 
     public static function shortcode() {
@@ -346,7 +329,7 @@ final class Frontier {
                 continue;
             }
             if ($kind === 'home') {
-                add_submenu_page('frontier','Frontier','Overview',$cap,'frontier');
+                add_submenu_page('frontier','Dashboard','Dashboard',$cap,'frontier');
                 continue;
             }
             $menuLabel = isset(self::MASTERS[$kind]) ? 'Master · '.$label : $label;
@@ -449,7 +432,7 @@ final class Frontier {
                 if (!$visible) {
                     continue;
                 }
-                echo '<section><h2>'.esc_html($group).'</h2><ul>';
+                echo '<section class="frontier-card-'.esc_attr(sanitize_title($group)).'"><h2>'.esc_html($group).'</h2><ul>';
                 foreach ($visible as $key) {
                     echo '<li><a href="'.esc_url(self::url($key)).'">'.esc_html($views[$key]).'</a></li>';
                 }
@@ -459,7 +442,7 @@ final class Frontier {
             return;
         }
         if (!self::$front) {
-            echo '<p><a href="'.esc_url(self::url('home')).'">Back to Frontier</a></p>';
+            echo '<p><a href="'.esc_url(self::url('home')).'">Back to Dashboard</a></p>';
         }
         if (isset($_GET['saved'])) {
             echo '<div class="notice notice-success" role="status"><p>Saved.</p></div>';
@@ -486,7 +469,15 @@ final class Frontier {
             self::field($rows,'quote','indent','Compare quotations for',absint($_GET['indent'] ?? 0));
             echo '<button class="button">Filter</button> <a href="'.esc_url($url).'">Show all</a></form>';
         }
-        if (in_array($mode,['form','combined'],true) && self::can($kind === 'site' ? 'sites' : $kind)) {
+        $canAdd = in_array($mode,['form','combined','register'],true) && self::can($kind === 'site' ? 'sites' : $kind);
+        $showForm = $canAdd && $mode !== 'register' && ($editing || isset($_GET['add']));
+        if ($canAdd && !$showForm) {
+            $formScreen = $mode === 'register' ? ([
+                'boq'=>'boq_form','indent'=>'indent','quote'=>'quote_form','po'=>'po_form','grn'=>'grn_form',
+            ][$kind] ?? self::$screen) : self::$screen;
+            echo '<p><a class="button frontier-add" href="'.esc_url(add_query_arg('add',1,self::url($formScreen))).'">Add</a></p>';
+        }
+        if ($showForm) {
             self::formStart($kind,$editing ? 'edit' : 'create',$editing ? $edit['id'] : 0);
             if (self::$front) {
                 echo '<h2>'.esc_html($editing ? 'Edit record' : ($kind === 'site' ? 'Add site' : 'Add record')).'</h2><div class="frontier-fields">';
@@ -501,12 +492,15 @@ final class Frontier {
                 echo '</div>';
             }
             self::submitButton($editing ? 'Save changes' : ($kind === 'indent' ? 'Save draft' : 'Save'),true);
-            echo '</form>';
+            echo ' <a class="button" href="'.esc_url(self::url(self::$screen)).'">Cancel</a></form>';
         }
         if ($mode === 'form') {
             $register = $kind === 'indent' ? 'indent_master' : $kind;
-            echo '<p><a href="'.esc_url(self::url($register)).'">'.esc_html($tabs[$register]).'</a></p></div>';
-            return;
+            echo '<p><a href="'.esc_url(self::url($register)).'">'.esc_html($tabs[$register]).'</a></p>';
+            if ($showForm) {
+                echo '</div>';
+                return;
+            }
         }
         if ($mode === 'items') {
             self::renderItems($rows,$kind);
@@ -684,7 +678,9 @@ final class Frontier {
             }
         }
         if ($kind === 'quote' && $mode === 'choose' && self::can('quote') && $status !== 'selected') {
-            self::button($row,'select','Choose supplier',true);
+            echo '<details><summary>Choose supplier</summary>';
+            self::button($row,'select','Save supplier',true);
+            echo '</details>';
         }
         if ($kind === 'po' && self::can('po')) {
             if ($status === 'draft') {
@@ -695,10 +691,11 @@ final class Frontier {
             }
         }
         if ($kind === 'grn' && $mode === 'slip' && self::can('grn')) {
+            echo '<details><summary>Upload GRN Slip</summary>';
             self::formStart($kind,'attach',$row['id']);
             self::uploadField($kind,true);
             self::submitButton('Upload slip');
-            echo '</form>';
+            echo '</form></details>';
         }
         if ($kind === 'grn' && $mode === 'register' && self::can('stock') && $status === 'pending') {
             self::button($row,'approve_grn','Approve and post stock');
