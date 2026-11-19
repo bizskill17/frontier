@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.29
+ * Version: 1.9.30
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1001,13 +1001,17 @@ final class Frontier {
         if ($choosePending || $chooseMaster) {
             $fields = ['site_name'=>'Site Number with Name','indent_number'=>'Indent No.','indent_date'=>'Indent Date',
                 'line_number'=>'Sl No.','item_name'=>'Item Name','qty'=>'Qty','unit'=>'Unit'];
-            $fields += $choosePending ? [
+            $fields += [
                 'supplier_1'=>'Supplier 1','rate_1'=>'Rate 1','supplier_2'=>'Supplier 2','rate_2'=>'Rate 2',
-                'supplier_3'=>'Supplier 3','rate_3'=>'Rate 3','quote_date'=>'Quotation Date','comparison_name'=>'Compared By',
-            ] : [
-                'supplier'=>'Supplier Finalized','rate'=>'Rate Finalized','selection_date'=>'Selection Date',
-                'comparison_name'=>'Compared By','attachment'=>'Quotation File','reason'=>'Selection Reason',
+                'supplier_3'=>'Supplier 3','rate_3'=>'Rate 3',
             ];
+            $fields += $choosePending ? ['quote_date'=>'Quotation Date','comparison_name'=>'Compared By'] : [
+                'supplier'=>'Supplier Finalized','rate'=>'Rate Finalized','selection_date'=>'Selection Date',
+                'comparison_name'=>'Compared By',
+            ];
+            if ($chooseMaster) {
+                $choiceItems = self::supplierChoices($rows,true);
+            }
         }
         $pendingQuote = self::$screen === 'pending_quote';
         if ($pendingQuote) {
@@ -1022,13 +1026,14 @@ final class Frontier {
         if ($indentItems) {
             $fields = self::indentItemColumns();
         }
+        $showStatus = !$indentItems && !$chooseMaster;
         $showActions = !in_array($mode,['items','selected'],true);
         [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
         foreach ($fields as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';
         }
-        if (!$indentItems) {
+        if ($showStatus) {
             echo '<th scope="col">Status</th>';
         }
         if ($showActions) {
@@ -1041,18 +1046,17 @@ final class Frontier {
                 $indentId = (int)($row['data']['indent'] ?? 0);
                 $indent = $rows[$indentId] ?? [];
                 $values = self::supplierIndentDetails($indent,$rows) + $values;
+                foreach (array_values(array_slice($choiceItems[$indentId] ?? [],0,3)) as $index=>$quote) {
+                    $slot = $index + 1;
+                    $values['supplier_'.$slot] = self::supplierDisplay($quote['data'],$rows);
+                    $values['rate_'.$slot] = $quote['data']['rate'];
+                }
                 if ($choosePending) {
-                    foreach (array_values(array_slice($choiceItems[$indentId] ?? [],0,3)) as $index=>$quote) {
-                        $slot = $index + 1;
-                        $values['supplier_'.$slot] = self::supplierDisplay($quote['data'],$rows);
-                        $values['rate_'.$slot] = $quote['data']['rate'];
-                    }
                     $status = 'pending_supplier_selection';
                 } else {
                     $data = $row['data'];
                     $values['comparison_name'] = $data['compared_by'] ?? $data['comparison_name'] ?? '';
                     $values['selection_date'] = self::indentDisplayDate($data['selection_date'] ?? substr($data['compared_at'] ?? '',0,10));
-                    $status = 'finalized';
                 }
             }
             if ($pendingQuote) {
@@ -1091,7 +1095,7 @@ final class Frontier {
                 }
                 echo '</td>';
             }
-            if (!$indentItems) {
+            if ($showStatus) {
                 echo '<td>'.esc_html(ucwords(str_replace('_',' ',$status))).'</td>';
             }
             if ($showActions) {
@@ -1107,7 +1111,7 @@ final class Frontier {
             echo '</tr>';
         }
         if (!$total) {
-            echo '<tr><td colspan="'.(count($fields)+(int)!$indentItems+(int)$showActions).'">No records yet.</td></tr>';
+            echo '<tr><td colspan="'.(count($fields)+(int)$showStatus+(int)$showActions).'">No records yet.</td></tr>';
         }
         echo '</tbody></table></div>';
         self::pagination($page,$pages,$total);
@@ -2870,7 +2874,7 @@ final class Frontier {
         ];
     }
 
-    private static function supplierChoices($rows) {
+    private static function supplierChoices($rows,$includeFinalized=false) {
         $choices = [];
         $finalized = [];
         foreach ($rows as $quote) {
@@ -2881,11 +2885,13 @@ final class Frontier {
             $indentId = (int)$data['indent'];
             if ($quote['status'] === 'selected') {
                 $finalized[$indentId] = true;
-            } elseif (($rows[$indentId]['status'] ?? '') === 'approved' && isset($data['supplier'],$data['rate'])) {
+            }
+            if (($includeFinalized || ($quote['status'] !== 'selected' && ($rows[$indentId]['status'] ?? '') === 'approved'))
+                && isset($data['supplier'],$data['rate'])) {
                 $choices[$indentId][$data['supplier']] = $choices[$indentId][$data['supplier']] ?? $quote;
             }
         }
-        return array_diff_key($choices,$finalized);
+        return $includeFinalized ? $choices : array_diff_key($choices,$finalized);
     }
 
     private static function chooseSupplierForm($rows) {
