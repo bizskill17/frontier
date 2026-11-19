@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.74
+ * Version: 1.9.75
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
             || ($targetPath !== $path && ($path === '' || strpos($targetPath,$path.'/') !== 0))) {
             return;
         }
-        wp_enqueue_style('frontier-login',plugins_url('login.css',__FILE__),['login'],'1.9.74');
+        wp_enqueue_style('frontier-login',plugins_url('login.css',__FILE__),['login'],'1.9.75');
         add_filter('login_body_class',static function ($classes) {
             $classes[] = 'frontier-login';
             return $classes;

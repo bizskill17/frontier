@@ -37,4 +37,4 @@ body.frontier-login {
 .frontier-login #loginform .submit { clear: both; padding-top: 14px; }
 .frontier-login #wp-submit { float: none; width: 100%; min-height: 42px; background: #124577; border-color: #124577; border-radius: 8px; font-weight: 700; }
 .frontier-login #wp-submit:hover { background: #0d345b; border-color: #0d345b; }
-.frontier-login #nav, .frontier-login #backtoblog { padding-inline: 0; text-align: center; }
+.frontier-login #nav, .frontier-login #backtoblog { display: none; }
