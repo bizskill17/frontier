@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.39
+ * Version: 1.9.40
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1046,7 +1046,7 @@ final class Frontier {
         $poRegister = self::$screen === 'po';
         $poItems = self::$screen === 'po_items';
         if ($poRegister) {
-            $fields = ['po_date'=>'PO Date','site_name'=>'Site Name','ref'=>'PO No.','so_no'=>'SO No.','so_date'=>'SO Date',
+            $fields = ['po_date'=>'PO Date','site_name'=>'Site Name','ref'=>'PO No.',
                 'supplier'=>'Supplier','pdf'=>'PDF','timestamp'=>'Timestamp','qty'=>'Total Quantity',
                 'received'=>'Quantity Received','open'=>'Pending to Receive','due'=>'PO Target Date'];
         } elseif ($poItems) {
