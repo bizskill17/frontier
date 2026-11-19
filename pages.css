@@ -104,3 +104,20 @@ body.frontier-workspace {
 .frontier-pages .frontier-row-actions .frontier-action-edit:hover { background: #d0e4ff; }
 .frontier-pages .frontier-row-actions .frontier-action-delete:hover { background: #ffcece; }
 .frontier-delete-action p { margin: 6px 0; }
+
+.frontier-pages button, .frontier-pages .button {
+    background-color: #e8eef8;
+    border-color: #c5d5ed;
+    color: #173e68;
+}
+.frontier-pages button:hover, .frontier-pages .button:hover { background-color: #d8e5f7; }
+.frontier-pages .button-primary, .frontier-pages .frontier-add {
+    background-color: #164f8a;
+    border-color: #164f8a;
+    color: #fff;
+}
+.frontier-pages .button-primary:hover, .frontier-pages .frontier-add:hover { background-color: #103f70; }
+.frontier-pages .button.frontier-download { background-color: #dfeeff; border-color: #a9c9ed; color: #154775; }
+.frontier-pages .button.frontier-download:hover { background-color: #cbE2ff; }
+.frontier-pages .button.frontier-upload { background-color: #dcf4ef; border-color: #a8d9cf; color: #14584c; }
+.frontier-pages .button.frontier-upload:hover { background-color: #c7ebe2; }

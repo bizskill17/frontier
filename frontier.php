@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.9
+ * Version: 1.8.10
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -326,7 +326,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.8');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.10');
         self::enqueueDropdownSearch();
     }
 
@@ -342,7 +342,7 @@ final class Frontier {
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.8.6',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.8');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.10');
         }
     }
 
@@ -959,7 +959,7 @@ final class Frontier {
             }
         }
         if ($kind === 'grn' && $mode === 'slip' && self::can('grn')) {
-            echo '<details><summary>Upload GRN Slip</summary>';
+            echo '<details><summary class="button frontier-upload">Upload GRN Slip</summary>';
             self::formStart($kind,'attach',$row['id']);
             self::uploadField($kind,true);
             self::submitButton('Upload slip');
@@ -1378,12 +1378,12 @@ final class Frontier {
         $download = add_query_arg(['action'=>'frontier_template','kind'=>$kind],admin_url('admin-post.php'));
         echo '<div class="frontier-master-toolbar">';
         echo '<a class="button frontier-add" href="'.esc_url($addUrl).'">Add</a>';
-        echo '<a class="button" href="'.esc_url(wp_nonce_url($download,'frontier_template_'.$kind)).'">Download Template</a>';
+        echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url($download,'frontier_template_'.$kind)).'">Download Template</a>';
         if ($kind === 'supplier') {
             $export = add_query_arg('export',1,$download);
-            echo ' <a class="button" href="'.esc_url(wp_nonce_url($export,'frontier_supplier_export')).'">Download Data</a>';
+            echo ' <a class="button frontier-download" href="'.esc_url(wp_nonce_url($export,'frontier_supplier_export')).'">Download Data</a>';
         }
-        echo ' <a class="button" href="'.esc_url(add_query_arg('upload',1,self::url($kind))).'">Upload Template</a></div>';
+        echo ' <a class="button frontier-upload" href="'.esc_url(add_query_arg('upload',1,self::url($kind))).'">Upload Template</a></div>';
     }
 
     private static function uploadTemplateForm($kind) {
@@ -1772,7 +1772,7 @@ final class Frontier {
                 if ($key === 'pdf') {
                     $id = $record['pdf'];
                     $url = add_query_arg(['action'=>'frontier_boq_print','id'=>$id],admin_url('admin-post.php'));
-                    echo '<a href="'.esc_url(wp_nonce_url($url,'frontier_boq_print_'.$id)).'">PDF</a>';
+                    echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url($url,'frontier_boq_print_'.$id)).'">PDF</a>';
                 } elseif ($key === 'actions') {
                     $id = $record['pdf'];
                     echo '<div class="frontier-row-actions">';
@@ -1866,8 +1866,8 @@ final class Frontier {
         echo '</div>';
         echo '<h2>BOQ Items</h2><div class="frontier-master-toolbar">';
         echo '<button type="button" class="button frontier-boq-add">Add Row</button>';
-        echo '<a class="button" href="'.esc_url($template).'">Download Excel Template</a>';
-        echo '<label class="button">Upload Excel<input class="frontier-boq-file" type="file" accept=".xlsx" data-endpoint="'.esc_url($upload).'"></label></div>';
+        echo '<a class="button frontier-download" href="'.esc_url($template).'">Download Excel Template</a>';
+        echo '<label class="button frontier-upload">Upload Excel<input class="frontier-boq-file" type="file" accept=".xlsx" data-endpoint="'.esc_url($upload).'"></label></div>';
         echo '<p class="frontier-boq-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
         foreach (['Sl. No.','Item Name','Quantity','Unit','Item Master Check','Action'] as $label) {
