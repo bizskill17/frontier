@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.1
+ * Version: 1.7.2
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1199,10 +1199,20 @@ final class Frontier {
             $headers = fgetcsv($stream,0,',','"','');
             $expected = self::IMPORT_TEMPLATES[$kind];
             $headers = $headers ? array_map('trim',$headers) : [];
-            $supplierColumns = array_values(array_diff(self::IMPORT_TEMPLATES['supplier'],['Supplier Code','Suppliers Name with Code']));
-            $supplierUpload = $kind === 'supplier' && $headers === $supplierColumns;
-            self::requireRule($supplierUpload || $headers === $expected,
-                'Use the template headers in this order: '.implode(', ',$expected).'.');
+            if ($kind === 'supplier') {
+                $headers = array_map(static function ($header) {
+                    $key = strtolower($header);
+                    return in_array($key,['supplier name','suppliers name','name'],true) ? 'supplier names' : $key;
+                },$headers);
+                $expectedKeys = array_map('strtolower',$expected);
+                self::requireRule(in_array('supplier names',$headers,true)
+                    && count(array_unique($headers)) === count($headers)
+                    && !array_diff($headers,$expectedKeys),
+                    'Include Supplier Name and use the template headers for any optional columns.');
+            } else {
+                self::requireRule($headers === $expected,
+                    'Use the template headers in this order: '.implode(', ',$expected).'.');
+            }
             $rows = [];
             $line = 1;
             while (($row = fgetcsv($stream,0,',','"','')) !== false) {
@@ -1219,14 +1229,16 @@ final class Frontier {
                 if ($row === [''] || $row === array_fill(0,count($headers),'')) {
                     continue;
                 }
-                self::requireRule(count($row) === count($headers),'Check the column count on CSV row '.$line.'.');
-                if ($supplierUpload) {
-                    array_unshift($row,'');
-                    array_splice($row,2,0,['']);
-                }
                 if ($kind === 'supplier') {
+                    self::requireRule(count($row) <= count($headers),'Check the column count on CSV row '.$line.'.');
+                    $byHeader = array_combine($headers,array_pad($row,count($headers),''));
+                    $row = array_map(static function ($key) use ($byHeader) {
+                        return $byHeader[$key] ?? '';
+                    },$expectedKeys);
                     $row[0] = '';
                     $row[2] = '';
+                } else {
+                    self::requireRule(count($row) === count($headers),'Check the column count on CSV row '.$line.'.');
                 }
                 foreach ($row as $index=>$value) {
                     $optional = $kind === 'supplier' && $index !== 1;
