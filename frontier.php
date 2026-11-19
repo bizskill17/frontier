@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.24
+ * Version: 1.9.25
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.24');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.25');
         self::enqueueDropdownSearch();
     }
 
@@ -357,7 +357,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.24');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.25');
         }
     }
 
@@ -378,7 +378,10 @@ final class Frontier {
             <?php self::workspaceNavigation($kind); ?>
             <div class="frontier-main-column">
                 <header class="frontier-topbar">
-                    <span role="heading" aria-level="1"><?php echo esc_html($views[$kind]); ?></span>
+                    <div class="frontier-topbar-start">
+                        <button type="button" class="frontier-menu-toggle" aria-controls="frontier-sidebar" aria-expanded="true" hidden>Hide menu</button>
+                        <span role="heading" aria-level="1"><?php echo esc_html($views[$kind]); ?></span>
+                    </div>
                     <?php if ($kind === 'home') : ?>
                         <a href="<?php echo esc_url(wp_logout_url(home_url('/'))); ?>">Sign out</a>
                     <?php endif; ?>
@@ -391,11 +394,33 @@ final class Frontier {
                 </main>
             </div>
         </div>
+        <script>
+(() => {
+    const shell = document.querySelector('.frontier-shell');
+    const menu = document.getElementById('frontier-sidebar');
+    const toggle = shell.querySelector('.frontier-menu-toggle');
+    const key = 'frontier-sidebar-hidden';
+    let preference = null;
+    try { preference = localStorage.getItem(key); } catch {}
+    const setHidden = hidden => {
+        menu.hidden = hidden;
+        shell.classList.toggle('frontier-menu-hidden', hidden);
+        toggle.setAttribute('aria-expanded', String(!hidden));
+        toggle.textContent = hidden ? 'Show menu' : 'Hide menu';
+    };
+    setHidden(preference === null ? window.matchMedia('(max-width: 760px)').matches : preference === 'true');
+    toggle.hidden = false;
+    toggle.addEventListener('click', () => {
+        setHidden(!menu.hidden);
+        try { localStorage.setItem(key, String(menu.hidden)); } catch {}
+    });
+})();
+        </script>
         <?php
     }
 
     private static function workspaceNavigation($current) {
-        echo '<nav class="frontier-sidebar" aria-label="Frontier navigation">';
+        echo '<nav id="frontier-sidebar" class="frontier-sidebar" aria-label="Frontier navigation">';
         echo '<a class="frontier-sidebar-brand" href="'.esc_url(self::url('home')).'">Frontier</a>';
         self::workspaceNavigationLink('home','Dashboard',$current);
         foreach (self::GROUPS as $group=>$views) {
@@ -720,7 +745,7 @@ final class Frontier {
         }
         $canAdd = in_array($mode,['form','combined','register'],true) && self::can($kind === 'site' ? 'sites' : $kind);
         $showForm = $canAdd && $mode !== 'register' && ($editing || isset($_GET['add']));
-        if ($canAdd && !$showForm) {
+        if ($canAdd && !$showForm && self::$screen !== 'quote') {
             $formScreen = $mode === 'register' ? ([
                 'boq'=>'boq_form','indent'=>'indent','quote'=>'quote_form','po'=>'po_form','grn'=>'grn_form',
             ][$kind] ?? self::$screen) : self::$screen;
@@ -729,9 +754,6 @@ final class Frontier {
                 self::templateControls($kind,$addUrl);
             } else {
                 echo '<p><a class="button frontier-add" href="'.esc_url($addUrl).'">Add</a>';
-                if (self::$screen === 'quote') {
-                    echo ' <a class="button" href="'.esc_url(add_query_arg('single_quote',1,$addUrl)).'">Add Quotation with Attachment</a>';
-                }
                 echo '</p>';
             }
         }

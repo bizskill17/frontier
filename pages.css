@@ -266,3 +266,33 @@ body.frontier-workspace {
     }
     .frontier-sidebar .frontier-sidebar-brand { margin-bottom: 0; font-size: inherit; }
 }
+
+.frontier-shell.frontier-menu-hidden { grid-template-columns: minmax(0, 1fr); }
+.frontier-sidebar[hidden], .frontier-menu-toggle[hidden] { display: none; }
+.frontier-topbar-start { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.frontier-menu-toggle, .frontier-shell .frontier-back {
+    padding: 7px 12px;
+    border: 1px solid #b8c8dc;
+    border-radius: 6px;
+    background: #e8f0fa;
+    color: #154775;
+    font: inherit;
+    font-weight: 650;
+}
+.frontier-menu-toggle { cursor: pointer; white-space: nowrap; }
+.frontier-menu-toggle:hover, .frontier-shell .frontier-back:hover {
+    background: #dbe8f8;
+    text-decoration: none;
+}
+.frontier-sidebar { background: #142840; color: #e7eff9; border-right: 0; }
+.frontier-sidebar a, .frontier-sidebar .frontier-sidebar-brand { color: #e7eff9; }
+.frontier-sidebar .frontier-sidebar-brand {
+    padding-bottom: 13px;
+    border-bottom: 1px solid #415771;
+    border-radius: 0;
+}
+.frontier-sidebar a:hover, .frontier-sidebar summary:hover { background: #223c59; text-decoration: none; }
+.frontier-sidebar a[aria-current="page"] { background: #2c5681; color: #fff; }
+.frontier-sidebar details { margin-block: 3px; }
+.frontier-sidebar ul { border-left: 1px solid #415771; padding-left: 5px; }
+.frontier-sidebar li a { font-size: .9rem; }
