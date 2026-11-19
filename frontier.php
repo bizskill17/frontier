@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.42
+ * Version: 1.9.43
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -123,6 +123,7 @@ final class Frontier {
         add_action('admin_post_frontier_indent_pdf', [self::class, 'downloadIndentPdf']);
         add_action('admin_post_frontier_boq_print', [self::class, 'printBoq']);
         add_action('admin_post_frontier_po_pdf', [self::class, 'downloadPurchaseOrderPdf']);
+        add_action('admin_post_frontier_grn_pdf', [self::class, 'downloadGoodsReceiptPdf']);
         add_action('admin_post_frontier_boq_excel', [self::class, 'boqExcel']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
@@ -846,6 +847,9 @@ final class Frontier {
             if (self::$screen === 'po' && !empty($row['data']['po_group_id']) && (int)$row['id'] !== (int)$row['data']['po_group_id']) {
                 continue;
             }
+            if (in_array(self::$screen,['grn','grn_slip'],true) && self::goodsReceiptNumberId($row) !== (int)$row['id']) {
+                continue;
+            }
             $listing[] = $row;
         }
         if (self::$screen === 'quote') {
@@ -1070,7 +1074,24 @@ final class Frontier {
                 'po_supplier'=>'PO No. with Supplier Name','received'=>'Quantity Received','open'=>'Pending to Receive GRN',
                 'brand'=>'Brand','remarks'=>'Remark'];
         }
-        $showStatus = !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems;
+        $grnScreen = self::$screen;
+        $grnFields = [
+            'grn'=>['grn_date'=>'GRN Date','grn_no'=>'GRN No.','supplier'=>'Supplier','grn_pdf'=>'GRN PDF',
+                'timestamp'=>'Timestamp','slip_no'=>'Slip Number','site_name'=>'Site Name','grn_slip_copy'=>'GRN Slip Copy'],
+            'grn_items'=>['timestamp'=>'Timestamp','grn_no'=>'GRN No.','grn_date'=>'GRN Date','supplier'=>'Supplier Name',
+                'po_no'=>'PO No.','po_date'=>'PO Date','prepared'=>'Prepared By','site_name'=>'Site Name',
+                'sl'=>'Sl No.','item_name'=>'Item Name','ordered'=>'Quantity Ordered','already'=>'Quantity Already Received',
+                'pending'=>'Quantity Pending to Receive','received'=>'Quantity Received','slip_no'=>'GRN Slip No.'],
+            'pending_grn'=>['ref'=>'PO No.','po_date'=>'PO Date','due'=>'Target Date','supplier'=>'Supplier',
+                'supplier_date'=>'Supplier Date','item_name'=>'Item Name','qty'=>'Order Qty','received'=>'Already Received','open'=>'Pending'],
+            'grn_slip'=>['site_name'=>'Site Name','supplier'=>'Supplier Name','grn_date'=>'GRN Date',
+                'grn_no'=>'GRN No.','slip_no'=>'Slip No.'],
+        ];
+        $isGrnView = isset($grnFields[$grnScreen]);
+        if ($isGrnView) {
+            $fields = $grnFields[$grnScreen];
+        }
+        $showStatus = !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems && !$isGrnView;
         $showActions = !in_array($mode,['items','selected'],true);
         [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
@@ -1118,9 +1139,20 @@ final class Frontier {
             echo '<tr>';
             foreach ($fields as $field=>$label) {
                 echo '<td>';
-                if ($field === 'pdf' && $poRegister) {
-                    $url = add_query_arg(['action'=>'frontier_po_pdf','id'=>$row['id']],admin_url('admin-post.php'));
-                    echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url($url,'frontier_po_pdf_'.$row['id'])).'">PDF</a>';
+                if ($field === 'grn_pdf' || ($field === 'pdf' && $poRegister)) {
+                    $action = $field === 'grn_pdf' ? 'frontier_grn_pdf' : 'frontier_po_pdf';
+                    $url = add_query_arg(['action'=>$action,'id'=>$row['id']],admin_url('admin-post.php'));
+                    echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url($url,$action.'_'.$row['id'])).'">PDF</a>';
+                } elseif ($field === 'grn_slip_copy') {
+                    if (self::canFile('grn')) {
+                        foreach (self::goodsReceiptGroup($rows,$row) as $line) {
+                            if (!empty($line['filename'])) {
+                                $url = add_query_arg(['action'=>'frontier_file','id'=>$line['id']],admin_url('admin-post.php'));
+                                echo '<a href="'.esc_url(wp_nonce_url($url,'frontier_file_'.$line['id'])).'">'.esc_html($line['filename']).'</a>';
+                                break;
+                            }
+                        }
+                    }
                 } elseif ($indentItems && strpos($field,'quotation_') === 0) {
                     if (isset($values[$field]) && self::canFile('quote')) {
                         $quote = $values[$field];
@@ -1364,14 +1396,19 @@ final class Frontier {
             }
         }
         if ($kind === 'grn' && $mode === 'slip' && self::can('grn')) {
-            echo '<details><summary class="button frontier-upload">Upload GRN Slip</summary>';
+            echo '<details><summary class="button frontier-upload">Upload</summary>';
             self::formStart($kind,'attach',$row['id']);
             self::uploadField($kind,true);
             self::submitButton('Upload slip');
             echo '</form></details>';
         }
-        if ($kind === 'grn' && $mode === 'register' && self::can('stock') && $status === 'pending') {
-            self::button($row,'approve_grn','Approve and post stock');
+        if ($kind === 'grn' && $mode === 'register' && self::can('stock')) {
+            foreach (self::goodsReceiptGroup($rows,$row) as $line) {
+                if ($line['status'] === 'pending') {
+                    self::button($row,'approve_grn','Approve and post stock');
+                    break;
+                }
+            }
         }
     }
 
@@ -1399,6 +1436,16 @@ final class Frontier {
     private static function recordValues($row,$rows,$screenKind) {
         $kind = $row['kind'];
         $data = $row['data'];
+        if ($kind === 'grn' && in_array(self::$screen,['grn','grn_items','grn_slip'],true)) {
+            return [self::goodsReceiptValues($rows,$row),$row['status']];
+        }
+        if ($kind === 'po' && self::$screen === 'pending_grn') {
+            $values = self::purchaseOrderValues($rows,$row);
+            $values['open'] = self::balance($rows,$row);
+            $values['received'] = self::sum($rows,'grn','po',$row['id']);
+            $values['supplier_date'] = self::indentDisplayDate($data['supplier_date'] ?? '');
+            return [$values,$row['status']];
+        }
         if ($kind === 'po' && in_array(self::$screen,['po','po_items'],true)) {
             return [self::purchaseOrderValues($rows,$row,self::$screen === 'po'),$row['status']];
         }
@@ -2937,6 +2984,73 @@ final class Frontier {
         }
     }
 
+    private static function goodsReceiptNumberId($row) {
+        return (int)($row['data']['grn_group_id'] ?? $row['id']);
+    }
+
+    private static function goodsReceiptGroup($rows,$receipt) {
+        $id = self::goodsReceiptNumberId($receipt);
+        $lines = array_filter($rows,static function ($row) use ($id) {
+            return $row['kind'] === 'grn' && self::goodsReceiptNumberId($row) === $id;
+        });
+        ksort($lines,SORT_NUMERIC);
+        return $lines;
+    }
+
+    private static function goodsReceiptValues($rows,$row) {
+        $data = $row['data'];
+        $po = $rows[$data['po'] ?? 0] ?? null;
+        $order = $po ? self::purchaseOrderValues($rows,$po) : [];
+        $already = $data['already_received'] ?? 0;
+        $pending = $data['pending_before'] ?? '';
+        if ($po && $pending === '') {
+            $earlier = array_filter($rows,static function ($record) use ($row) {
+                return (int)$record['id'] < (int)$row['id'];
+            });
+            $already = self::sum($earlier,'grn','po',$po['id']);
+            $pending = max(0,self::balance($earlier,$po));
+        }
+        return [
+            'grn_no'=>'GRN - '.str_pad((string)self::goodsReceiptNumberId($row),4,'0',STR_PAD_LEFT),
+            'grn_date'=>self::indentDisplayDate($data['due'] ?? ''),
+            'timestamp'=>empty($data['grn_timestamp']) ? '' : mysql2date('d/m/Y H:i:s',$data['grn_timestamp'],false),
+            'slip_no'=>$data['ref'] ?? '', 'supplier'=>$order['supplier'] ?? '',
+            'po_no'=>$order['ref'] ?? '', 'po_date'=>$order['po_date'] ?? '',
+            'prepared'=>$data['prepared_name'] ?? '', 'site_name'=>$order['site_name'] ?? '',
+            'sl'=>$order['line_number'] ?? '', 'item_name'=>$order['item_name'] ?? '',
+            'unit'=>$order['unit'] ?? '', 'ordered'=>$order['qty'] ?? '',
+            'already'=>$po ? $already : '', 'pending'=>$pending,'received'=>$data['qty'] ?? '',
+        ];
+    }
+
+    public static function downloadGoodsReceiptPdf() {
+        $id = absint($_GET['id'] ?? 0);
+        if (!self::canView('grn')) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        check_admin_referer('frontier_grn_pdf_'.$id);
+        $rows = self::rows();
+        $receipt = $rows[$id] ?? [];
+        if (($receipt['kind'] ?? '') !== 'grn') {
+            wp_die('Goods receipt not found.','Frontier',['response'=>404]);
+        }
+        $data = self::goodsReceiptValues($rows,$receipt);
+        $items = [];
+        foreach (self::goodsReceiptGroup($rows,$receipt) as $line) {
+            $item = self::goodsReceiptValues($rows,$line);
+            $items[] = [$item['sl'],$item['item_name'],$item['received'],$item['unit']];
+        }
+        $pdf = Frontier_Boq_Pdf::build($data['grn_no'],$data['site_name'],$data['grn_date'],$data['prepared'],
+            $items,'Goods Receipt Note','Prepared By',['Supplier: '.$data['supplier'],'PO No.: '.$data['po_no'],
+                'Slip No.: '.$data['slip_no']]);
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="goods-receipt-'.self::goodsReceiptNumberId($receipt).'.pdf"');
+        header('Content-Length: '.strlen($pdf));
+        echo $pdf;
+        exit;
+    }
+
     private static function goodsReceiptForm($rows) {
         $orders = [];
         foreach ($rows as $row) {
@@ -3043,6 +3157,7 @@ HTML;
         $submitted = $_POST['received'] ?? [];
         self::requireRule(is_array($submitted),'Check the quantities received.');
         $group = 0;
+        $timestamp = current_time('mysql');
         foreach ($submitted as $id=>$qty) {
             self::requireRule(is_string($qty),'Enter a valid Quantity Received.');
             if ($qty === '') {
@@ -3056,7 +3171,8 @@ HTML;
             self::requireRule(($line['kind'] ?? '') === 'po'
                 && (int)($line['data']['po_group_id'] ?? $line['id']) === $orderId
                 && self::canReceivePurchaseOrder($rows,$line),'This PO item is no longer available for receipt.');
-            $data = ['po'=>(int)$id,'ref'=>$ref,'due'=>$due,'qty'=>(float)$qty,'reject'=>0,
+            $data = ['po'=>(int)$id,'ref'=>$ref,'due'=>$due,'qty'=>(float)$qty,'reject'=>0,'grn_timestamp'=>$timestamp,
+                'already_received'=>self::sum($rows,'grn','po',$id),'pending_before'=>self::balance($rows,$line),
                 'prepared_employee'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name']];
             self::validateNew($rows,'grn',$data);
             if ($group) {
@@ -3781,7 +3897,7 @@ HTML;
             $rows = self::rows();
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
-                || ($kind === 'grn' && in_array($action,['create','create_goods_receipt'],true))
+                || ($kind === 'grn' && in_array($action,['create','create_goods_receipt','approve_grn'],true))
                 || ($kind === 'po' && in_array($action,['create_purchase_orders','issue','delete','cancel_po'],true))
                 || ($kind === 'quote' && in_array($action,['save_quotations','save_supplier_selection'],true))
                 || ($kind === 'supplier' && $action === 'import_suppliers')
@@ -3795,6 +3911,19 @@ HTML;
             if ($kind === 'quote' && $action === 'save_quotations') {
                 self::saveQuotations($rows);
                 $result = true;
+            } elseif ($kind === 'grn' && $action === 'approve_grn') {
+                $receipt = $rows[absint(self::input('id'))] ?? [];
+                self::requireRule(($receipt['kind'] ?? '') === 'grn','Goods receipt not found.');
+                $result = false;
+                foreach (self::goodsReceiptGroup($rows,$receipt) as $line) {
+                    if ($line['status'] === 'pending') {
+                        if ($wpdb->update(self::table(),self::transition($rows,$line,$action),['id'=>$line['id']]) !== 1) {
+                            throw new RuntimeException('Goods receipt approval could not be saved.');
+                        }
+                        $result = true;
+                    }
+                }
+                self::requireRule($result,'This GRN has already been processed.');
             } elseif ($kind === 'grn' && $action === 'create_goods_receipt') {
                 self::saveGoodsReceipt($rows);
                 $result = true;
