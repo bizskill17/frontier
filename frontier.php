@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.54
+ * Version: 1.9.55
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -20,7 +20,7 @@ final class Frontier {
     ];
 
     private const GROUPS = [
-        'Master' => self::MASTERS + ['site'=>'Site Master'],
+        'Master' => self::MASTERS + ['site'=>'Site Master','settings'=>'Settings'],
         'BOQ' => ['boq_form'=>'Create BOQ', 'boq'=>'BOQ', 'boq_items'=>'BOQ Item Master'],
         'Indent' => ['pending_indent'=>'Pending Approve Indent', 'indent'=>'Indents Form', 'indent_master'=>'Indent Master', 'indent_items'=>'Indents Item Master'],
         'Supplier Quotation' => ['pending_quote'=>'Pending Supplier Quotation', 'quote_form'=>'Supplier Quotation Form', 'quote'=>'Supplier Quotation Master'],
@@ -74,8 +74,9 @@ final class Frontier {
         'invoice'=>['supplier'=>'Supplier Name with Code', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.9.48';
+    private const PAGE_VERSION = '1.9.55';
     private const PAGE_SLUGS = [
+        'settings'=>'settings',
         'pending_indent'=>'pending-approve-indent', 'pending_quote'=>'pending-supplier-quotation',
         'pending_choose'=>'pending-choose-supplier', 'pending_po'=>'pending-purchase-order',
         'pending_grn'=>'pending-goods-receipt',
@@ -126,6 +127,7 @@ final class Frontier {
         add_action('admin_post_frontier_grn_pdf', [self::class, 'downloadGoodsReceiptPdf']);
         add_action('admin_post_frontier_boq_excel', [self::class, 'boqExcel']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
+        add_action('admin_post_frontier_save_logo', [self::class, 'saveLogo']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
     }
 
@@ -424,6 +426,43 @@ final class Frontier {
         <?php
     }
 
+    private static function logoSettings() {
+        $logo = (int)get_option('frontier_logo_id',0);
+        if ($logo) {
+            echo '<p>'.wp_get_attachment_image($logo,'medium',false,['alt'=>'Current company logo']).'</p>';
+        }
+        echo '<form class="frontier-entry" method="post" enctype="multipart/form-data" action="'.esc_url(admin_url('admin-post.php')).'">';
+        wp_nonce_field('frontier_save_logo');
+        echo '<input type="hidden" name="action" value="frontier_save_logo">';
+        echo '<input type="hidden" name="surface" value="'.(self::$front ? 'front' : 'admin').'">';
+        echo '<p><label>'.self::requiredLabel('Company Logo').'<input type="file" name="frontier_logo" accept=".png,.jpg,.jpeg" required></label></p>';
+        echo '<p>PNG or JPEG, up to 3 MB.</p>';
+        self::submitButton('Save Logo',true);
+        echo '</form>';
+    }
+
+    public static function saveLogo() {
+        if (!self::canView('settings') || !current_user_can('upload_files')) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        check_admin_referer('frontier_save_logo');
+        $file = $_FILES['frontier_logo'] ?? [];
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || empty($file['size']) || $file['size'] > 3*1024*1024) {
+            wp_die('Choose a PNG or JPEG logo up to 3 MB.','Frontier',['response'=>400,'back_link'=>true]);
+        }
+        require_once ABSPATH.'wp-admin/includes/image.php';
+        require_once ABSPATH.'wp-admin/includes/file.php';
+        require_once ABSPATH.'wp-admin/includes/media.php';
+        $logo = media_handle_upload('frontier_logo',0,[],['test_form'=>false,'mimes'=>['png'=>'image/png','jpg|jpeg'=>'image/jpeg']]);
+        if (is_wp_error($logo)) {
+            wp_die(esc_html($logo->get_error_message()),'Frontier',['response'=>400,'back_link'=>true]);
+        }
+        update_option('frontier_logo_id',(int)$logo,false);
+        self::$front = self::input('surface') === 'front';
+        wp_safe_redirect(add_query_arg('saved',1,self::url('settings')));
+        exit;
+    }
+
     private static function workspaceNavigation($current) {
         echo '<nav id="frontier-sidebar" class="frontier-sidebar" aria-label="Frontier navigation">';
         echo '<a class="frontier-sidebar-brand" href="'.esc_url(self::url('home')).'">Frontier</a>';
@@ -462,6 +501,9 @@ final class Frontier {
     }
 
     private static function canView($kind) {
+        if ($kind === 'settings') {
+            return current_user_can('manage_options');
+        }
         if (isset(self::PENDING_VIEWS[$kind])) {
             return self::can('read') && self::can(self::PENDING_VIEWS[$kind][1]);
         }
@@ -670,6 +712,11 @@ final class Frontier {
             echo '<div class="notice notice-success" role="status"><p>'.esc_html($message).'</p></div>';
         }
         self::$screen = $kind;
+        if ($kind === 'settings') {
+            self::logoSettings();
+            echo '</div>';
+            return;
+        }
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
         if (isset(self::PENDING_VIEWS[self::$screen])) {
