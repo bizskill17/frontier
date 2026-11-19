@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.44
+ * Version: 1.9.45
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1089,7 +1089,7 @@ final class Frontier {
             $fields = $grnFields[$grnScreen];
         }
         $showStatus = !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems && !$isGrnView;
-        $showActions = !in_array($mode,['items','selected'],true);
+        $showActions = $grnScreen !== 'grn' && !in_array($mode,['items','selected'],true);
         [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
         foreach ($fields as $label) {
@@ -1398,14 +1398,6 @@ final class Frontier {
             self::uploadField($kind,true);
             self::submitButton('Upload slip');
             echo '</form></details>';
-        }
-        if ($kind === 'grn' && $mode === 'register' && self::can('stock')) {
-            foreach (self::goodsReceiptGroup($rows,$row) as $line) {
-                if ($line['status'] === 'pending') {
-                    self::button($row,'approve_grn','Approve and post stock');
-                    break;
-                }
-            }
         }
     }
 
