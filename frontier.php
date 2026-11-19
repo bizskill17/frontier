@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.19
+ * Version: 1.9.20
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2296,7 +2296,7 @@ final class Frontier {
             'type'=>'Item Type','approval'=>'Approval Status','received'=>'Quantity Received','pending_receive'=>'Pending to Receive',
             'quote_at'=>'Quotation Timestamp','quoted_by_1'=>'Supplier1','quotation_1'=>'Quotation1',
             'quoted_by_2'=>'Supplier2','quotation_2'=>'Quotation2','quoted_by_3'=>'Supplier3','quotation_3'=>'Quotation3',
-            'quoted_by_4'=>'Supplier4','quotation_4'=>'Quotation 4','cancel_date'=>'Cancel Date',
+            'cancel_date'=>'Cancel Date',
             'cancelled'=>'Indent Item Canceled','cancel_reason'=>'Cancel Reason','cancel_by'=>'Cancel By',
         ];
     }
@@ -2413,7 +2413,7 @@ final class Frontier {
                 $values['supplier_'.$comparison] = $name;
                 $values['rate_'.$comparison] = $quoteData['rate'];
             }
-            if ($attachments < 4 && !isset($quotedSuppliers[$key])) {
+            if ($attachments < 3 && !isset($quotedSuppliers[$key])) {
                 $quotedSuppliers[$key] = true;
                 $attachments++;
                 $values['quoted_by_'.$attachments] = $name;
