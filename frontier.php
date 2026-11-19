@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.7
+ * Version: 1.8.8
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -326,7 +326,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.0');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.8');
         self::enqueueDropdownSearch();
     }
 
@@ -342,7 +342,7 @@ final class Frontier {
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.8.6',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.0');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.8');
         }
     }
 
@@ -773,12 +773,12 @@ final class Frontier {
             echo '<td>'.esc_html(ucwords(str_replace('_',' ',$status))).'</td>';
             if ($showActions) {
                 echo '<td>';
+                echo '<div class="frontier-row-actions">';
                 self::actions($row,$rows);
                 if (in_array($kind,['employee','item','units'],true) && self::can($kind)) {
-                    echo ' <details><summary class="button">Delete</summary><p>Delete this record?</p>';
-                    self::button($row,'delete_master','Confirm Delete');
-                    echo '</details>';
+                    self::deleteAction($row,'delete_master','Delete record','Delete this record?');
                 }
+                echo '</div>';
                 echo '</td>';
             }
             echo '</tr>';
@@ -925,7 +925,7 @@ final class Frontier {
             return;
         }
         if ((isset(self::MASTERS[$kind]) || $kind === 'site') && self::can($kind === 'site' ? 'sites' : $kind)) {
-            echo '<a class="button" href="'.esc_url(add_query_arg('edit',$row['id'],self::url($kind))).'">Edit</a>';
+            self::editAction($kind,$row['id'],'Edit record');
         }
         if ($kind === 'site' && self::can('sites') && !in_array($status,['completed','cancelled'],true)) {
             foreach (['complete_site'=>'Complete Site','cancel_site'=>'Cancel Site'] as $action=>$label) {
@@ -935,7 +935,7 @@ final class Frontier {
         }
         if ($kind === 'indent') {
             if (self::can('indent') && in_array($status,['draft','returned','approved'],true)) {
-                echo '<a class="button" href="'.esc_url(add_query_arg('edit',$row['id'],self::url($kind))).'">Edit</a> ';
+                self::editAction($kind,$row['id'],'Edit indent');
                 if ($status !== 'approved') {
                     self::button($row,'submit','Submit for approval');
                 }
@@ -953,7 +953,7 @@ final class Frontier {
         if ($kind === 'po' && self::can('po')) {
             if ($status === 'draft') {
                 self::button($row,'issue','Issue PO');
-                self::button($row,'delete','Delete draft');
+                self::deleteAction($row,'delete','Delete draft','Delete this draft?');
             } elseif ($status === 'issued' && !self::linked($rows,$row['id'])) {
                 self::button($row,'cancel_po','Cancel PO',true);
             }
@@ -968,6 +968,18 @@ final class Frontier {
         if ($kind === 'grn' && $mode === 'register' && self::can('stock') && $status === 'pending') {
             self::button($row,'approve_grn','Approve and post stock');
         }
+    }
+
+    private static function editAction($kind,$id,$label) {
+        $url = add_query_arg('edit',$id,self::url($kind));
+        echo '<a class="button frontier-action-icon frontier-action-edit" aria-label="'.esc_attr($label).'" title="'.esc_attr($label).'" href="'.esc_url($url).'"><span aria-hidden="true">✎</span></a>';
+    }
+
+    private static function deleteAction($row,$operation,$label,$message) {
+        echo '<details class="frontier-delete-action"><summary class="button frontier-action-icon frontier-action-delete" aria-label="'.esc_attr($label).'" title="'.esc_attr($label).'"><span aria-hidden="true">🗑︎</span></summary>';
+        echo '<p>'.esc_html($message).'</p>';
+        self::button($row,$operation,'Confirm Delete');
+        echo '</details>';
     }
 
     private static function button($row,$operation,$label,$reason=false) {
@@ -1763,12 +1775,12 @@ final class Frontier {
                     echo '<a href="'.esc_url(wp_nonce_url($url,'frontier_boq_print_'.$id)).'">PDF</a>';
                 } elseif ($key === 'actions') {
                     $id = $record['pdf'];
-                    echo '<a class="button" aria-label="Edit BOQ" title="Edit BOQ" href="'.esc_url(add_query_arg('edit',$id,self::url('boq'))).'">✎</a>';
+                    echo '<div class="frontier-row-actions">';
+                    self::editAction('boq',$id,'Edit BOQ');
                     if (!$record['used']) {
-                        echo ' <details><summary class="button" aria-label="Delete BOQ" title="Delete BOQ">🗑</summary><p>Delete this BOQ?</p>';
-                        self::button($rows[$id],'delete_boq','Confirm Delete');
-                        echo '</details>';
+                        self::deleteAction($rows[$id],'delete_boq','Delete BOQ','Delete this BOQ?');
                     }
+                    echo '</div>';
                 } else {
                     $value = $record[$key];
                     echo esc_html(is_float($value) ? (string)round($value,3) : (string)$value);

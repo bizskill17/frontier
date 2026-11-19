@@ -90,3 +90,17 @@ body.frontier-workspace {
 .frontier-boq-form td:nth-child(3), .frontier-boq-form td:nth-child(4) { min-width: 110px; }
 .frontier-boq-form td:nth-child(5), .frontier-boq-form td:nth-child(6) { white-space: nowrap; }
 .frontier-boq-form .frontier-boq-save:disabled { opacity: .55; cursor: not-allowed; }
+
+.frontier-row-actions { display: flex; align-items: flex-start; gap: 6px; flex-wrap: nowrap; }
+.frontier-row-actions > * { flex-shrink: 0; }
+.frontier-pages .frontier-row-actions .frontier-action-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; min-height: 32px; padding: 0;
+    font: 18px/1 system-ui, sans-serif; text-decoration: none; cursor: pointer;
+}
+.frontier-pages .frontier-row-actions .frontier-action-edit { color: #164f8a; background: #e4efff; border-color: #bdd4f5; }
+.frontier-pages .frontier-row-actions .frontier-action-delete { color: #9d2626; background: #ffe8e8; border-color: #efbcbc; list-style: none; }
+.frontier-action-delete::-webkit-details-marker { display: none; }
+.frontier-pages .frontier-row-actions .frontier-action-edit:hover { background: #d0e4ff; }
+.frontier-pages .frontier-row-actions .frontier-action-delete:hover { background: #ffcece; }
+.frontier-delete-action p { margin: 6px 0; }
