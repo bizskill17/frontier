@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.33
+ * Version: 1.9.34
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2963,7 +2963,7 @@ final class Frontier {
             echo '<p><label>'.esc_html($label).'<input type="text" data-po-detail="'.esc_attr($field).'" readonly></label></p>';
         }
         echo '</div><h2>PO Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Purchase order items"><table class="widefat striped" style="min-width:1280px"><thead><tr>';
-        foreach (['Sl No.','Item Name','Unit','Supplier Finalized','Rate Finalized','Pending to Order','Order Qty','Line Amount','Brand','Remarks'] as $label) {
+        foreach (['Sl No.','Item Name','Unit','Supplier Finalized','Rate Finalized','Pending to Order','Order Qty','Amount','Brand','Remarks'] as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';
         }
         echo '</tr></thead><tbody>';
