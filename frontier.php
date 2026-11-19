@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.72
+ * Version: 1.9.73
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -519,6 +519,9 @@ final class Frontier {
         if (!user_can($user,'manage_options') && user_can($user,'frontier_read')) {
             $access = self::assignedViewAccess($user->ID);
             if (is_array($access) && isset($access['role'])) {
+                if (($access['status'] ?? '') === 'inactive') {
+                    return false;
+                }
                 return isset(self::views()[$kind]) && ($kind === 'home' || $access['role'] === 'admin'
                     || in_array($kind,$access['views'] ?? [],true));
             }
@@ -547,7 +550,11 @@ final class Frontier {
     }
 
     private static function can($capability) {
-        return current_user_can('manage_options') || current_user_can('frontier_'.$capability);
+        if (current_user_can('manage_options')) {
+            return true;
+        }
+        $access = self::assignedViewAccess(get_current_user_id());
+        return ($access['status'] ?? '') !== 'inactive' && current_user_can('frontier_'.$capability);
     }
 
     public static function menu() {
@@ -1952,6 +1959,10 @@ HTML;
             $values['attachment'] = 'Slip pending';
         }
         $status = $row['status'];
+        if ($kind === 'employee') {
+            $access = self::assignedViewAccess(absint($data['wp_user_id'] ?? 0));
+            $status = ($access['status'] ?? '') === 'inactive' ? 'in_active' : 'active';
+        }
         if ($kind === 'invoice') {
             $matchedAmount = 0;
             foreach ($rows as $match) {
@@ -2293,19 +2304,21 @@ HTML;
             echo '<option value="'.esc_attr($key).'" '.selected($role,$key,false).'>'.esc_html($label).'</option>';
         }
         echo '</select></label></p>';
+        echo '<p><label>'.self::requiredLabel('Status').'<select name="frontier_employee_status" required>';
+        foreach (['active'=>'Active','inactive'=>'In Active'] as $key=>$label) {
+            echo '<option value="'.esc_attr($key).'" '.selected($access['status'] ?? 'active',$key,false).'>'.esc_html($label).'</option>';
+        }
+        echo '</select></label></p>';
     }
 
     private static function employeeViewAccessGroups($data) {
-        $id = absint($data['wp_user_id'] ?? 0);
-        $access = self::assignedViewAccess($id);
-        $user = $id ? get_userdata($id) : null;
+        $access = self::assignedViewAccess(absint($data['wp_user_id'] ?? 0));
         echo '<section data-frontier-view-access'.(($access['role'] ?? '') === 'admin' ? ' hidden' : '').'><h2>View Access</h2>';
         echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;margin-bottom:16px">';
         foreach (self::GROUPS as $group=>$views) {
             echo '<fieldset style="min-width:0;border:1px solid #cbd6e4;border-radius:8px;padding:10px"><legend>'.esc_html($group).'</legend>';
             foreach ($views as $view=>$label) {
-                $checked = isset($access['role']) ? in_array($view,$access['views'] ?? [],true)
-                    : ($user && self::defaultViewAccess($view,$user));
+                $checked = ($access['role'] ?? '') !== 'employee' || in_array($view,$access['views'] ?? [],true);
                 echo '<label style="display:block;margin:4px 0"><input type="checkbox" name="frontier_employee_views[]" value="'
                     .esc_attr($view).'" '.checked($checked,true,false).'> '.esc_html($label).'</label>';
             }
@@ -2341,6 +2354,8 @@ HTML;
         }
         $role = self::input('frontier_employee_role');
         self::requireRule(in_array($role,['admin','employee'],true),'Select a valid Frontier role.');
+        $status = self::input('frontier_employee_status');
+        self::requireRule(in_array($status,['active','inactive'],true),'Select a valid employee status.');
         $requested = $_POST['frontier_employee_views'] ?? [];
         self::requireRule(is_array($requested),'Select valid Frontier views.');
         $allowed = array_diff_key(self::views(),['home'=>true,'stock'=>true]);
@@ -2363,7 +2378,7 @@ HTML;
         }
         $id = $linkedId ? wp_update_user(['ID'=>$linkedId] + $user) : wp_insert_user($user);
         self::requireRule(!is_wp_error($id), is_wp_error($id) ? $id->get_error_message() : '');
-        $access = ['role'=>$role,'views'=>$role === 'employee' ? array_keys($views) : []];
+        $access = ['role'=>$role,'views'=>$role === 'employee' ? array_keys($views) : [],'status'=>$status];
         if (self::assignedViewAccess((int)$id) !== $access && update_user_meta((int)$id,'frontier_view_access',$access) === false) {
             throw new RuntimeException('Frontier view access could not be saved.');
         }
