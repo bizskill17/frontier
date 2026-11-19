@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.49
+ * Version: 1.9.50
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -71,7 +71,7 @@ final class Frontier {
         'follow'=>['po'=>'Purchase order', 'note'=>'Follow-up notes', 'due'=>'Next follow-up'],
         'cancel'=>['po'=>'Purchase order', 'qty'=>'Quantity to cancel', 'note'=>'Reason', 'reorder'=>'Return to purchasing'],
         'grn'=>['po'=>'Purchase order', 'ref'=>'GRN number', 'due'=>'Receipt date', 'qty'=>'Accepted quantity', 'reject'=>'Rejected quantity'],
-        'invoice'=>['supplier'=>'Supplier Name with Code', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
+        'invoice'=>['supplier'=>'Supplier Name with Code', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
     private const PAGE_VERSION = '1.9.48';
@@ -1036,7 +1036,7 @@ final class Frontier {
             'po'=>['supplier'=>'Supplier Name with Code','reason'=>'Reason','received'=>'Received','waiting'=>'Pending GRN Approval','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'follow'=>['ordered'=>'Order Quantity','expected'=>'Expected Delivery','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'grn'=>['attachment'=>'GRN Slip'],
-            'invoice'=>['matched'=>'Matched Quantity','attachment'=>'Invoice Copy'],
+            'invoice'=>['matched'=>'Matched Amount','attachment'=>'Invoice Copy'],
         ][$kind] ?? [];
         $pendingPo = self::$screen === 'pending_po';
         if ($pendingPo) {
@@ -1330,14 +1330,14 @@ final class Frontier {
         } elseif ($field === 'reorder') {
             echo '<input type="checkbox" name="reorder" value="1">';
         } else {
-            $numeric = in_array($field,['qty','rate','tax','freight','reject'],true);
+            $numeric = in_array($field,['qty','rate','tax','freight','reject','amount'],true);
             $type = $numeric ? 'number' : (['due'=>'date','email'=>'email','mobile'=>'tel','contact'=>'tel','alternate'=>'tel'][$field] ?? 'text');
             if ($kind === 'supplier' && $field === 'email') {
                 $type = 'text';
             }
             $optional = self::optionalField($kind,$field);
             printf('<input type="%s" name="%s" value="%s" %s %s>',esc_attr($type),esc_attr($field),esc_attr($value),
-                $numeric ? 'step="0.001" min="0"' : 'maxlength="200"', $optional ? '' : 'required');
+                $field === 'amount' ? 'step="0.01" min="0"' : ($numeric ? 'step="0.001" min="0"' : 'maxlength="200"'), $optional ? '' : 'required');
         }
         echo '</label></p>';
     }
@@ -1548,9 +1548,18 @@ final class Frontier {
         }
         $status = $row['status'];
         if ($kind === 'invoice') {
-            $matched = self::sum($rows,'match','invoice',$row['id']);
-            $values['matched'] = $matched;
-            $status = $matched >= $data['qty'] ? 'matched' : ($matched > 0 ? 'partially_matched' : 'pending_match');
+            $matchedAmount = 0;
+            foreach ($rows as $match) {
+                if ($match['kind'] === 'match' && (int)($match['data']['invoice'] ?? 0) === (int)$row['id']) {
+                    $matchedAmount += round((float)$match['data']['qty'] * (float)$match['data']['rate'],2);
+                }
+            }
+            $values['amount'] = isset($data['amount']) ? number_format($data['amount'],2) : '';
+            $values['matched'] = number_format($matchedAmount,2);
+            $matchedQty = self::sum($rows,'match','invoice',$row['id']);
+            $complete = isset($data['qty']) ? $matchedQty >= $data['qty']
+                : isset($data['amount']) && round($matchedAmount,2) >= $data['amount'];
+            $status = $matchedQty <= 0 ? 'pending_match' : ($complete ? 'matched' : 'partially_matched');
         }
         return [$values,$status];
     }
@@ -1592,6 +1601,9 @@ final class Frontier {
                 $record = self::eligible($rows,$kind,$field)[absint($value)] ?? null;
                 self::requireRule($record,'Choose a valid '.$label.'.');
                 $value = (int)$record['id'];
+            } elseif ($field === 'amount') {
+                self::requireRule(preg_match('/^\d{1,12}(?:\.\d{1,2})?$/D',$value),'Enter a valid Invoice Amount.');
+                $value = (float)$value;
             } elseif (in_array($field,['qty','rate','tax','freight','reject'],true)) {
                 if ($value === '' && in_array($field,['tax','freight','reject'],true)) {
                     $value = '0';
@@ -1734,7 +1746,7 @@ final class Frontier {
                 self::requireRule(self::sameSupplier($po['data'],$invoice['data']),'The invoice and PO suppliers must match.');
                 self::requireRule($data['qty'] <= self::pendingInvoiceQuantity($rows,$po),'Invoice quantity exceeds the PO item balance.');
                 self::requireRule($data['qty'] <= round($grn['data']['qty'] - self::sum($rows,'match','grn',$grn['id']),3),'Invoice quantity exceeds the unmatched GRN quantity.');
-                self::requireRule($data['qty'] <= round($invoice['data']['qty'] - self::sum($rows,'match','invoice',$invoice['id']),3),'Quantity exceeds the unmatched invoice balance.');
+                self::requireRule(!isset($invoice['data']['qty']) || $data['qty'] <= round($invoice['data']['qty'] - self::sum($rows,'match','invoice',$invoice['id']),3),'Quantity exceeds the unmatched invoice balance.');
                 self::requireRule($data['rate'] === (float)$po['data']['rate'] || $data['note'] !== '','Explain the variance from the PO rate.');
                 break;
         }
@@ -3078,7 +3090,7 @@ final class Frontier {
         echo '<p>Pending for Invoice: '.esc_html((string)self::pendingInvoiceQuantity($rows,$po)).'</p>';
         $invoices = array_filter($rows,static function ($invoice) use ($rows,$po) {
             return $invoice['kind'] === 'invoice' && self::sameSupplier($po['data'],$invoice['data'])
-                && $invoice['data']['qty'] > self::sum($rows,'match','invoice',$invoice['id']);
+                && (!isset($invoice['data']['qty']) || $invoice['data']['qty'] > self::sum($rows,'match','invoice',$invoice['id']));
         });
         if (!$invoices) {
             echo '<p>No uploaded invoices with a remaining quantity for this supplier.</p>';
@@ -3110,7 +3122,7 @@ final class Frontier {
         $rate = self::input('rate');
         self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0
             && (float)$qty <= self::pendingInvoiceQuantity($rows,$po),'Invoice Qty exceeds the PO item balance or is invalid.');
-        self::requireRule((float)$qty <= round($invoice['data']['qty'] - self::sum($rows,'match','invoice',$invoice['id']),3),
+        self::requireRule(!isset($invoice['data']['qty']) || (float)$qty <= round($invoice['data']['qty'] - self::sum($rows,'match','invoice',$invoice['id']),3),
             'Invoice Qty exceeds the unmatched invoice quantity.');
         self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$rate),'Enter a valid Invoice Rate.');
         $data = ['po'=>(int)$po['id'],'invoice'=>(int)$invoice['id'],'qty'=>(float)$qty,'rate'=>(float)$rate,
