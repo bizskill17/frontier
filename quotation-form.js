@@ -20,6 +20,7 @@
     list.append(options);
 
     let entries = [];
+    const measure = document.createElement('canvas').getContext('2d');
 
     function collect() {
         const lines = [];
@@ -34,6 +35,13 @@
                 pair.rate.required = started;
                 if (!started) continue;
                 const name = pair.name.value.trim();
+                const style = getComputedStyle(pair.name);
+                if (measure) measure.font = style.font;
+                const available = pair.name.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 24;
+                const clipped = measure ? measure.measureText(name).width > available : name.length > 32;
+                pair.fullName.textContent = name;
+                pair.fullName.hidden = !name || !clipped;
+                pair.name.title = name;
                 const rate = pair.rate.value.trim();
                 if (!name || !rate) {
                     error = 'Fill all three suppliers and rates for item ' + entry.number + '.';
@@ -88,9 +96,13 @@
                 rate.step = '0.001';
                 rate.setAttribute('aria-label', 'Supplier ' + (i + 1) + ' rate for item ' + item.number);
                 rate.value = existing ? existing.rate : '';
-                row.insertCell().append(name);
+                const fullName = document.createElement('small');
+                fullName.className = 'frontier-quotation-full-name';
+                fullName.hidden = true;
+                fullName.setAttribute('aria-hidden', 'true');
+                row.insertCell().append(name, fullName);
                 row.insertCell().append(rate);
-                pairs.push({ name, rate });
+                pairs.push({ name, rate, fullName });
             }
             entries.push({ id: item.id, number: item.number, pairs });
         }
@@ -102,6 +114,7 @@
 
     group.addEventListener('change', render);
     table.addEventListener('input', collect);
+    window.addEventListener('resize', collect);
     form.addEventListener('submit', (event) => {
         const lines = collect();
         if (save.disabled) {
