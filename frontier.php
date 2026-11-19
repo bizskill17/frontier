@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.37
+ * Version: 1.9.38
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.37');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.38');
         self::enqueueDropdownSearch();
     }
 
@@ -357,7 +357,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.37');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.38');
         }
     }
 
@@ -3026,7 +3026,7 @@ final class Frontier {
             echo '<td><input type="number" min="0" step="0.001" max="'.esc_attr($item['pending']).'" aria-label="'.esc_attr('Order Qty for '.$name).'" name="'.$prefix.'[qty]" data-po-qty disabled style="min-width:96px"><small data-po-warning hidden>Exceeds Pending to Order</small></td>';
             echo '<td><output data-po-amount></output></td>';
             foreach (['brand'=>'Brand','remarks'=>'Remarks'] as $field=>$label) {
-                echo '<td><input type="text" maxlength="200" name="'.$prefix.'['.$field.']" aria-label="'.esc_attr($label.' for '.$name).'" disabled style="min-width:110px"></td>';
+                echo '<td><textarea rows="1" maxlength="200" name="'.$prefix.'['.$field.']" aria-label="'.esc_attr($label.' for '.$name).'" data-po-autogrow disabled></textarea></td>';
             }
             echo '</tr>';
         }
@@ -3047,6 +3047,11 @@ final class Frontier {
     const terms = form.querySelector('[data-po-terms]');
     const termFields = terms.querySelectorAll('[data-po-terms-supplier]');
     let previousGroup;
+    function resizeField(field) {
+        if (!field.getClientRects().length) return;
+        field.style.height = 'auto';
+        field.style.height = (field.scrollHeight + field.offsetHeight - field.clientHeight) + 'px';
+    }
     const currency = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' });
     function render() {
         let total = 0;
@@ -3057,8 +3062,9 @@ final class Frontier {
         for (const row of rows) {
             const visible = row.dataset.poGroup === group.value;
             row.hidden = !visible;
-            for (const input of row.querySelectorAll('input')) input.disabled = !visible;
+            for (const control of row.querySelectorAll('input, textarea')) control.disabled = !visible;
             if (!visible) continue;
+            if (previousGroup !== group.value) row.querySelectorAll('[data-po-autogrow]').forEach(resizeField);
             if (row.dataset.compared) compared.add(row.dataset.compared);
             const qty = row.querySelector('[data-po-qty]');
             row.querySelector('[data-po-warning]').hidden = !qty.validity.rangeOverflow;
@@ -3093,6 +3099,7 @@ final class Frontier {
         if (event.target.matches('[name="po_group"], [name="employee"], [name="due"], [name="target_date"]')) render();
     });
     form.addEventListener('input', event => {
+        if (event.target.matches('[data-po-autogrow]')) resizeField(event.target);
         if (event.target.matches('[data-po-qty], [name="due"], [name="target_date"]')) render();
     });
     render();
@@ -3174,7 +3181,7 @@ HTML;
             foreach (['brand','remarks'] as $field) {
                 $value = $line[$field] ?? '';
                 self::requireRule(is_string($value),'Check Brand and Remarks.');
-                $data[$field] = sanitize_text_field(wp_unslash($value));
+                $data[$field] = sanitize_textarea_field(wp_unslash($value));
                 self::requireRule(strlen($data[$field]) <= 200,'Brand and Remarks must be at most 200 bytes each.');
             }
             self::validateNew($rows,'po',$data);

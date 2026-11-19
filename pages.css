@@ -323,3 +323,13 @@ body.frontier-workspace {
 .frontier-po-terms-grid p { margin: 0; }
 .frontier-po-form [data-po-warning] { color: #b42318; }
 .frontier-main .frontier-po-form [data-po-save]:disabled { opacity: .55; cursor: not-allowed; }
+
+.frontier-po-form textarea[data-po-autogrow] {
+    display: block;
+    box-sizing: border-box;
+    min-width: 110px;
+    padding-block: 5px;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    resize: none;
+}
