@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.56
+ * Version: 1.9.57
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -347,7 +347,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.54');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.57');
         self::enqueueDropdownSearch();
     }
 
@@ -365,7 +365,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.54');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.57');
         }
     }
 
@@ -390,9 +390,14 @@ final class Frontier {
                         <button type="button" class="frontier-menu-toggle" aria-controls="frontier-sidebar" aria-expanded="true" aria-label="Hide menu" title="Hide menu" hidden><span aria-hidden="true">☰</span></button>
                         <span role="heading" aria-level="1"><?php echo esc_html($views[$kind]); ?></span>
                     </div>
-                    <?php if ($kind === 'home') : ?>
-                        <a href="<?php echo esc_url(wp_logout_url(home_url('/'))); ?>">Sign out</a>
-                    <?php endif; ?>
+                    <?php
+                    $logo = (int)get_option('frontier_logo_id',0);
+                    if ($logo) {
+                        echo wp_get_attachment_image($logo,'medium',false,[
+                            'class'=>'frontier-topbar-logo','alt'=>'Company logo','loading'=>'eager',
+                        ]);
+                    }
+                    ?>
                 </header>
                 <main id="frontier-main" class="frontier-main">
                     <?php self::render($kind); ?>
@@ -480,6 +485,7 @@ final class Frontier {
             }
             echo '</ul></details>';
         }
+        echo '<a class="frontier-sidebar-signout" href="'.esc_url(wp_logout_url(home_url('/'))).'">Sign out</a>';
         echo '</nav>';
     }
 
