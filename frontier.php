@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.2
+ * Version: 1.7.3
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -600,7 +600,8 @@ final class Frontier {
                     $url = add_query_arg(['action'=>'frontier_file','id'=>$row['id']],admin_url('admin-post.php'));
                     echo '<a href="'.esc_url(wp_nonce_url($url,'frontier_file_'.$row['id'])).'">'.esc_html($row['filename']).'</a>';
                 } else {
-                    echo esc_html((string)($values[$field] ?? ''));
+                    $value = esc_html((string)($values[$field] ?? ''));
+                    echo $kind === 'supplier' && isset(self::SUPPLIER_TEXT_LIMITS[$field]) ? nl2br($value,false) : $value;
                 }
                 echo '</td>';
             }
@@ -677,6 +678,14 @@ final class Frontier {
         echo '<p><label>'.esc_html(self::FILES[$kind]).' <input type="file" name="frontier_document" accept=".pdf,.png,.jpg,.jpeg" '.($required ? 'required' : '').'></label></p>';
     }
 
+    private const SUPPLIER_TEXT_LIMITS = ['address'=>5000,'term'=>20000];
+
+    private static function supplierText($value) {
+        $value = str_replace(["\r\n","\r"],"\n",$value);
+        $value = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u','',$value);
+        return trim(preg_replace('/^[\s\p{Z}]+|[\s\p{Z}]+$/u','',$value ?? '') ?? '');
+    }
+
     private static function optionalField($kind,$field) {
         return in_array($field,['reject','tax','freight'],true)
             || ($field === 'note' && in_array($kind,['quote','match'],true))
@@ -688,6 +697,9 @@ final class Frontier {
         echo '<p><label>'.esc_html($label).' ';
         if ($field === 'ref' && in_array($kind,['site','supplier'],true)) {
             printf('<input type="text" readonly value="%s" placeholder="Assigned on save">',esc_attr($value));
+        } elseif ($kind === 'supplier' && isset(self::SUPPLIER_TEXT_LIMITS[$field])) {
+            printf('<textarea name="%s" rows="4" maxlength="%d">%s</textarea>',
+                esc_attr($field),self::SUPPLIER_TEXT_LIMITS[$field],esc_textarea($value));
         } elseif ($kind === 'employee' && $field === 'password') {
             echo '<input type="password" name="password" autocomplete="new-password" maxlength="4096">';
             echo '<small>Required for a new login. Leave blank to keep an existing password.</small>';
@@ -852,7 +864,9 @@ final class Frontier {
             if ($field === 'password' || ($field === 'ref' && in_array($kind,['site','supplier'],true))) {
                 continue;
             }
-            $value = self::input($field);
+            $raw = $_POST[$field] ?? '';
+            $value = $kind === 'supplier' && is_string($raw)
+                ? self::supplierText(wp_unslash($raw)) : self::input($field);
             if ($value === '' && self::optionalField($kind,$field) && isset(self::FIELDS[$field])) {
                 $data[$field] = '';
                 continue;
@@ -883,7 +897,8 @@ final class Frontier {
                 if ($field === 'email' && $value !== '') {
                     self::requireRule(is_email($value),'Enter a valid email address.');
                 }
-                self::requireRule(($value !== '' || $optional) && strlen($value) <= 200,'Check '.$label.' (maximum 200 bytes).');
+                $limit = $kind === 'supplier' ? (self::SUPPLIER_TEXT_LIMITS[$field] ?? 200) : 200;
+                self::requireRule(($value !== '' || $optional) && strlen($value) <= $limit,'Check '.$label.' (maximum '.$limit.' bytes).');
             }
             $data[$field] = $value;
         }
@@ -1219,7 +1234,7 @@ final class Frontier {
                 $line++;
                 $row = array_map(static function ($value) use ($kind) {
                     if ($kind === 'supplier') {
-                        $value = preg_replace("/^'(?=\s*[=+@-])/u",'',(string)$value);
+                        return self::supplierText(preg_replace("/^'(?=\s*[=+@-])/u",'',(string)$value) ?? '');
                     }
                     if ($kind === 'item') {
                         return trim(preg_replace('/[\x00-\x1F\x7F]+/u',' ',(string)$value));
@@ -1241,9 +1256,11 @@ final class Frontier {
                     self::requireRule(count($row) === count($headers),'Check the column count on CSV row '.$line.'.');
                 }
                 foreach ($row as $index=>$value) {
+                    $label = $expected[$index];
                     $optional = $kind === 'supplier' && $index !== 1;
-                    $length = $kind === 'supplier' && $index === 2 ? 403 : 200;
-                    self::requireRule(($optional || $value !== '') && strlen($value) <= $length,'Check the values on CSV row '.$line.'.');
+                    $length = $kind === 'supplier' ? (self::SUPPLIER_TEXT_LIMITS[strtolower($label)] ?? 200) : 200;
+                    self::requireRule($optional || $value !== '',$label.' is required on CSV row '.$line.'.');
+                    self::requireRule(strlen($value) <= $length,$label.' on CSV row '.$line.' exceeds '.$length.' bytes.');
                 }
                 $rows[] = $row;
                 self::requireRule(count($rows) <= $limit,'Upload up to '.$limit.' records.');
