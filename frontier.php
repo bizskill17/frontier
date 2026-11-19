@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.5
+ * Version: 1.7.6
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -500,9 +500,12 @@ final class Frontier {
         if ($showForm) {
             self::formStart($kind,$editing ? 'edit' : 'create',$editing ? $edit['id'] : 0);
             if (self::$front) {
-                echo '<h2>'.esc_html($editing ? 'Edit record' : ($kind === 'site' ? 'Add site' : 'Add record')).'</h2><div class="frontier-fields">';
+                echo '<div class="frontier-fields">';
             }
             foreach (self::FIELDS[$kind] as $field=>$label) {
+                if ($kind === 'supplier' && $field === 'ref') {
+                    continue;
+                }
                 self::field($rows,$kind,$field,$label,$editing ? ($edit['data'][$field] ?? '') : '');
             }
             if (isset(self::FILES[$kind])) {
