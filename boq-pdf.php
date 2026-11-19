@@ -18,11 +18,14 @@ final class Frontier_Boq_Pdf {
         return "BT /F1 $size Tf $x $y Td ($escaped) Tj ET\n";
     }
 
-    public static function build($number,$site,$date,$prepared,$rows,$title='BOQ',$ownerLabel='Prepared By') {
+    public static function build($number,$site,$date,$prepared,$rows,$title='BOQ',$ownerLabel='Prepared By',$extraHeading=[],$footer=[]) {
         $heading = [
             self::text($title.' '.$number), self::text('Site: '.$site),
             self::text('Date: '.$date), self::text($ownerLabel.': '.$prepared),
         ];
+        foreach ($extraHeading as $line) {
+            $heading[] = self::text($line);
+        }
         $pages = [];
         $start = static function () use ($heading) {
             $content = '';
@@ -59,6 +62,17 @@ final class Frontier_Boq_Pdf {
                 $content .= self::line($part,477,$y-$index*14);
             }
             $y -= $height;
+        }
+        foreach ($footer as $line) {
+            foreach (explode("\n",wordwrap(self::text($line),82,"\n",true)) as $part) {
+                if ($y < 40) {
+                    $pages[] = $content;
+                    $content = self::line($heading[0],36,795,15);
+                    $y = 773;
+                }
+                $content .= self::line($part,36,$y);
+                $y -= 14;
+            }
         }
         $pages[] = $content;
 

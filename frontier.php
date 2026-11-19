@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.38
+ * Version: 1.9.39
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -122,6 +122,7 @@ final class Frontier {
         add_action('admin_post_frontier_template', [self::class, 'downloadTemplate']);
         add_action('admin_post_frontier_indent_pdf', [self::class, 'downloadIndentPdf']);
         add_action('admin_post_frontier_boq_print', [self::class, 'printBoq']);
+        add_action('admin_post_frontier_po_pdf', [self::class, 'downloadPurchaseOrderPdf']);
         add_action('admin_post_frontier_boq_excel', [self::class, 'boqExcel']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
@@ -1042,7 +1043,21 @@ final class Frontier {
         if ($indentItems) {
             $fields = self::indentItemColumns();
         }
-        $showStatus = !$indentItems && !$chooseMaster && !$pendingPo;
+        $poRegister = self::$screen === 'po';
+        $poItems = self::$screen === 'po_items';
+        if ($poRegister) {
+            $fields = ['po_date'=>'PO Date','site_name'=>'Site Name','ref'=>'PO No.','so_no'=>'SO No.','so_date'=>'SO Date',
+                'supplier'=>'Supplier','pdf'=>'PDF','timestamp'=>'Timestamp','qty'=>'Total Quantity',
+                'received'=>'Quantity Received','open'=>'Pending to Receive','due'=>'PO Target Date'];
+        } elseif ($poItems) {
+            $fields = ['timestamp'=>'Timestamp','ref'=>'PO NO','po_date'=>'PO Date','site_name'=>'Site Name',
+                'indent_date'=>'Indent Date','indent_number'=>'Indent Number','requested'=>'Requested By',
+                'due'=>'Target Supply Date','line_number'=>'Sl No.','item_name'=>'Item Name','unit'=>'Units',
+                'supplier'=>'Supplier Finalized','rate'=>'Rate Finalized','qty'=>'Order Quantity','amount'=>'Total Amount',
+                'po_supplier'=>'PO No. with Supplier Name','received'=>'Quantity Received','open'=>'Pending to Receive GRN',
+                'brand'=>'Brand','remarks'=>'Remark'];
+        }
+        $showStatus = !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems;
         $showActions = !in_array($mode,['items','selected'],true);
         [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
@@ -1090,7 +1105,10 @@ final class Frontier {
             echo '<tr>';
             foreach ($fields as $field=>$label) {
                 echo '<td>';
-                if ($indentItems && strpos($field,'quotation_') === 0) {
+                if ($field === 'pdf' && $poRegister) {
+                    $url = add_query_arg(['action'=>'frontier_po_pdf','id'=>$row['id']],admin_url('admin-post.php'));
+                    echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url($url,'frontier_po_pdf_'.$row['id'])).'">PDF</a>';
+                } elseif ($indentItems && strpos($field,'quotation_') === 0) {
                     if (isset($values[$field]) && self::canFile('quote')) {
                         $quote = $values[$field];
                         $url = add_query_arg(['action'=>'frontier_file','id'=>$quote['id']],admin_url('admin-post.php'));
@@ -1101,7 +1119,9 @@ final class Frontier {
                     echo '<a href="'.esc_url(wp_nonce_url($url,'frontier_file_'.$row['id'])).'">'.esc_html($row['filename']).'</a>';
                 } else {
                     $value = esc_html((string)($values[$field] ?? ''));
-                    if ($kind === 'supplier' && $field === 'term' && $value !== '') {
+                    if ($poItems && $field === 'remarks') {
+                        echo nl2br($value,false);
+                    } elseif ($kind === 'supplier' && $field === 'term' && $value !== '') {
                         echo '<details class="frontier-term"><summary aria-label="Toggle supplier terms">';
                         echo '<span class="frontier-term-preview">'.$value.'</span><span class="frontier-term-label">Terms</span>';
                         echo '<span class="frontier-term-arrow" aria-hidden="true">▾</span></summary>';
@@ -1366,6 +1386,9 @@ final class Frontier {
     private static function recordValues($row,$rows,$screenKind) {
         $kind = $row['kind'];
         $data = $row['data'];
+        if ($kind === 'po' && in_array(self::$screen,['po','po_items'],true)) {
+            return [self::purchaseOrderValues($rows,$row,self::$screen === 'po'),$row['status']];
+        }
         $values = [];
         foreach (self::FIELDS[$kind] as $field=>$label) {
             if ($field === 'password' || !isset($data[$field]) || $data[$field] === '') {
@@ -1453,26 +1476,6 @@ final class Frontier {
         }
         if ($kind === 'grn' && !$row['filename']) {
             $values['attachment'] = 'Slip pending';
-        }
-        if ($kind === 'po' && self::$screen === 'po' && !empty($data['po_group_id'])) {
-            foreach (['qty','received','waiting','invoiced','cancelled','open'] as $field) {
-                if (!isset($values[$field])) {
-                    continue;
-                }
-                $total = 0;
-                foreach (self::purchaseOrderGroup($rows,$row) as $line) {
-                    $lineId = $line['id'];
-                    switch ($field) {
-                        case 'qty': $total += $line['data']['qty']; break;
-                        case 'received': $total += self::sum($rows,'grn','po',$lineId,'qty','approved'); break;
-                        case 'waiting': $total += self::sum($rows,'grn','po',$lineId,'qty','pending'); break;
-                        case 'invoiced': $total += self::sum($rows,'match','po',$lineId); break;
-                        case 'cancelled': $total += self::sum($rows,'cancel','po',$lineId); break;
-                        case 'open': $total += self::balance($rows,$line); break;
-                    }
-                }
-                $values[$field] = round($total,3);
-            }
         }
         $status = $row['status'];
         if ($kind === 'invoice') {
@@ -3109,6 +3112,84 @@ HTML;
         echo '</form>';
     }
 
+    private static function purchaseOrderValues($rows,$row,$grouped=false) {
+        $data = $row['data'];
+        $indent = $rows[$data['indent'] ?? 0] ?? [];
+        $details = self::supplierIndentDetails($indent,$rows);
+        $supplier = self::supplierDisplay($data,$rows);
+        $ref = $data['ref'] ?? '';
+        $qty = $received = $open = 0;
+        foreach ($grouped ? self::purchaseOrderGroup($rows,$row) : [$row] as $line) {
+            $lineQty = (float)($line['data']['qty'] ?? 0);
+            $lineReceived = self::sum($rows,'grn','po',$line['id'],'qty','approved');
+            $qty += $lineQty;
+            $received += $lineReceived;
+            if ($line['status'] !== 'cancelled') {
+                $open += max(0,$lineQty - $lineReceived - self::sum($rows,'cancel','po',$line['id']));
+            }
+        }
+        return [
+            'ref'=>$ref,'po_date'=>self::indentDisplayDate($data['po_date'] ?? ''),
+            'so_no'=>$data['so_no'] ?? '', 'so_date'=>self::indentDisplayDate($data['so_date'] ?? ''),
+            'timestamp'=>empty($data['po_timestamp']) ? '' : mysql2date('d/m/Y H:i:s',$data['po_timestamp'],false),
+            'site_name'=>$details['site_name'],'supplier'=>$supplier,'rate'=>$data['rate'] ?? '',
+            'qty'=>round($qty,3),'received'=>round($received,3),'open'=>round($open,3),
+            'due'=>self::indentDisplayDate($data['due'] ?? ''),
+            'requested'=>$indent['data']['requested_name'] ?? '',
+            'amount'=>isset($data['rate']) ? number_format($data['amount'] ?? $qty * $data['rate'],2) : '',
+            'po_supplier'=>implode(' · ',array_filter([$ref,$supplier],'strlen')),
+            'brand'=>$data['brand'] ?? '', 'remarks'=>$data['remarks'] ?? '',
+        ] + $details;
+    }
+
+    public static function downloadPurchaseOrderPdf() {
+        $id = absint($_GET['id'] ?? 0);
+        if (!self::canView('po')) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        check_admin_referer('frontier_po_pdf_'.$id);
+        $rows = self::rows();
+        $order = $rows[$id] ?? [];
+        if (($order['kind'] ?? '') !== 'po') {
+            wp_die('Purchase order not found.','Frontier',['response'=>404]);
+        }
+        $data = $order['data'];
+        $values = self::purchaseOrderValues($rows,$order);
+        $items = [];
+        $total = 0;
+        foreach (self::purchaseOrderGroup($rows,$order) as $line) {
+            $item = self::purchaseOrderValues($rows,$line);
+            $total += round($item['qty'] * (float)$item['rate'],2);
+            $name = $item['item_name'].' | Rate: '.$item['rate'].' | Amount: '.$item['amount'];
+            foreach (['brand'=>'Brand','remarks'=>'Remark'] as $field=>$label) {
+                if ($item[$field] !== '') {
+                    $name .= ' | '.$label.': '.$item[$field];
+                }
+            }
+            $items[] = [$item['line_number'],$name,$item['qty'],$item['unit']];
+        }
+        $heading = ['Supplier: '.$values['supplier'],'Target Date: '.$values['due']];
+        $footer = ['Total Amount: INR '.number_format($total,2)];
+        foreach (['delivery_address'=>'Delivery Address','delivery_contact'=>'Site Contact Person',
+            'delivery_mobile'=>'Site Mobile No.'] as $field=>$label) {
+            if (!empty($data[$field])) {
+                $footer[] = $label.': '.$data[$field];
+            }
+        }
+        if (!empty($data['terms'])) {
+            $footer[] = 'Supplier Terms';
+            $footer = array_merge($footer,preg_split('/\R/u',$data['terms']) ?: []);
+        }
+        $pdf = Frontier_Boq_Pdf::build($values['ref'],$values['site_name'],$values['po_date'],$data['prepared_name'] ?? '',
+            $items,'Purchase Order','Prepared By',$heading,$footer);
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="purchase-order-'.$id.'.pdf"');
+        header('Content-Length: '.strlen($pdf));
+        echo $pdf;
+        exit;
+    }
+
     private static function purchaseOrderGroup($rows,$row) {
         $group = $row['data']['po_group_id'] ?? 0;
         if (!$group) {
@@ -3164,6 +3245,17 @@ HTML;
             self::requireRule(strlen($delivery['delivery_'.$field]) <= $limit,'Check the delivery details.');
         }
         $orderGroups = [];
+        $year = (int)substr($date,0,4) - (substr($date,5,2) < '04' ? 1 : 0);
+        $prefix = sprintf('FY - %02d-%02d/',$year % 100,($year + 1) % 100);
+        $sequenceKey = 'frontier_po_sequence_'.$year;
+        $sequence = (int)get_option($sequenceKey,0);
+        foreach ($rows as $record) {
+            $reference = $record['data']['ref'] ?? '';
+            if ($record['kind'] === 'po' && strpos($reference,$prefix) === 0) {
+                $sequence = max($sequence,(int)substr($reference,strlen($prefix)));
+            }
+        }
+        $timestamp = current_time('mysql');
         foreach ($submitted as $quoteId=>$line) {
             self::requireRule(is_array($line) && is_string($line['qty'] ?? null),'Enter a valid Order Qty.');
             $qty = $line['qty'];
@@ -3175,7 +3267,7 @@ HTML;
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty <= $item['pending'],
                 'Order Qty must be positive and cannot exceed Pending to Order.');
             $data = [
-                'quote'=>(int)$quoteId,'qty'=>(float)$qty,'due'=>$target,'po_date'=>$date,
+                'quote'=>(int)$quoteId,'qty'=>(float)$qty,'due'=>$target,'po_date'=>$date,'po_timestamp'=>$timestamp,
                 'prepared_employee'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name'],
             ];
             foreach (['brand','remarks'] as $field) {
@@ -3201,13 +3293,14 @@ HTML;
             }
             if (!isset($orderGroups[$key])) {
                 $id = (int)$wpdb->insert_id;
-                $orderGroups[$key] = ['po_group_id'=>$id,'ref'=>'PO - '.str_pad((string)$id,4,'0',STR_PAD_LEFT)];
+                $orderGroups[$key] = ['po_group_id'=>$id,'ref'=>$prefix.str_pad((string)++$sequence,4,'0',STR_PAD_LEFT)];
                 if ($wpdb->update(self::table(),['details'=>wp_json_encode($data + $orderGroups[$key])],['id'=>$id]) !== 1) {
                     throw new RuntimeException('Purchase order number could not be saved.');
                 }
             }
         }
         self::requireRule($orderGroups,'Enter an Order Qty for at least one item.');
+        update_option($sequenceKey,$sequence,false);
     }
 
     private static function supplierIndentDetails($indent,$rows) {
