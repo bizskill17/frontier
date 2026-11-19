@@ -110,7 +110,8 @@ document.querySelectorAll('.frontier-pages select:not([multiple])').forEach((sel
     select.addEventListener('change', close);
     if (select.form) select.form.addEventListener('reset', () => setTimeout(close));
     arrow.addEventListener('mousedown', (event) => event.preventDefault());
-    arrow.addEventListener('click', () => {
+    arrow.addEventListener('click', (event) => {
+        event.preventDefault();
         if (list.hidden) {
             input.focus();
             open();
@@ -120,6 +121,7 @@ document.querySelectorAll('.frontier-pages select:not([multiple])').forEach((sel
     });
     list.addEventListener('mousedown', (event) => event.preventDefault());
     list.addEventListener('click', (event) => {
+        event.preventDefault();
         const option = event.target.closest('[data-position]');
         if (option) choose(Number(option.dataset.position));
     });

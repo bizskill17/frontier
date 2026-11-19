@@ -6,8 +6,6 @@ if (boqForm) {
     const file = boqForm.querySelector('.frontier-boq-file');
     const message = boqForm.querySelector('.frontier-boq-message');
     const save = boqForm.querySelector('.frontier-boq-save');
-    const site = boqForm.querySelector('select[name="site"]');
-    const group = boqForm.querySelector('.frontier-boq-group');
     const payload = boqForm.querySelector('input[name="boq_lines"]');
     const normalize = (value) => String(value).trim().replace(/\s+/gu, ' ').toLowerCase();
     const byName = new Map();
@@ -142,11 +140,6 @@ if (boqForm) {
         }
     });
 
-    function updateGroup() {
-        group.value = data.sites[site.value] || '';
-    }
-    site.addEventListener('change', updateGroup);
-    updateGroup();
     boqForm.addEventListener('submit', (event) => {
         if (save.disabled) {
             event.preventDefault();

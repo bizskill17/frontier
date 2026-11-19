@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.2
+ * Version: 1.8.3
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -336,9 +336,9 @@ final class Frontier {
     }
 
     private static function enqueueDropdownSearch() {
-        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.7.11',true);
-        wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.7.11');
-        wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.8.0',true);
+        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.8.3',true);
+        wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
+        wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.8.3',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.8.0');
         }
@@ -1570,13 +1570,10 @@ final class Frontier {
     }
 
     private static function boqForm($rows) {
-        $sites = [];
         $items = [];
         foreach ($rows as $row) {
             $data = $row['data'];
-            if ($row['kind'] === 'site') {
-                $sites[$row['id']] = $data['telegram'] ?? '';
-            } elseif ($row['kind'] === 'item') {
+            if ($row['kind'] === 'item') {
                 $items[] = ['id'=>(int)$row['id'],'name'=>$data['name'],
                     'category'=>$rows[$data['category'] ?? 0]['data']['name'] ?? '',
                     'type'=>$rows[$data['item_type'] ?? 0]['data']['name'] ?? ''];
@@ -1591,7 +1588,7 @@ final class Frontier {
         self::field($rows,'boq','due','BOQ Date',current_time('Y-m-d'));
         self::field($rows,'boq','site','Site Number with Name','');
         self::field($rows,'boq','employee','Prepared By','');
-        echo '<p><label>Group Id <input class="frontier-boq-group" type="text" readonly placeholder="Inherited from site"></label></p></div>';
+        echo '</div>';
         echo '<h2>BOQ Items</h2><div class="frontier-master-toolbar">';
         echo '<button type="button" class="button frontier-boq-add">Add Row</button>';
         echo '<a class="button" href="'.esc_url($template).'">Download Excel Template</a>';
@@ -1603,7 +1600,7 @@ final class Frontier {
         }
         echo '</tr></thead><tbody></tbody></table></div>';
         echo '<datalist id="frontier-boq-items"></datalist>';
-        echo '<script type="application/json" class="frontier-boq-data">'.wp_json_encode(['sites'=>$sites,'items'=>$items],
+        echo '<script type="application/json" class="frontier-boq-data">'.wp_json_encode(['items'=>$items],
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
         echo '<p><button type="submit" class="button button-primary frontier-boq-save" disabled>Save BOQ</button> ';
         echo '<a class="button" href="'.esc_url(self::url('boq')).'">Cancel</a></p>';
