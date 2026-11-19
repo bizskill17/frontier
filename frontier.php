@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.82
+ * Version: 1.9.83
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -112,6 +112,9 @@ final class Frontier {
 
     public static function boot() {
         add_action('admin_init', [self::class, 'installPages']);
+        add_filter('cron_schedules', [self::class, 'notificationSchedules']);
+        add_action('init', [self::class, 'schedulePendingGrn']);
+        add_action('frontier_pending_grn_reminder', [self::class, 'pendingGrnReminder']);
         add_action('login_enqueue_scripts', [self::class, 'styleFrontierLogin']);
         add_action('template_redirect', [self::class, 'protectPage'], 0);
         add_filter('template_include', [self::class, 'workspaceTemplate'], 99);
@@ -503,6 +506,148 @@ final class Frontier {
             && !empty(json_decode(wp_remote_retrieve_body($response),true)['ok']);
     }
 
+    private const PROCUREMENT_MESSAGES = [
+        'pending_grn'=>['Pending GRN',"Pending GRN\nSite: {site_name}\nAs of: {report_date}\n\nSupplier\n{pending_items}\n\nPlease create a GRN for any materials already received."],
+        'po_created'=>['Purchase Order Created',"Purchase Order Created\n\nPO No: {po_number}\nPO Date: {po_date}\nSite: {site_name}\nSupplier: {supplier_name}\nTarget Delivery Date: {target_date}\nTotal Amount: {total_amount}"],
+        'grn_created'=>['Goods Receipt Note Created',"Goods Receipt Note Created\n\nGRN No: {grn_number}\nGRN Date: {grn_date}\nPO No: {po_number}\nSite: {site_name}\nSupplier: {supplier_name}\nSlip No: {slip_number}\nPrepared By: {prepared_by}"],
+    ];
+
+    private static function procurementSite($rows,$po) {
+        $indent = $rows[$po['data']['indent'] ?? 0]['data'] ?? [];
+        $boq = $rows[$indent['boq'] ?? 0]['data'] ?? [];
+        return (int)($indent['site'] ?? $boq['site'] ?? 0);
+    }
+
+    private static function procurementTelegram($settings,$chat,$message,$pdf=null,$filename='') {
+        if (!preg_match('/^-?[0-9]+$/D',$chat) || empty($settings['token'])) {
+            return false;
+        }
+        $endpoint = 'sendMessage';
+        $headers = ['Content-Type'=>'application/json'];
+        $body = wp_json_encode(['chat_id'=>$chat,'text'=>$message]);
+        if ($pdf !== null) {
+            $endpoint = 'sendDocument';
+            $boundary = 'frontier-'.wp_generate_uuid4();
+            $headers = ['Content-Type'=>'multipart/form-data; boundary='.$boundary];
+            $body = "--$boundary\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n$chat\r\n";
+            $body .= "--$boundary\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n".wp_html_excerpt($message,1000)."\r\n";
+            $body .= "--$boundary\r\nContent-Disposition: form-data; name=\"document\"; filename=\"$filename\"\r\n";
+            $body .= "Content-Type: application/pdf\r\n\r\n$pdf\r\n--$boundary--\r\n";
+        }
+        $response = wp_remote_post('https://api.telegram.org/bot'.$settings['token'].'/'.$endpoint,[
+            'headers'=>$headers,'body'=>$body,'timeout'=>10,'redirection'=>0,
+        ]);
+        return !is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200
+            && !empty(json_decode(wp_remote_retrieve_body($response),true)['ok']);
+    }
+
+    private static function sendCreatedDocuments($event,$ids) {
+        $settings = (array)get_option('frontier_indent_telegram',[]);
+        if (empty($settings['events'][$event]['enabled'])) {
+            return true;
+        }
+        $rows = self::rows();
+        $sent = true;
+        foreach ($ids as $id) {
+            try {
+                $row = $rows[$id];
+                if ($event === 'po_created') {
+                    $po = $row;
+                    $v = self::purchaseOrderValues($rows,$po);
+                    $total = 0;
+                    foreach (self::purchaseOrderGroup($rows,$po) as $line) {
+                        $total += round((float)$line['data']['qty'] * (float)$line['data']['rate'],2);
+                    }
+                    $fields = ['po_number'=>$v['ref'],'po_date'=>$v['po_date'],'site_name'=>$v['site_name'],
+                        'supplier_name'=>$v['supplier'],'target_date'=>$v['due'],'total_amount'=>'₹'.number_format($total,2)];
+                    $pdf = self::buildPurchaseOrderPdf($rows,$po);
+                    $filename = 'purchase-order-'.$id.'.pdf';
+                } else {
+                    $po = $rows[$row['data']['po']];
+                    $v = self::goodsReceiptValues($rows,$row);
+                    $fields = ['grn_number'=>$v['grn_no'],'grn_date'=>$v['grn_date'],'po_number'=>$v['po_no'],
+                        'site_name'=>$v['site_name'],'supplier_name'=>$v['supplier'],'slip_number'=>$v['slip_no'],'prepared_by'=>$v['prepared']];
+                    $pdf = self::buildGoodsReceiptPdf($rows,$row);
+                    $filename = 'goods-receipt-'.$id.'.pdf';
+                }
+                $siteId = self::procurementSite($rows,$po);
+                $chat = trim((string)($rows[$siteId]['data']['telegram'] ?? ''));
+                $message = self::procurementMessage($settings,$event,$fields);
+                $sent = self::procurementTelegram($settings,$chat,$message,$pdf,$filename) && $sent;
+            } catch (Throwable $exception) {
+                $sent = false;
+            }
+        }
+        return $sent;
+    }
+
+    private static function procurementMessage($settings,$event,$fields) {
+        $tokens = [];
+        foreach ($fields as $key=>$value) {
+            $tokens['{'.$key.'}'] = (string)$value;
+        }
+        return strtr($settings['events'][$event]['message'] ?? self::PROCUREMENT_MESSAGES[$event][1],$tokens);
+    }
+
+    public static function pendingGrnReminder() {
+        $event = 'pending_grn';
+        $settings = (array)get_option('frontier_indent_telegram',[]);
+        $config = $settings['events'][$event] ?? [];
+        $now = new DateTimeImmutable('now',new DateTimeZone('Asia/Kolkata'));
+        if (empty($config['enabled']) || $now->format('H:i') < ($config['time'] ?? '09:00')) {
+            return;
+        }
+        $rows = self::rows();
+        $sites = [];
+        foreach ($rows as $po) {
+            if ($po['kind'] !== 'po' || !self::canReceivePurchaseOrder($rows,$po)) {
+                continue;
+            }
+            $id = self::procurementSite($rows,$po);
+            if ($id) {
+                $v = self::purchaseOrderValues($rows,$po);
+                $sites[$id][$v['supplier']][] = 'PO '.$v['ref'].' | '.$v['item_name'].' | Pending: '.self::balance($rows,$po).' '.$v['unit'].' | Target: '.$v['due'];
+            }
+        }
+        $date = $now->format('Y-m-d');
+        $sent = (array)get_option('frontier_pending_grn_sent',[]);
+        foreach ($sites as $id=>$suppliers) {
+            if (($sent[$id] ?? '') === $date) {
+                continue;
+            }
+            $site = $rows[$id]['data'] ?? [];
+            $blocks = [];
+            foreach ($suppliers as $supplier=>$lines) {
+                $blocks[] = $supplier."\n".implode("\n",$lines);
+            }
+            $message = self::procurementMessage($settings,$event,['site_name'=>self::siteNumberWithName($site),
+                'report_date'=>$now->format('d/m/Y'),'pending_items'=>implode("\n\n",$blocks)]);
+            $chat = trim((string)($site['telegram'] ?? ''));
+            if (self::procurementTelegram($settings,$chat,$message)) {
+                $sent[$id] = $date;
+                update_option('frontier_pending_grn_sent',$sent,false);
+            }
+        }
+    }
+
+    public static function notificationSchedules($schedules) {
+        $schedules['frontier_five_minutes'] = ['interval'=>300,'display'=>'Frontier every five minutes'];
+        return $schedules;
+    }
+
+    public static function schedulePendingGrn() {
+        $settings = (array)get_option('frontier_indent_telegram',[]);
+        if (empty($settings['events']['pending_grn']['enabled'])) {
+            if (wp_next_scheduled('frontier_pending_grn_reminder')) {
+                wp_clear_scheduled_hook('frontier_pending_grn_reminder');
+            }
+            return;
+        }
+        if (!wp_next_scheduled('frontier_pending_grn_reminder')) {
+            wp_schedule_event(time(),'frontier_five_minutes','frontier_pending_grn_reminder');
+        }
+    }
+
     private static function indentTelegramSettings() {
         if (!current_user_can('manage_options')) {
             return;
@@ -519,7 +664,17 @@ final class Frontier {
         echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{indent_date}</code> <code>{requested_by}</code></p></td></tr>';
         echo '<tr><th scope="row">Approved Indent</th><td>Telegram</td><td><input type="checkbox" name="approval_enabled" value="1" aria-label="Send approved indents to Telegram" '.checked(!empty($settings['approval_enabled']),true,false).'></td>';
         echo '<td><textarea name="approval_message" aria-label="Approved Indent message format" rows="5" maxlength="700" style="display:block;width:100%;min-width:220px;box-sizing:border-box;font:inherit">'.esc_textarea($settings['approval_message'] ?? self::APPROVED_INDENT_MESSAGE).'</textarea>';
-        echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{updated_by}</code> <code>{status}</code> <code>{remarks}</code></p></td></tr></tbody></table></div>';
+        echo '<p><code>{indent_number}</code> <code>{site_name}</code> <code>{updated_by}</code> <code>{status}</code> <code>{remarks}</code></p></td></tr>';
+        foreach (self::PROCUREMENT_MESSAGES as $event=>[$label,$default]) {
+            $config = $settings['events'][$event] ?? [];
+            echo '<tr><th scope="row">'.esc_html($label).'</th><td>Telegram'.($event === 'pending_grn' ? '' : ' + PDF').'</td>';
+            echo '<td><input type="checkbox" name="events['.esc_attr($event).'][enabled]" value="1" aria-label="'.esc_attr('Enable '.$label).'" '.checked(!empty($config['enabled']),true,false).'>';
+            if ($event === 'pending_grn') {
+                echo '<label>Send Time (IST)<input type="time" name="events[pending_grn][time]" value="'.esc_attr($config['time'] ?? '09:00').'"></label>';
+            }
+            echo '</td><td><textarea name="events['.esc_attr($event).'][message]" aria-label="'.esc_attr($label.' message format').'" rows="8" maxlength="1000" style="width:100%;min-width:220px">'.esc_textarea($config['message'] ?? $default).'</textarea></td></tr>';
+        }
+        echo '</tbody></table></div>';
         echo '<p><label>Bot Token<input type="password" name="telegram_token" autocomplete="new-password"></label> '.(empty($settings['token']) ? 'Not configured' : 'Saved').'</p>';
         self::submitButton('Save Telegram Settings',true);
         echo '</form>';
@@ -534,7 +689,17 @@ final class Frontier {
         $token = self::input('telegram_token') ?: ($existing['token'] ?? '');
         $enabled = self::input('telegram_enabled') === '1';
         $approvalEnabled = self::input('approval_enabled') === '1';
-        if (($enabled || $approvalEnabled || $token !== '') && !preg_match('/^[0-9]+:[A-Za-z0-9_-]+$/D',$token)) {
+        $events = [];
+        foreach (self::PROCUREMENT_MESSAGES as $event=>[$label,$default]) {
+            $entry = $_POST['events'][$event] ?? [];
+            $rawMessage = $entry['message'] ?? '';
+            $events[$event] = ['enabled'=>($entry['enabled'] ?? '') === '1',
+                'message'=>(is_string($rawMessage) ? sanitize_textarea_field(wp_unslash($rawMessage)) : '') ?: $default];
+        }
+        $time = $_POST['events']['pending_grn']['time'] ?? '';
+        $events['pending_grn']['time'] = is_string($time) && preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/D',$time) ? $time : '09:00';
+        $eventEnabled = in_array(true,array_column($events,'enabled'),true);
+        if (($enabled || $approvalEnabled || $eventEnabled || $token !== '') && !preg_match('/^[0-9]+:[A-Za-z0-9_-]+$/D',$token)) {
             wp_die('Enter a valid Telegram bot token.','Frontier',['response'=>400,'back_link'=>true]);
         }
         $raw = $_POST['telegram_message'] ?? '';
@@ -542,7 +707,7 @@ final class Frontier {
         $rawApproval = $_POST['approval_message'] ?? '';
         $approvalMessage = is_string($rawApproval) ? sanitize_textarea_field(wp_unslash($rawApproval)) : '';
         update_option('frontier_indent_telegram',['enabled'=>$enabled,'token'=>$token,'message'=>$message ?: self::INDENT_MESSAGE,
-            'approval_enabled'=>$approvalEnabled,'approval_message'=>$approvalMessage ?: self::APPROVED_INDENT_MESSAGE],false);
+            'approval_enabled'=>$approvalEnabled,'approval_message'=>$approvalMessage ?: self::APPROVED_INDENT_MESSAGE,'events'=>$events],false);
         self::$front = self::input('surface') === 'front';
         wp_safe_redirect(add_query_arg(['saved'=>1,'settings_tab'=>'notification'],self::url('settings')));
         exit;
@@ -1032,6 +1197,9 @@ final class Frontier {
         if (isset($_GET['saved']) || isset($_GET['deleted'])) {
             $message = isset($_GET['deleted']) ? 'Record deleted.' : 'Saved.';
             echo '<div class="notice notice-success" role="status"><p>'.esc_html($message).'</p></div>';
+        }
+        if (isset($_GET['document_telegram_failed'])) {
+            echo '<div class="notice notice-warning" role="status"><p>Document saved. Telegram delivery failed for one or more documents.</p></div>';
         }
         if (isset($_GET['indent_telegram_failed'])) {
             echo '<div class="notice notice-warning" role="status"><p>Indent saved. Telegram delivery failed. Check the bot token and the site Telegram Group Id.</p></div>';
@@ -4049,21 +4217,25 @@ HTML;
         if (($receipt['kind'] ?? '') !== 'grn') {
             wp_die('Goods receipt not found.','Frontier',['response'=>404]);
         }
-        $data = self::goodsReceiptValues($rows,$receipt);
-        $items = [];
-        foreach (self::goodsReceiptGroup($rows,$receipt) as $line) {
-            $item = self::goodsReceiptValues($rows,$line);
-            $items[] = [$item['sl'],$item['item_name'],$item['received'],$item['unit']];
-        }
-        $pdf = Frontier_Boq_Pdf::build($data['grn_no'],$data['site_name'],$data['grn_date'],$data['prepared'],
-            $items,'Goods Receipt Note','Prepared By',['Supplier: '.$data['supplier'],'PO No.: '.$data['po_no'],
-                'Slip No.: '.$data['slip_no']]);
+        $pdf = self::buildGoodsReceiptPdf($rows,$receipt);
         nocache_headers();
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="goods-receipt-'.self::goodsReceiptNumberId($receipt).'.pdf"');
         header('Content-Length: '.strlen($pdf));
         echo $pdf;
         exit;
+    }
+
+    private static function buildGoodsReceiptPdf($rows,$receipt) {
+        $data = self::goodsReceiptValues($rows,$receipt);
+        $items = [];
+        foreach (self::goodsReceiptGroup($rows,$receipt) as $line) {
+            $item = self::goodsReceiptValues($rows,$line);
+            $items[] = [$item['sl'],$item['item_name'],$item['received'],$item['unit']];
+        }
+        return Frontier_Boq_Pdf::build($data['grn_no'],$data['site_name'],$data['grn_date'],$data['prepared'],
+            $items,'Goods Receipt Note','Prepared By',['Supplier: '.$data['supplier'],'PO No.: '.$data['po_no'],
+                'Slip No.: '.$data['slip_no']]);
     }
 
     private static function goodsReceiptForm($rows) {
@@ -4209,6 +4381,7 @@ HTML;
         if ($order['status'] === 'draft') {
             self::updatePurchaseOrderGroup($rows,$orderId,'issue');
         }
+        return [$group];
     }
 
     private static function purchaseOrderItems($rows) {
@@ -4440,6 +4613,16 @@ HTML;
         if (($order['kind'] ?? '') !== 'po') {
             wp_die('Purchase order not found.','Frontier',['response'=>404]);
         }
+        $pdf = self::buildPurchaseOrderPdf($rows,$order);
+        nocache_headers();
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="purchase-order-'.$id.'.pdf"');
+        header('Content-Length: '.strlen($pdf));
+        echo $pdf;
+        exit;
+    }
+
+    private static function buildPurchaseOrderPdf($rows,$order) {
         $data = $order['data'];
         $values = self::purchaseOrderValues($rows,$order);
         $items = [];
@@ -4460,13 +4643,7 @@ HTML;
             'Site'=>$values['site_name'],'Delivery Address'=>$data['delivery_address'] ?? '',
             'Site Contact'=>$data['delivery_contact'] ?? '', 'Site Mobile No.'=>$data['delivery_mobile'] ?? '',
         ];
-        $pdf = Frontier_Boq_Pdf::buildPurchaseOrder($values['ref'],$details,$items,$total,$data['terms'] ?? '',self::purchaseOrderLogo());
-        nocache_headers();
-        header('Content-Type: application/pdf');
-        header('Content-Disposition: attachment; filename="purchase-order-'.$id.'.pdf"');
-        header('Content-Length: '.strlen($pdf));
-        echo $pdf;
-        exit;
+        return Frontier_Boq_Pdf::buildPurchaseOrder($values['ref'],$details,$items,$total,$data['terms'] ?? '',self::purchaseOrderLogo());
     }
 
     private static function purchaseOrderLogo() {
@@ -4667,6 +4844,7 @@ HTML;
         }
         self::requireRule($orderGroups,'Enter an Order Qty for at least one item.');
         update_option($sequenceKey,$sequence,false);
+        return array_column($orderGroups,'po_group_id');
     }
 
     private static function supplierIndentDetails($indent,$rows) {
@@ -5034,10 +5212,10 @@ HTML;
                 }
                 self::requireRule($result,'This GRN has already been processed.');
             } elseif ($kind === 'grn' && $action === 'create_goods_receipt') {
-                self::saveGoodsReceipt($rows);
+                $createdDocuments = self::saveGoodsReceipt($rows);
                 $result = true;
             } elseif ($kind === 'po' && $action === 'create_purchase_orders') {
-                self::savePurchaseOrders($rows);
+                $createdDocuments = self::savePurchaseOrders($rows);
                 $result = true;
             } elseif ($kind === 'po' && in_array($action,['issue','delete','cancel_po'],true)) {
                 self::updatePurchaseOrderGroup($rows,absint(self::input('id')),$action);
@@ -5163,6 +5341,9 @@ HTML;
         if ($kind === 'indent' && isset($row) && ($screen === 'indent_items' || $action === 'edit')) {
             $destination = 'indent_items';
             $query['indent_group'] = self::indentGroup($row);
+        }
+        if (!empty($createdDocuments) && !self::sendCreatedDocuments($action === 'create_goods_receipt' ? 'grn_created' : 'po_created',$createdDocuments)) {
+            $query['document_telegram_failed'] = 1;
         }
         if (!empty($approvedIndentTelegram)) {
             try {
