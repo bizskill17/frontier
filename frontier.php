@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.85
+ * Version: 1.9.86
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -394,7 +394,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.77');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.86');
         self::enqueueDropdownSearch();
     }
 
@@ -412,7 +412,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.77');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.86');
         }
     }
 
@@ -1243,9 +1243,9 @@ final class Frontier {
             $notification = ($_GET['settings_tab'] ?? '') === 'notification';
             if (current_user_can('manage_options')) {
                 $settingsUrl = self::url('settings');
-                echo '<nav class="nav-tab-wrapper" aria-label="Settings sections">';
-                echo '<a class="nav-tab'.(!$notification ? ' nav-tab-active' : '').'" '.(!$notification ? 'aria-current="page" ' : '').'href="'.esc_url($settingsUrl).'">General</a> ';
-                echo '<a class="nav-tab'.($notification ? ' nav-tab-active' : '').'" '.($notification ? 'aria-current="page" ' : '').'href="'.esc_url(add_query_arg('settings_tab','notification',$settingsUrl)).'">Notification</a>';
+                echo '<nav class="frontier-settings-nav" aria-label="Settings sections">';
+                echo '<a class="button" '.(!$notification ? 'aria-current="page" ' : '').'href="'.esc_url($settingsUrl).'">General</a> ';
+                echo '<a class="button" '.($notification ? 'aria-current="page" ' : '').'href="'.esc_url(add_query_arg('settings_tab','notification',$settingsUrl)).'">Notification</a>';
                 echo '</nav>';
             }
             if ($notification && current_user_can('manage_options')) {
