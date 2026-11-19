@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.84
+ * Version: 1.9.85
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3542,9 +3542,9 @@ HTML;
             'requested'=>'Requested By','sl'=>'Sl No.','item'=>'Item','unit'=>'Units','boq_qty'=>'Quantity as per BOQ',
             'already'=>'Quantity Already Indented','qty'=>'Quantity Required Now','excess'=>'Whether Excess Indented',
             'last_supplier'=>'Last Supplier','last_rate'=>'Last Rate',
-            'supplier_1'=>'Supplier1','rate_1'=>'Rate1','quotation_1'=>'Quotation1',
-            'supplier_2'=>'Supplier2','rate_2'=>'Rate2','quotation_2'=>'Quotation2',
-            'supplier_3'=>'Supplier3','rate_3'=>'Rate3','quotation_3'=>'Quotation3',
+            'supplier_1'=>'Supplier1','rate_1'=>'Rate1',
+            'supplier_2'=>'Supplier2','rate_2'=>'Rate2',
+            'supplier_3'=>'Supplier3','rate_3'=>'Rate3',
             'final_supplier'=>'Supplier Finalized','final_rate'=>'Rate Finalized',
             'quote_at'=>'Quotation Timestamp','compared_by'=>'Compared By',
             'ordered'=>'Quantity Ordered','pending_order'=>'Pending to Order',
