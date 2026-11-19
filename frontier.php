@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.31
+ * Version: 1.9.32
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -668,6 +668,13 @@ final class Frontier {
             echo '</div>';
             return;
         }
+        if (self::$screen === 'po_form') {
+            if (self::can('po')) {
+                self::purchaseOrderForm($rows);
+            }
+            echo '</div>';
+            return;
+        }
         if (self::$screen === 'choose_form') {
             self::chooseSupplierForm($rows);
             echo '</div>';
@@ -1171,7 +1178,7 @@ final class Frontier {
     }
 
     private static function formStart($kind,$action,$id=0) {
-        $class = in_array($action,['create','edit','complete_site','cancel_site','save_supplier_selection'],true) ? ' class="frontier-entry"' : '';
+        $class = in_array($action,['create','edit','complete_site','cancel_site','save_supplier_selection','create_purchase_orders'],true) ? ' class="frontier-entry"' : '';
         if ($action === 'save_quotations') {
             $class = ' class="frontier-entry frontier-quotation-form"';
         }
@@ -2869,6 +2876,205 @@ final class Frontier {
         }
     }
 
+    private static function purchaseOrderItems($rows) {
+        $quotes = [];
+        foreach ($rows as $quote) {
+            if ($quote['kind'] !== 'quote' || $quote['status'] !== 'selected') {
+                continue;
+            }
+            $id = (int)($quote['data']['indent'] ?? 0);
+            $indent = $rows[$id] ?? [];
+            if (($indent['kind'] ?? '') !== 'indent' || $indent['status'] !== 'approved') {
+                continue;
+            }
+            if (!isset($quotes[$id]) || ($quote['data']['compared_at'] ?? '') > ($quotes[$id]['data']['compared_at'] ?? '')) {
+                $quotes[$id] = $quote;
+            }
+        }
+        $items = [];
+        foreach ($quotes as $indentId=>$quote) {
+            $indent = $rows[$indentId];
+            $pending = self::available($rows,$indent);
+            if ($pending > 0) {
+                $items[$quote['id']] = ['quote'=>$quote,'indent'=>$indent,'pending'=>$pending];
+            }
+        }
+        return $items;
+    }
+
+    private static function purchaseOrderForm($rows) {
+        $items = self::purchaseOrderItems($rows);
+        if (!$items) {
+            echo '<p>No items are pending purchase order.</p>';
+            return;
+        }
+        $groups = [];
+        foreach ($items as $item) {
+            $indent = $item['indent'];
+            $group = self::indentGroup($indent);
+            if (isset($groups[$group])) {
+                continue;
+            }
+            $details = self::supplierIndentDetails($indent,$rows);
+            $data = $indent['data'];
+            $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
+            $site = $rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
+            $contact = $rows[$site['employee'] ?? 0]['data'] ?? [];
+            $groups[$group] = [
+                'label'=>$details['indent_number'].' · '.$details['site_name'],
+                'indent-date'=>$details['indent_date'],
+                'address'=>$site['address'] ?? '',
+                'contact'=>$contact['name'] ?? '',
+                'mobile'=>$contact['mobile'] ?? '',
+            ];
+        }
+        $source = $items[absint($_GET['source'] ?? 0)] ?? null;
+        $prefill = $source ? self::indentGroup($source['indent']) : '';
+        self::formStart('po','create_purchase_orders');
+        echo '<div class="frontier-fields">';
+        self::field($rows,'po','due','PO Date',current_time('Y-m-d'));
+        echo '<p><label>'.self::requiredLabel('Indent No. with Site Name').'<select name="po_group" required><option value="">Select indent</option>';
+        foreach ($groups as $group=>$details) {
+            echo '<option value="'.esc_attr($group).'" '.selected($prefill,$group,false);
+            foreach (['indent-date','address','contact','mobile'] as $field) {
+                echo ' data-'.esc_attr($field).'="'.esc_attr($details[$field]).'"';
+            }
+            echo '>'.esc_html($details['label']).'</option>';
+        }
+        echo '</select></label></p>';
+        self::field($rows,'po','employee','Prepared By','');
+        echo '<p><label>'.self::requiredLabel('Target Date').'<input type="date" name="target_date" required></label></p></div>';
+        echo '<div class="frontier-fields">';
+        foreach (['indent-date'=>'Indent Date','compared'=>'Compared By','address'=>'Delivery Address',
+            'contact'=>'Site Contact Person','mobile'=>'Site Mobile No.'] as $field=>$label) {
+            echo '<p><label>'.esc_html($label).'<input type="text" data-po-detail="'.esc_attr($field).'" readonly></label></p>';
+        }
+        echo '</div><h2>PO Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Purchase order items"><table class="widefat striped" style="min-width:1280px"><thead><tr>';
+        foreach (['Sl No.','Item Name','Unit','Supplier Finalized','Rate Finalized','Pending to Order','Order Qty','Line Amount','Brand','Remarks'] as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        uasort($items,static function ($left,$right) {
+            return ($left['indent']['data']['line_number'] ?? 1) <=> ($right['indent']['data']['line_number'] ?? 1);
+        });
+        foreach ($items as $quoteId=>$item) {
+            $quote = $item['quote']['data'];
+            $indent = $item['indent'];
+            $details = self::supplierIndentDetails($indent,$rows);
+            $compared = $quote['compared_by'] ?? $quote['comparison_name'] ?? '';
+            echo '<tr data-po-group="'.esc_attr(self::indentGroup($indent)).'" data-rate="'.esc_attr($quote['rate']).'" data-compared="'.esc_attr($compared).'" hidden>';
+            foreach ([$details['line_number'],$details['item_name'],$details['unit'],self::supplierDisplay($quote,$rows),
+                number_format((float)$quote['rate'],((float)$quote['rate'] * 100 == round((float)$quote['rate'] * 100)) ? 2 : 3),
+                $item['pending']] as $value) {
+                echo '<td>'.esc_html((string)$value).'</td>';
+            }
+            $name = $details['item_name'];
+            $prefix = 'po_lines['.esc_attr($quoteId).']';
+            echo '<td><input type="number" min="0" step="0.001" max="'.esc_attr($item['pending']).'" aria-label="'.esc_attr('Order Qty for '.$name).'" name="'.$prefix.'[qty]" data-po-qty disabled style="min-width:96px"><small data-po-warning hidden>Exceeds Pending to Order</small></td>';
+            echo '<td><output data-po-amount></output></td>';
+            foreach (['brand'=>'Brand','remarks'=>'Remarks'] as $field=>$label) {
+                echo '<td><input type="text" maxlength="200" name="'.$prefix.'['.$field.']" aria-label="'.esc_attr($label.' for '.$name).'" disabled style="min-width:110px"></td>';
+            }
+            echo '</tr>';
+        }
+        echo '</tbody></table></div><p><strong>Total Amount <output data-po-total aria-live="polite"></output></strong></p>';
+        echo '<p><a class="button" href="'.esc_url(self::url('pending_po')).'">Cancel</a> <button type="submit" class="button button-primary" data-po-save disabled>Create Purchase Order</button></p>';
+        echo <<<'HTML'
+<script>
+(() => {
+    const form = document.currentScript.closest('form');
+    const group = form.elements.po_group;
+    const rows = Array.from(form.querySelectorAll('[data-po-group]'));
+    const currency = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' });
+    function render() {
+        let total = 0;
+        let ready = false;
+        let invalid = false;
+        const compared = new Set();
+        for (const row of rows) {
+            const visible = row.dataset.poGroup === group.value;
+            row.hidden = !visible;
+            for (const input of row.querySelectorAll('input')) input.disabled = !visible;
+            if (!visible) continue;
+            if (row.dataset.compared) compared.add(row.dataset.compared);
+            const qty = row.querySelector('[data-po-qty]');
+            row.querySelector('[data-po-warning]').hidden = !qty.validity.rangeOverflow;
+            const valid = qty.validity.valid && qty.valueAsNumber > 0;
+            const amount = valid ? Math.round((qty.valueAsNumber * Number(row.dataset.rate) + Number.EPSILON) * 100) : 0;
+            row.querySelector('[data-po-amount]').textContent = valid ? currency.format(amount / 100) : '';
+            total += amount;
+            ready ||= valid;
+            invalid ||= !qty.validity.valid;
+        }
+        const option = group.selectedOptions[0];
+        for (const field of form.querySelectorAll('[data-po-detail]')) {
+            field.value = field.dataset.poDetail === 'compared' ? Array.from(compared).join(', ')
+                : option?.getAttribute('data-' + field.dataset.poDetail) ?? '';
+        }
+        form.querySelector('[data-po-total]').textContent = currency.format(total / 100);
+        form.querySelector('[data-po-save]').disabled = !ready || invalid;
+    }
+    group.addEventListener('change', render);
+    form.addEventListener('input', event => {
+        if (event.target.matches('[data-po-qty]')) render();
+    });
+    render();
+})();
+</script>
+HTML;
+        echo '</form>';
+    }
+
+    private static function savePurchaseOrders($rows) {
+        global $wpdb;
+        $group = self::input('po_group');
+        $employee = $rows[absint(self::input('employee'))] ?? [];
+        $date = self::input('due');
+        $target = self::input('target_date');
+        foreach ([$date,$target] as $value) {
+            $parsed = DateTimeImmutable::createFromFormat('!Y-m-d',$value);
+            self::requireRule($parsed && $parsed->format('Y-m-d') === $value,'Enter a valid PO Date and Target Date.');
+        }
+        self::requireRule(($employee['kind'] ?? '') === 'employee','Select Prepared By.');
+        $submitted = $_POST['po_lines'] ?? [];
+        self::requireRule(is_array($submitted),'Check the purchase order items.');
+        $items = self::purchaseOrderItems($rows);
+        $saved = false;
+        foreach ($submitted as $quoteId=>$line) {
+            self::requireRule(is_array($line) && is_string($line['qty'] ?? null),'Enter a valid Order Qty.');
+            $qty = $line['qty'];
+            if ($qty === '' || preg_match('/^0+(?:\.0+)?$/D',$qty)) {
+                continue;
+            }
+            $item = $items[$quoteId] ?? null;
+            self::requireRule($item && self::indentGroup($item['indent']) === $group,'This item is no longer available for this indent.');
+            self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty <= $item['pending'],
+                'Order Qty must be positive and cannot exceed Pending to Order.');
+            $data = [
+                'quote'=>(int)$quoteId,'qty'=>(float)$qty,'due'=>$target,'po_date'=>$date,
+                'prepared_employee'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name'],
+            ];
+            foreach (['brand','remarks'] as $field) {
+                $value = $line[$field] ?? '';
+                self::requireRule(is_string($value),'Check Brand and Remarks.');
+                $data[$field] = sanitize_text_field(wp_unslash($value));
+                self::requireRule(strlen($data[$field]) <= 200,'Brand and Remarks must be at most 200 bytes each.');
+            }
+            self::validateNew($rows,'po',$data);
+            $data['amount'] = round($data['qty'] * $data['rate'],2);
+            if ($wpdb->insert(self::table(),['kind'=>'po','status'=>'draft','details'=>wp_json_encode($data)]) !== 1) {
+                throw new RuntimeException('Purchase order could not be saved.');
+            }
+            $id = (int)$wpdb->insert_id;
+            $data['ref'] = 'PO - '.str_pad((string)$id,4,'0',STR_PAD_LEFT);
+            if ($wpdb->update(self::table(),['details'=>wp_json_encode($data)],['id'=>$id]) !== 1) {
+                throw new RuntimeException('Purchase order number could not be saved.');
+            }
+            $saved = true;
+        }
+        self::requireRule($saved,'Enter an Order Qty for at least one item.');
+    }
+
     private static function supplierIndentDetails($indent,$rows) {
         $data = $indent['data'] ?? [];
         $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
@@ -3192,6 +3398,7 @@ HTML;
             $rows = self::rows();
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
+                || ($kind === 'po' && $action === 'create_purchase_orders')
                 || ($kind === 'quote' && in_array($action,['save_quotations','save_supplier_selection'],true))
                 || ($kind === 'supplier' && $action === 'import_suppliers')
                 || ($kind === 'indent' && in_array($action,['create_indent','update_indent_group'],true))
@@ -3203,6 +3410,9 @@ HTML;
             }
             if ($kind === 'quote' && $action === 'save_quotations') {
                 self::saveQuotations($rows);
+                $result = true;
+            } elseif ($kind === 'po' && $action === 'create_purchase_orders') {
+                self::savePurchaseOrders($rows);
                 $result = true;
             } elseif ($kind === 'quote' && $action === 'save_supplier_selection') {
                 self::saveSupplierSelection($rows);
@@ -3313,6 +3523,8 @@ HTML;
             $destination = 'quote';
         } elseif ($action === 'save_supplier_selection') {
             $destination = 'choose_master';
+        } elseif ($action === 'create_purchase_orders') {
+            $destination = 'po';
         }
         $query = $imported === null ? [in_array($action,['delete_master','delete_boq'],true) ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
         if ($kind === 'indent' && isset($row) && ($screen === 'indent_items' || $action === 'edit')) {
