@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.69
+ * Version: 1.9.70
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -361,10 +361,10 @@ final class Frontier {
     }
 
     private static function enqueueDropdownSearch() {
-        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.52',true);
+        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.70',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
-        wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.16',true);
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
+        wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.59');
@@ -443,7 +443,6 @@ final class Frontier {
         echo '<input type="hidden" name="action" value="frontier_save_logo">';
         echo '<input type="hidden" name="surface" value="'.(self::$front ? 'front' : 'admin').'">';
         echo '<p><label>'.self::requiredLabel('Company Logo').'<input type="file" name="frontier_logo" accept=".png,.jpg,.jpeg" required></label></p>';
-        echo '<p>PNG or JPEG, up to 3 MB.</p>';
         self::submitButton('Save Logo',true);
         echo '</form>';
     }
@@ -1232,7 +1231,7 @@ final class Frontier {
                 echo '<input type="hidden" name="'.esc_attr($name).'" value="'.esc_attr($value).'">';
             }
             echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
-            echo '<label>Search <input type="search" name="frontier_search" value="'.esc_attr($search).'" placeholder="Search all columns"'.($search !== '' ? ' autofocus' : '').'></label>';
+            echo '<label>Search <input type="search" name="frontier_search" value="'.esc_attr($search).'"'.($search !== '' ? ' autofocus' : '').'></label>';
             if ($dimensions) {
                 echo '<button class="button" type="button" data-table-filter-toggle aria-controls="frontier-table-filters" aria-expanded="'.($hasFacets ? 'true' : 'false').'">Filter</button>';
             }
@@ -1687,7 +1686,6 @@ HTML;
                 esc_attr($field),self::SUPPLIER_TEXT_LIMITS[$field],esc_textarea($value));
         } elseif ($kind === 'employee' && $field === 'password') {
             echo '<input type="password" name="password" autocomplete="new-password" maxlength="4096"'.($required ? ' required' : '').'>';
-            echo '<small>Required for a new login. Leave blank to keep an existing password.</small>';
         } elseif (isset(self::FIELDS[$field])) {
             echo '<select name="'.esc_attr($field).'"'.(self::optionalField($kind,$field) ? '' : ' required').'><option value="">Select</option>';
             foreach (self::eligible($rows,$kind,$field) as $row) {
@@ -3346,7 +3344,7 @@ HTML;
         self::field($sites,'indent','site','Site Number with Name','');
         echo '<p><label>Indent Target Date <input type="date" name="target_date"></label></p>';
         echo '</div><div class="frontier-master-toolbar"><h2>Indent Items</h2><button type="button" class="button frontier-indent-add" disabled>＋ Add More</button></div>';
-        echo '<p class="frontier-indent-message" role="status">Select a site to load its BOQ items.</p>';
+        echo '<p class="frontier-indent-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
         foreach (['Sl No.','Item Name','Unit','Quantity Required','Already Indented','Pending to Indent','Indent Now','Action'] as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';

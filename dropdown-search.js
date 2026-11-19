@@ -15,7 +15,6 @@ function enhanceDropdown(select) {
     const input = document.createElement('input');
     input.type = 'text';
     input.autocomplete = 'off';
-    input.placeholder = 'Select ' + name;
     input.required = select.required;
     input.setAttribute('role', 'combobox');
     input.setAttribute('aria-label', name);
@@ -42,7 +41,6 @@ function enhanceDropdown(select) {
     select.required = false;
 
     const overlay = select.hasAttribute('data-dropdown-overlay');
-    if (overlay && select.options[0]?.value === '') input.placeholder = select.options[0].textContent;
 
     let matches = [];
     let active = -1;

@@ -88,7 +88,6 @@
                 name.autocomplete = 'off';
                 name.setAttribute('list', list.id);
                 name.setAttribute('aria-label', 'Supplier ' + (i + 1) + ' for item ' + item.number);
-                name.placeholder = 'Search supplier';
                 name.value = existing ? (labels.get(existing.supplier) || '') : '';
                 const rate = document.createElement('input');
                 rate.type = 'number';

@@ -39,7 +39,7 @@
         });
         add.disabled = !items.size || rows.length >= 100;
         submit.disabled = !rows.length || valid !== rows.length;
-        message.textContent = !site.value ? 'Select a site to load its BOQ items.' :
+        message.textContent = !site.value ? '' :
             !items.size ? 'No BOQ items are available for this site.' :
             excessRows ? excessRows + ' item row(s) exceed the pending quantity and will be flagged for approval.' : '';
     }
