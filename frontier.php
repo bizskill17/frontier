@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.61
+ * Version: 1.9.62
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -949,16 +949,10 @@ final class Frontier {
                 $entries[] = $comparison;
             }
         }
-        [$pageRows,$page,$pages,$total] = self::pagedRows($entries);
         $columns = ['Indent No. with Site Name','Timestamp','Date','Prepared By','Sl','Item Name','Qty',
             'Supplier1','Rate1','Supplier2','Rate2','Supplier3','Rate3','Site Name'];
 
-        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Supplier Quotation Master"><table class="widefat striped"><thead><tr>';
-        foreach ($columns as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
-        }
-        echo '</tr></thead><tbody>';
-        foreach ($pageRows as $quotes) {
+        $quoteValues = static function ($quotes) use ($rows) {
             $latest = $quotes[0]['data'];
             foreach ($quotes as $quote) {
                 if (($quote['data']['quote_timestamp'] ?? '') > ($latest['quote_timestamp'] ?? '')) {
@@ -977,6 +971,30 @@ final class Frontier {
                 self::indentDisplayDate($latest['quote_date'] ?? ''),$latest['comparison_name'] ?? '',
                 $indent ? ($indent['line_number'] ?? 1) : '',$boq['name'] ?? '',$indent['qty'] ?? ''];
 
+            return [$values,$site['name'] ?? ''];
+        };
+        [$pageRows,$page,$pages,$total] = self::pagedRows($entries,$columns,static function ($quotes) use ($quoteValues,$rows) {
+            [$cells,$site] = $quoteValues($quotes);
+            for ($slot=0;$slot<3;$slot++) {
+                $quote = $quotes[$slot] ?? [];
+                $data = $quote['data'] ?? [];
+                $name = self::supplierDisplay($data,$rows);
+                if (!empty($quote['filename']) && self::canFile('quote')) {
+                    $name .= ' '.$quote['filename'];
+                }
+                $cells[] = $name;
+                $cells[] = $data['rate'] ?? '';
+            }
+            $cells[] = $site;
+            return $cells;
+        });
+        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Supplier Quotation Master"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($pageRows as $quotes) {
+            [$values,$siteName] = $quoteValues($quotes);
             echo '<tr>';
             foreach ($values as $value) {
                 echo '<td>'.esc_html((string)$value).'</td>';
@@ -991,7 +1009,7 @@ final class Frontier {
                 }
                 echo '</td><td>'.esc_html((string)($data['rate'] ?? '')).'</td>';
             }
-            echo '<td>'.esc_html($site['name'] ?? '').'</td></tr>';
+            echo '<td>'.esc_html($siteName).'</td></tr>';
         }
         if (!$total) {
             echo '<tr><td colspan="'.count($columns).'">No supplier quotations found.</td></tr>';
@@ -1122,7 +1140,69 @@ final class Frontier {
         return [$listing,$choiceItems];
     }
 
-    private static function pagedRows($rows) {
+    private static function tableQuery($key) {
+        return is_string($_GET[$key] ?? null) ? sanitize_text_field(wp_unslash($_GET[$key])) : '';
+    }
+
+    private static function tableSearchUrl() {
+        $url = self::url(self::$screen);
+        if ($indent = absint($_GET['indent'] ?? 0)) {
+            $url = add_query_arg('indent',$indent,$url);
+        }
+        if ($group = self::indentGroupFilter()) {
+            $url = add_query_arg('indent_group',$group,$url);
+        }
+        return $url;
+    }
+
+    private static function pagedRows($rows,$columns,$values) {
+        $search = self::tableQuery('frontier_search');
+        $column = self::tableQuery('frontier_column');
+        $filter = self::tableQuery('frontier_filter');
+        $url = self::tableSearchUrl();
+        $query = [];
+        parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$query);
+        echo '<form method="get" role="search" aria-label="Search table" action="'.esc_url(remove_query_arg(array_keys($query),$url)).'">';
+        foreach ($query as $name=>$value) {
+            echo '<input type="hidden" name="'.esc_attr($name).'" value="'.esc_attr($value).'">';
+        }
+        echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
+        echo '<label>Search <input type="search" name="frontier_search" value="'.esc_attr($search).'" placeholder="Search all columns"></label>';
+        echo '<button class="button" type="submit">Search</button>';
+        if ($search !== '' || $filter !== '') {
+            echo '<a class="button" href="'.esc_url($url).'">Clear all</a>';
+        }
+        echo '</div><details'.($filter !== '' ? ' open' : '').'><summary>Filters</summary>';
+        echo '<div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap">';
+        echo '<label>Column <select name="frontier_column"><option value="">Select column</option>';
+        foreach ($columns as $key=>$label) {
+            echo '<option value="'.esc_attr((string)$key).'" '.selected((string)$key,$column,false).'>'.esc_html($label).'</option>';
+        }
+        echo '</select></label><label>Contains <input type="text" name="frontier_filter" value="'.esc_attr($filter).'"></label>';
+        echo '<button class="button" type="submit">Apply filter</button></div></details></form>';
+        if ($search !== '' || ($filter !== '' && isset($columns[$column]))) {
+            $terms = preg_split('/\s+/u',$search,-1,PREG_SPLIT_NO_EMPTY) ?: [];
+            $contains = static function ($value,$needle) {
+                return function_exists('mb_stripos') ? mb_stripos($value,$needle,0,'UTF-8') !== false : stripos($value,$needle) !== false;
+            };
+            $rows = array_filter($rows,static function ($row,$id) use ($values,$columns,$column,$filter,$terms,$contains) {
+                $cells = array_intersect_key($values($row,$id),$columns);
+                foreach ($cells as &$cell) {
+                    $cell = is_scalar($cell) ? (string)$cell : '';
+                }
+                unset($cell);
+                if ($filter !== '' && isset($columns[$column]) && !$contains($cells[$column] ?? '',$filter)) {
+                    return false;
+                }
+                $text = implode(' ',$cells);
+                foreach ($terms as $term) {
+                    if (!$contains($text,$term)) {
+                        return false;
+                    }
+                }
+                return true;
+            },ARRAY_FILTER_USE_BOTH);
+        }
         $total = count($rows);
         $pages = max(1,(int)ceil($total / 25));
         $page = min($pages,max(1,absint($_GET['frontier_page'] ?? 1)));
@@ -1130,15 +1210,16 @@ final class Frontier {
     }
 
     private static function pagination($page,$pages,$total) {
+        $url = self::tableSearchUrl();
+        foreach (['frontier_search','frontier_column','frontier_filter'] as $key) {
+            $value = self::tableQuery($key);
+            if ($value !== '') {
+                $url = add_query_arg($key,$value,$url);
+            }
+        }
         if ($pages === 1) {
+            echo '<p role="status">'.esc_html(sprintf('%d records',$total)).'</p>';
             return;
-        }
-        $url = self::url(self::$screen);
-        if ($indent = absint($_GET['indent'] ?? 0)) {
-            $url = add_query_arg('indent',$indent,$url);
-        }
-        if ($group = self::indentGroupFilter()) {
-            $url = add_query_arg('indent_group',$group,$url);
         }
         echo '<nav aria-label="Table pagination"><p>';
         if ($page > 1) {
@@ -1237,20 +1318,7 @@ final class Frontier {
         }
         $showStatus = !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems && !$isGrnView;
         $showActions = $grnScreen !== 'grn' && !in_array($mode,['items','selected'],true);
-        [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
-        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
-        foreach ($fields as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
-        }
-        if ($showStatus) {
-            echo '<th scope="col">Status</th>';
-        }
-        $actionClass = $pendingPo ? ' class="frontier-pending-po-action"' : ($poRegister ? ' class="frontier-po-actions"' : '');
-        if ($showActions) {
-            echo '<th scope="col"'.$actionClass.'>Actions</th>';
-        }
-        echo '</tr></thead><tbody>';
-        foreach ($pageRows as $row) {
+        $rowValues = static function ($row) use ($rows,$kind,$indentItems,$choosePending,$chooseMaster,$choiceItems,$pendingQuote) {
             [$values,$status] = $indentItems ? [self::indentItemValues($row,$rows),$row['status']] : self::recordValues($row,$rows,$kind);
             if ($choosePending || $chooseMaster) {
                 $indentId = (int)($row['data']['indent'] ?? 0);
@@ -1280,6 +1348,42 @@ final class Frontier {
                 $values['unit'] = $indent['unit'] ?? ($boq['unit'] ?? '');
                 $status = 'pending_supplier_quotation';
             }
+            return [$values,$status];
+        };
+        $searchFields = $fields + ($showStatus ? ['_status'=>'Status'] : []);
+        [$pageRows,$page,$pages,$total] = self::pagedRows($listing,$searchFields,static function ($row) use ($rowValues,$rows) {
+            [$values,$status] = $rowValues($row);
+            $values['_status'] = ucwords(str_replace('_',' ',$status));
+            $values['attachment'] = self::canFile($row['kind']) ? ($row['filename'] ?? '') : '';
+            if ($row['kind'] === 'grn' && self::canFile('grn')) {
+                foreach (self::goodsReceiptGroup($rows,$row) as $line) {
+                    if (!empty($line['filename'])) {
+                        $values['grn_slip_copy'] = $line['filename'];
+                        break;
+                    }
+                }
+            }
+            foreach ($values as $key=>$value) {
+                if (strpos($key,'quotation_') === 0 && is_array($value)) {
+                    $values[$key] = self::canFile('quote') ? ($value['filename'] ?? '') : '';
+                }
+            }
+            return $values;
+        });
+        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
+        foreach ($fields as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        if ($showStatus) {
+            echo '<th scope="col">Status</th>';
+        }
+        $actionClass = $pendingPo ? ' class="frontier-pending-po-action"' : ($poRegister ? ' class="frontier-po-actions"' : '');
+        if ($showActions) {
+            echo '<th scope="col"'.$actionClass.'>Actions</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($pageRows as $row) {
+            [$values,$status] = $rowValues($row);
             echo '<tr>';
             foreach ($fields as $field=>$label) {
                 echo '<td>';
@@ -1353,13 +1457,16 @@ final class Frontier {
             $boq = $rows[$rows[$po['data']['indent']]['data']['boq']];
             $received[$boq['id']] = ($received[$boq['id']] ?? 0) + $row['data']['qty'];
         }
+        [$pageRows,$page,$pages,$total] = self::pagedRows($received,['BOQ Item','Site Number with Name','Accepted Stock Received','Unit'],static function ($quantity,$id) use ($rows) {
+            $item = $rows[$id]['data'];
+            return [$item['name'],self::siteNumberWithName($rows[$item['site']]['data'] ?? []),round($quantity,3),$item['unit']];
+        });
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>BOQ Item</th><th>Site Number with Name</th><th>Accepted Stock Received</th><th>Unit</th></tr></thead><tbody>';
-        [$pageRows,$page,$pages,$total] = self::pagedRows($received);
         foreach ($pageRows as $id=>$quantity) {
             $item = $rows[$id]['data'];
             echo '<tr><td>'.esc_html($item['name']).'</td><td>'.esc_html(self::siteNumberWithName($rows[$item['site']]['data'] ?? [])).'</td><td>'.esc_html(round($quantity,3)).'</td><td>'.esc_html($item['unit']).'</td></tr>';
         }
-        if (!$received) {
+        if (!$total) {
             echo '<tr><td colspan="4">No stock receipts approved yet.</td></tr>';
         }
         echo '</tbody></table></div>';
@@ -2440,7 +2547,9 @@ final class Frontier {
         } else {
             $listing = $groups;
         }
-        [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
+        [$pageRows,$page,$pages,$total] = self::pagedRows($listing,array_diff_key($columns,['pdf'=>true,'actions'=>true]),static function ($row) {
+            return $row;
+        });
         echo '<div class="frontier-table" tabindex="0" role="region" aria-label="BOQ records"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';
@@ -2931,7 +3040,17 @@ final class Frontier {
                 'total'=>'Total Quantity','pdf'=>'PDF','actions'=>'Actions',
             ];
         }
-        [$pageRows,$page,$pages,$total] = self::pagedRows($groups);
+        [$pageRows,$page,$pages,$total] = self::pagedRows($groups,array_diff_key($columns,['pdf'=>true,'actions'=>true]),static function ($row) {
+            $row['status'] = implode(' / ',array_keys($row['statuses']));
+            $row['remarks'] = implode(' · ',array_keys($row['remarks']));
+            foreach (['date','target'] as $field) {
+                $row[$field] = self::indentDisplayDate($row[$field] ?? '');
+            }
+            foreach (['timestamp','decision'] as $field) {
+                $row[$field] = empty($row[$field]) ? '' : mysql2date('d/m/Y H:i:s',$row[$field],false);
+            }
+            return $row;
+        });
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Indent register"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';
@@ -3155,23 +3274,14 @@ final class Frontier {
 
     private static function purchaseInvoiceView($rows,$master) {
         $editable = !$master && self::can('match');
-        if ($editable) {
-            self::formStart('match','link_po_invoice');
-        }
         $listing = array_filter($rows,static function ($row) use ($master) {
             return $master ? $row['kind'] === 'match' : $row['kind'] === 'po';
         });
-        [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
         $columns = ['PO No. with Supplier Name','PO Date',$master ? 'Indent Number with Site Name' : 'Indent Number',
             'PO No.','Indent Date','Site Name','Item Name','Order Quantity','Supplier Finalized','Rate Finalized','Pending for Invoice'];
         $columns = array_merge($columns,$master ? ['Quantity Invoiced','Rate as per Invoice','Invoice Identifier',
             'Invoice No.','Invoice Date','Invoice Copy','Invoice Amount'] : ['Invoice Qty','Invoice Rate','Invoice Identifier']);
-        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="PO item invoices"><table class="widefat striped"><thead><tr>';
-        foreach ($columns as $column) {
-            echo '<th scope="col">'.esc_html($column).'</th>';
-        }
-        echo '</tr></thead><tbody>';
-        foreach ($pageRows as $row) {
+        $invoiceValues = static function ($row) use ($rows,$master) {
             $po = $master ? ($rows[$row['data']['po'] ?? 0] ?? []) : $row;
             $order = $po ? self::purchaseOrderValues($rows,$po) : [];
             $pending = $po && $po['status'] !== 'cancelled' ? self::pendingInvoiceQuantity($rows,$po) : 0;
@@ -3182,6 +3292,33 @@ final class Frontier {
             $values = [$order['po_supplier'] ?? '',$order['po_date'] ?? '',$indent,$order['ref'] ?? '',
                 $order['indent_date'] ?? '',$order['site_name'] ?? '',$order['item_name'] ?? '',$order['qty'] ?? '',
                 $order['supplier'] ?? '',$order['rate'] ?? '',$po ? $pending : ''];
+            return [$values,$po,$pending];
+        };
+        $searchColumns = $master ? $columns : array_slice($columns,0,11);
+        [$pageRows,$page,$pages,$total] = self::pagedRows($listing,$searchColumns,static function ($row) use ($invoiceValues,$rows,$master) {
+            [$values] = $invoiceValues($row);
+            if (!$master) {
+                return $values;
+            }
+            $data = $row['data'];
+            $invoice = $rows[$data['invoice'] ?? 0] ?? [];
+            $invoiceData = $invoice['data'] ?? [];
+            return array_merge($values,[$data['qty'] ?? '',$data['rate'] ?? '',
+                $data['invoice_identifier'] ?? ($invoice ? self::invoiceIdentifier($invoice,$rows) : ''),
+                $invoiceData['ref'] ?? '',self::indentDisplayDate($invoiceData['due'] ?? ''),
+                self::canFile('invoice') ? ($invoice['filename'] ?? '') : '',
+                number_format((float)$data['qty'] * (float)$data['rate'],2)]);
+        });
+        if ($editable) {
+            self::formStart('match','link_po_invoice');
+        }
+        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="PO item invoices"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $column) {
+            echo '<th scope="col">'.esc_html($column).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($pageRows as $row) {
+            [$values,$po,$pending] = $invoiceValues($row);
             echo '<tr>';
             foreach ($values as $value) {
                 echo '<td>'.esc_html((string)$value).'</td>';
@@ -3220,6 +3357,23 @@ final class Frontier {
                 echo '</p>';
             }
             echo '</form>';
+            echo <<<'HTML'
+<script>
+(() => {
+    const form = document.currentScript.previousElementSibling;
+    const hasChanges = () => Array.from(form.elements).some(field =>
+        field.name.startsWith('invoice_links[') && field.value !== '');
+    const warn = event => {
+        if (hasChanges()) {
+            event.preventDefault();
+            event.returnValue = '';
+        }
+    };
+    window.addEventListener('beforeunload', warn);
+    form.addEventListener('submit', () => window.removeEventListener('beforeunload', warn));
+})();
+</script>
+HTML;
         }
         self::pagination($page,$pages,$total);
     }
