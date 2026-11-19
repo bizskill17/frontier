@@ -71,10 +71,10 @@
         remove.className = 'button frontier-action-icon frontier-action-delete';
         remove.setAttribute('aria-label', 'Remove indent item');
         remove.title = 'Remove indent item';
-        remove.textContent = '🗑︎';
-        const actions = element.insertCell();
+        const actions = document.createElement('div');
         actions.className = 'frontier-row-actions';
         actions.append(remove);
+        element.insertCell().append(actions);
         const row = { element, number, item, details, qty, warning };
         rows.push(row);
         remove.addEventListener('click', () => {

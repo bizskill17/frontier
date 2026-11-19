@@ -82,7 +82,10 @@ if (boqForm) {
             inputs[key] = input;
         }
         const status = element.insertCell();
-        const actions = element.insertCell();
+        const actionCell = element.insertCell();
+        const actions = document.createElement('div');
+        actions.className = 'frontier-row-actions';
+        actionCell.append(actions);
         const selectItem = document.createElement('button');
         selectItem.type = 'button';
         selectItem.textContent = 'Select Item';
@@ -93,7 +96,9 @@ if (boqForm) {
         actions.append(selectItem);
         const remove = document.createElement('button');
         remove.type = 'button';
-        remove.textContent = 'Remove';
+        remove.className = 'button frontier-action-icon frontier-action-delete';
+        remove.setAttribute('aria-label', 'Remove BOQ item');
+        remove.title = 'Remove BOQ item';
         if (values.locked) {
             actions.textContent = 'Locked';
         } else {
