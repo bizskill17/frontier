@@ -362,3 +362,24 @@ body.frontier-workspace {
 .frontier-po-actions .frontier-po-cancel { min-width: 0; max-width: 160px; }
 .frontier-po-actions .frontier-po-cancel input { width: 100%; min-width: 0; }
 .frontier-po-actions .frontier-po-cancel form { margin-top: 6px; }
+
+/* Use the quotation form's row density in editable tables. */
+.frontier-pages form.frontier-entry .frontier-table {
+    margin-top: 8px;
+}
+
+.frontier-pages form.frontier-entry .frontier-table :is(th, td) {
+    padding: 5px 7px;
+    vertical-align: middle;
+}
+
+.frontier-pages form.frontier-entry .frontier-table :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    box-sizing: border-box;
+    min-height: 30px;
+    padding-block: 4px;
+}
+
+.frontier-pages form.frontier-entry .frontier-table .button {
+    min-height: 30px;
+    padding-block: 4px;
+}
