@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.6
+ * Version: 1.8.7
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -57,12 +57,12 @@ final class Frontier {
         'supplier'=>['ref'=>'Supplier Code', 'name'=>'Supplier Names', 'contact'=>'Contact Number', 'alternate'=>'Alternate Contact Number', 'email'=>'Email Id', 'address'=>'Address', 'city'=>'City', 'state'=>'State', 'pin'=>'PIN', 'mobile'=>'Mobile', 'gst'=>'GST', 'term'=>'Term'],
         'boq'=>['site'=>'Site Number with Name', 'section'=>'Section', 'name'=>'Item', 'unit'=>'Unit', 'qty'=>'Planned quantity'],
         'indent'=>['boq'=>'BOQ item', 'qty'=>'Required quantity', 'due'=>'Required by'],
-        'quote'=>['indent'=>'Approved indent', 'name'=>'Supplier', 'rate'=>'Unit rate', 'tax'=>'Tax %', 'freight'=>'Freight', 'due'=>'Delivery date', 'note'=>'Payment terms'],
+        'quote'=>['indent'=>'Approved indent', 'supplier'=>'Supplier Name with Code', 'rate'=>'Unit rate', 'tax'=>'Tax %', 'freight'=>'Freight', 'due'=>'Delivery date', 'note'=>'Payment terms'],
         'po'=>['quote'=>'Selected quotation', 'qty'=>'Order quantity', 'ref'=>'PO number', 'due'=>'Expected delivery'],
         'follow'=>['po'=>'Purchase order', 'note'=>'Follow-up notes', 'due'=>'Next follow-up'],
         'cancel'=>['po'=>'Purchase order', 'qty'=>'Quantity to cancel', 'note'=>'Reason', 'reorder'=>'Return to purchasing'],
         'grn'=>['po'=>'Purchase order', 'ref'=>'GRN number', 'due'=>'Receipt date', 'qty'=>'Accepted quantity', 'reject'=>'Rejected quantity'],
-        'invoice'=>['name'=>'Supplier', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
+        'invoice'=>['supplier'=>'Supplier Name with Code', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
     private const PAGE_VERSION = '1.8.1';
@@ -362,7 +362,7 @@ final class Frontier {
         <div class="frontier-shell">
             <div class="frontier-main-column">
                 <header class="frontier-topbar">
-                    <span><?php echo esc_html($views[$kind]); ?></span>
+                    <span role="heading" aria-level="1"><?php echo esc_html($views[$kind]); ?></span>
                     <?php if ($kind === 'home') : ?>
                         <a href="<?php echo esc_url(wp_logout_url(home_url('/'))); ?>">Sign out</a>
                     <?php endif; ?>
@@ -371,7 +371,6 @@ final class Frontier {
                     <?php if ($kind !== 'home') : ?>
                         <a class="frontier-back" href="<?php echo esc_url(self::url('home')); ?>">← Back to Dashboard</a>
                     <?php endif; ?>
-                    <h1><?php echo esc_html($views[$kind]); ?></h1>
                     <?php self::render($kind); ?>
                 </main>
             </div>
@@ -477,10 +476,46 @@ final class Frontier {
         return $code !== '' && $name !== '' ? $code.' - '.$name : ($name !== '' ? $name : $code);
     }
 
+    private static function supplierDisplay($data,$rows) {
+        $master = $rows[$data['supplier'] ?? 0] ?? null;
+        if (!$master || $master['kind'] !== 'supplier') {
+            $name = trim($data['name'] ?? '');
+            if ($name === '') {
+                return '';
+            }
+            $master = null;
+            foreach ($rows as $candidate) {
+                if ($candidate['kind'] === 'supplier' && strcasecmp($candidate['data']['name'],$name) === 0) {
+                    if ($master) {
+                        return $name;
+                    }
+                    $master = $candidate;
+                }
+            }
+            if (!$master) {
+                return $name;
+            }
+        }
+        $code = $master['data']['ref'] ?? '';
+        return ($code !== '' ? $code.' - ' : '').$master['data']['name'];
+    }
+
+    private static function sameSupplier($first,$second) {
+        return !empty($first['supplier']) && !empty($second['supplier'])
+            ? (int)$first['supplier'] === (int)$second['supplier']
+            : strcasecmp($first['name'] ?? '',$second['name'] ?? '') === 0;
+    }
+
     private static function label($row,$rows) {
         $data = $row['data'];
         if ($row['kind'] === 'site') {
             return self::siteNumberWithName($data);
+        }
+        if ($row['kind'] === 'supplier') {
+            return self::supplierDisplay(['supplier'=>$row['id']],$rows);
+        }
+        if (in_array($row['kind'],['quote','po','invoice'],true)) {
+            $data['name'] = self::supplierDisplay($data,$rows);
         }
         $labels = array_intersect_key($data,array_flip(['name','ref','section']));
         foreach (['site','boq','indent','po'] as $parent) {
@@ -698,7 +733,7 @@ final class Frontier {
             'supplier'=>['combined_name'=>'Suppliers Name with Code'],
             'indent'=>['reason'=>'Reason'],
             'quote'=>['reason'=>'Selection Reason','attachment'=>'Quotation File'],
-            'po'=>['reason'=>'Reason','received'=>'Received','waiting'=>'Pending GRN Approval','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
+            'po'=>['supplier'=>'Supplier Name with Code','reason'=>'Reason','received'=>'Received','waiting'=>'Pending GRN Approval','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'follow'=>['ordered'=>'Order Quantity','expected'=>'Expected Delivery','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'grn'=>['attachment'=>'GRN Slip'],
             'invoice'=>['matched'=>'Matched Quantity','attachment'=>'Invoice Copy'],
@@ -963,6 +998,9 @@ final class Frontier {
             }
             $values[$field] = $value;
         }
+        if (in_array($kind,['quote','po','invoice'],true)) {
+            $values['supplier'] = self::supplierDisplay($data,$rows);
+        }
         if (in_array($kind,['supplier','site'],true) && !empty($data['ref'])) {
             $values['combined_name'] = $data['ref'].' - '.$data['name'];
         }
@@ -1154,10 +1192,17 @@ final class Frontier {
             self::validateMaster($rows,$kind,$data);
         }
         switch ($kind) {
+            case 'quote':
+            case 'invoice':
+                $data['name'] = $rows[$data['supplier']]['data']['name'];
+                break;
             case 'po':
                 $quote = $rows[$data['quote']]['data'];
                 $data['indent'] = $quote['indent'];
                 $data['name'] = $quote['name'];
+                if (!empty($quote['supplier'])) {
+                    $data['supplier'] = $quote['supplier'];
+                }
                 $data['rate'] = $quote['rate'];
                 self::requireRule($data['qty'] <= self::available($rows,$rows[$data['indent']]),'The order exceeds the approved indent balance.');
                 break;
@@ -1176,7 +1221,7 @@ final class Frontier {
                 $data['po'] = $grn['data']['po'];
                 $po = $rows[$data['po']];
                 $invoice = $rows[$data['invoice']];
-                self::requireRule(strcasecmp($po['data']['name'],$invoice['data']['name']) === 0,'The invoice and PO suppliers must match.');
+                self::requireRule(self::sameSupplier($po['data'],$invoice['data']),'The invoice and PO suppliers must match.');
                 self::requireRule($data['qty'] <= round($grn['data']['qty'] - self::sum($rows,'match','grn',$grn['id']),3),'Invoice quantity exceeds the unmatched GRN quantity.');
                 self::requireRule($data['qty'] <= round($invoice['data']['qty'] - self::sum($rows,'match','invoice',$invoice['id']),3),'Quantity exceeds the unmatched invoice balance.');
                 self::requireRule($data['rate'] === (float)$po['data']['rate'] || $data['note'] !== '','Explain the variance from the PO rate.');
@@ -1184,7 +1229,7 @@ final class Frontier {
         }
         if (isset($data['ref']) && in_array($kind,['po','invoice','grn'],true)) {
             foreach ($rows as $row) {
-                $sameSupplier = $kind !== 'invoice' || strcasecmp($data['name'],$row['data']['name'] ?? '') === 0;
+                $sameSupplier = $kind !== 'invoice' || self::sameSupplier($data,$row['data']);
                 self::requireRule($row['kind'] !== $kind || !$sameSupplier || strcasecmp($data['ref'],$row['data']['ref']) !== 0,'That reference already exists.');
             }
         }
