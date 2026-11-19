@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.51
+ * Version: 1.9.52
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -357,7 +357,7 @@ final class Frontier {
     }
 
     private static function enqueueDropdownSearch() {
-        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.29',true);
+        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.52',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.16',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
@@ -3100,7 +3100,7 @@ final class Frontier {
         $prefix = 'invoice_links['.esc_attr($po['id']).']';
         echo '<td><input type="number" min="0.001" max="'.esc_attr($pending).'" step="0.001" style="min-width:96px" aria-label="Invoice Qty" name="'.$prefix.'[qty]"></td>';
         echo '<td><input type="number" min="0" step="0.001" style="min-width:96px" aria-label="Invoice Rate" name="'.$prefix.'[rate]"></td>';
-        echo '<td style="min-width:260px"><select name="'.$prefix.'[invoice]" aria-label="Invoice Identifier"><option value="">Select invoice</option>';
+        echo '<td style="min-width:260px"><select name="'.$prefix.'[invoice]" aria-label="Invoice Identifier" data-dropdown-overlay><option value="">Select invoice</option>';
         foreach ($invoices as $invoice) {
             echo '<option value="'.esc_attr($invoice['id']).'">'.esc_html(self::invoiceIdentifier($invoice,$rows)).'</option>';
         }
