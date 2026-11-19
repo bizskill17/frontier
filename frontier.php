@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.4
+ * Version: 1.8.5
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -54,7 +54,7 @@ final class Frontier {
         'item_type'=>['name'=>'Type name'],
         'site'=>['ref'=>'Site Number', 'due'=>'Site Date', 'name'=>'Site Name', 'address'=>'Site Address', 'employee'=>'Site Manager', 'telegram'=>'Telegram Group Id'],
         'supplier'=>['ref'=>'Supplier Code', 'name'=>'Supplier Names', 'contact'=>'Contact Number', 'alternate'=>'Alternate Contact Number', 'email'=>'Email Id', 'address'=>'Address', 'city'=>'City', 'state'=>'State', 'pin'=>'PIN', 'mobile'=>'Mobile', 'gst'=>'GST', 'term'=>'Term'],
-        'boq'=>['site'=>'Site', 'section'=>'Section', 'name'=>'Item', 'unit'=>'Unit', 'qty'=>'Planned quantity'],
+        'boq'=>['site'=>'Site Number with Name', 'section'=>'Section', 'name'=>'Item', 'unit'=>'Unit', 'qty'=>'Planned quantity'],
         'indent'=>['boq'=>'BOQ item', 'qty'=>'Required quantity', 'due'=>'Required by'],
         'quote'=>['indent'=>'Approved indent', 'name'=>'Supplier', 'rate'=>'Unit rate', 'tax'=>'Tax %', 'freight'=>'Freight', 'due'=>'Delivery date', 'note'=>'Payment terms'],
         'po'=>['quote'=>'Selected quotation', 'qty'=>'Order quantity', 'ref'=>'PO number', 'due'=>'Expected delivery'],
@@ -470,8 +470,17 @@ final class Frontier {
         return round($indent['data']['qty'] - $used,3);
     }
 
+    private static function siteNumberWithName($data) {
+        $code = $data['ref'] ?? '';
+        $name = $data['name'] ?? '';
+        return $code !== '' && $name !== '' ? $code.' - '.$name : ($name !== '' ? $name : $code);
+    }
+
     private static function label($row,$rows) {
         $data = $row['data'];
+        if ($row['kind'] === 'site') {
+            return self::siteNumberWithName($data);
+        }
         $labels = array_intersect_key($data,array_flip(['name','ref','section']));
         foreach (['site','boq','indent','po'] as $parent) {
             if (isset($data[$parent],$rows[$data[$parent]])) {
@@ -750,11 +759,11 @@ final class Frontier {
             $boq = $rows[$rows[$po['data']['indent']]['data']['boq']];
             $received[$boq['id']] = ($received[$boq['id']] ?? 0) + $row['data']['qty'];
         }
-        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>BOQ Item</th><th>Site</th><th>Accepted Stock Received</th><th>Unit</th></tr></thead><tbody>';
+        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>BOQ Item</th><th>Site Number with Name</th><th>Accepted Stock Received</th><th>Unit</th></tr></thead><tbody>';
         [$pageRows,$page,$pages,$total] = self::pagedRows($received);
         foreach ($pageRows as $id=>$quantity) {
             $item = $rows[$id]['data'];
-            echo '<tr><td>'.esc_html($item['name']).'</td><td>'.esc_html($rows[$item['site']]['data']['name'] ?? '').'</td><td>'.esc_html(round($quantity,3)).'</td><td>'.esc_html($item['unit']).'</td></tr>';
+            echo '<tr><td>'.esc_html($item['name']).'</td><td>'.esc_html(self::siteNumberWithName($rows[$item['site']]['data'] ?? [])).'</td><td>'.esc_html(round($quantity,3)).'</td><td>'.esc_html($item['unit']).'</td></tr>';
         }
         if (!$received) {
             echo '<tr><td colspan="4">No stock receipts approved yet.</td></tr>';
@@ -837,9 +846,6 @@ final class Frontier {
                 $optionLabel = self::label($row,$rows);
                 if ($field === 'employee') {
                     $optionLabel = $row['data']['name'];
-                } elseif ($field === 'site') {
-                    $code = $row['data']['ref'] ?? '';
-                    $optionLabel = ($code !== '' ? $code.' - ' : '').$row['data']['name'];
                 }
                 echo '<option value="'.esc_attr($row['id']).'" '.selected($value,$row['id'],false).'>'.esc_html($optionLabel).'</option>';
             }
@@ -1624,7 +1630,7 @@ final class Frontier {
             $timestamp = !empty($data['boq_timestamp']) ? mysql2date('d/m/Y H:i:s',$data['boq_timestamp'],false) : '';
             $header = [
                 'date'=>$date,'number'=>$data['boq_number'] ?? '#'.$id,
-                'site'=>$rows[$data['site'] ?? 0]['data']['name'] ?? '',
+                'site'=>self::siteNumberWithName($rows[$data['site'] ?? 0]['data'] ?? []),
                 'prepared'=>$data['prepared_name'] ?? '', 'timestamp'=>$timestamp,
             ];
             $quantity = (float)$data['qty'];
@@ -1648,12 +1654,12 @@ final class Frontier {
             $groups[$key]['pending_indent'] += max(0,$quantity-$indented);
         }
         $columns = $itemsOnly ? [
-            'timestamp'=>'Timestamp','number'=>'BOQ No.','date'=>'BOQ Date','site'=>'Site Name','prepared'=>'BOQ Prepared By',
+            'timestamp'=>'Timestamp','number'=>'BOQ No.','date'=>'BOQ Date','site'=>'Site Number with Name','prepared'=>'BOQ Prepared By',
             'line'=>'Sl No.','item'=>'Item Name','qty'=>'Quantity Required','unit'=>'Units','indented'=>'Quantity Already Indented',
             'pending_indent'=>'Quantity Pending to be Indented','ordered'=>'Quantity Ordered','pending_order'=>'Pending to Order',
             'category'=>'Item Category','received'=>'Quantity Received','pending_receive'=>'Pending to Receive',
         ] : [
-            'date'=>'BOQ Date','number'=>'BOQ No.','site'=>'Site Name','prepared'=>'Prepared By','pdf'=>'Pdf',
+            'date'=>'BOQ Date','number'=>'BOQ No.','site'=>'Site Number with Name','prepared'=>'Prepared By','pdf'=>'Pdf',
             'timestamp'=>'Timestamp','qty'=>'Total Quantity','indented'=>'Quantity Indented','pending_indent'=>'Pending to Indent',
         ];
         if ($itemsOnly) {
@@ -1709,7 +1715,7 @@ final class Frontier {
         $key = self::boqGroup($boq);
         $header = $boq['data'];
         $number = $header['boq_number'] ?? '#'.$id;
-        $site = $rows[$header['site'] ?? 0]['data']['name'] ?? '';
+        $site = self::siteNumberWithName($rows[$header['site'] ?? 0]['data'] ?? []);
         $siteDate = !empty($header['boq_date']) ? implode('/',array_reverse(explode('-',$header['boq_date']))) : '';
         nocache_headers();
         header('Content-Type: text/html; charset=UTF-8');
