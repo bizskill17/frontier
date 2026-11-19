@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.6
+ * Version: 1.6.7
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -452,8 +452,9 @@ final class Frontier {
         if (!self::$front) {
             echo '<p><a href="'.esc_url(self::url('home')).'">Back to Dashboard</a></p>';
         }
-        if (isset($_GET['saved'])) {
-            echo '<div class="notice notice-success" role="status"><p>Saved.</p></div>';
+        if (isset($_GET['saved']) || isset($_GET['deleted'])) {
+            $message = isset($_GET['deleted']) ? 'Record deleted.' : 'Saved.';
+            echo '<div class="notice notice-success" role="status"><p>'.esc_html($message).'</p></div>';
         }
         self::$screen = $kind;
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
@@ -574,10 +575,15 @@ final class Frontier {
                 } elseif (isset(self::FIELDS[$field])) {
                     $value = $rows[$value]['data']['name'] ?? '';
                 }
-                echo '<td>'.esc_html($value === '' ? '—' : (string)$value).'</td>';
+                echo '<td>'.esc_html((string)$value).'</td>';
             }
             echo '<td>'.esc_html(ucwords(str_replace('_',' ',$row['status']))).'</td><td>';
             self::actions($row,$rows);
+            if (self::can($kind)) {
+                echo ' <details><summary class="button">Delete</summary><p>Delete this record?</p>';
+                self::button($row,'delete_master','Confirm Delete');
+                echo '</details>';
+            }
             echo '</td></tr>';
         }
         if (!$count) {
@@ -1320,7 +1326,17 @@ final class Frontier {
             } else {
                 $row = $rows[absint(self::input('id'))] ?? null;
                 self::requireRule($row && $row['kind'] === $kind,'Record could not be found.');
-                if ($action === 'delete') {
+                if ($action === 'delete_master') {
+                    self::requireRule(isset(self::IMPORT_TEMPLATES[$kind]),'This record cannot be deleted here.');
+                    if ($kind === 'employee') {
+                        self::requireRule(empty($row['data']['wp_user_id']),'This employee has a linked WordPress login. Resolve the login before deleting the record.');
+                        foreach ($rows as $record) {
+                            self::requireRule($record['kind'] !== 'site' || (int)($record['data']['employee'] ?? 0) !== (int)$row['id'],
+                                'Reassign this employee’s sites before deleting the record.');
+                        }
+                    }
+                    $result = $wpdb->delete(self::table(),['id'=>$row['id']]);
+                } elseif ($action === 'delete') {
                     self::requireRule($kind === 'po' && $row['status'] === 'draft' && !self::linked($rows,$row['id']),'Only an unused draft PO may be deleted.');
                     $result = $wpdb->delete(self::table(),['id'=>$row['id']]);
                 } else {
@@ -1360,7 +1376,7 @@ final class Frontier {
         $screen = sanitize_key(self::input('screen'));
         $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
         $destination = $sameKind && self::canView($screen) ? $screen : $kind;
-        $query = $imported === null ? ['saved'=>1] : ['imported'=>$imported];
+        $query = $imported === null ? [$action === 'delete_master' ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
         wp_safe_redirect(add_query_arg($query,self::url($destination)));
         exit;
     }
