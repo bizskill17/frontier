@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.76
+ * Version: 1.9.77
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -389,7 +389,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.72');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.77');
         self::enqueueDropdownSearch();
     }
 
@@ -407,7 +407,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.72');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.77');
         }
     }
 
@@ -4132,7 +4132,7 @@ HTML;
             $attributes = $editable ? ' name="delivery_'.esc_attr($field).'" maxlength="'.($field === 'address' ? 5000 : 200).'"' : ' readonly';
             echo '<p><label>'.esc_html($label).'<input type="'.($field === 'mobile' ? 'tel' : 'text').'" data-po-detail="'.esc_attr($field).'"'.$attributes.'></label></p>';
         }
-        echo '</div><h2>PO Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Purchase order items"><table class="widefat striped" style="min-width:1280px"><thead><tr>';
+        echo '</div><h2>PO Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Purchase order items"><table class="widefat striped" style="min-width:1120px"><thead><tr>';
         foreach (['Sl No.','Item Name','Unit','Supplier Finalized','Rate Finalized','Pending to Order','Order Qty','Amount','Brand','Remarks'] as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';
         }
@@ -4578,7 +4578,7 @@ HTML;
         echo '</select></label></p>';
         self::field($rows,'quote','employee','Compared By','');
         echo '</div><h2>Indent Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Supplier selection items" style="overflow-x:auto">';
-        echo '<table class="widefat striped" style="min-width:1440px"><thead><tr>';
+        echo '<table class="widefat striped" style="min-width:1240px"><thead><tr>';
         $columns = ['Sl No.','Item','Qty','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Supplier Finalized','Rate Finalized'];
         $colors = [3=>'#dfeeff',4=>'#dfeeff',5=>'#dcf4ef',6=>'#dcf4ef',7=>'#ede6fb',8=>'#ede6fb'];
         foreach ($columns as $index=>$label) {
