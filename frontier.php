@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.13
+ * Version: 1.9.14
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.12');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.14');
         self::enqueueDropdownSearch();
     }
 
@@ -353,11 +353,11 @@ final class Frontier {
     private static function enqueueDropdownSearch() {
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.0',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
-        wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.13',true);
+        wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.14',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.12');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.14');
         }
     }
 
@@ -1508,6 +1508,7 @@ final class Frontier {
             case 'issue':
                 self::requireRule($kind === 'po' && $status === 'draft','Only a draft PO can be issued.');
                 $status = 'issued';
+                $data['issued_at'] = current_time('mysql');
                 break;
             case 'cancel_po':
                 self::requireRule($kind === 'po' && $status === 'issued' && !self::linked($rows,$row['id']),'Use line cancellation for an order with procurement activity.');
@@ -2213,6 +2214,34 @@ final class Frontier {
         ];
     }
 
+    private static function lastIssuedPurchase($rows,$boq,$excludeIndent) {
+        $itemId = (int)($boq['item_id'] ?? 0);
+        $name = trim($boq['name'] ?? '');
+        $latest = null;
+        foreach ($rows as $order) {
+            if ($order['kind'] !== 'po' || $order['status'] !== 'issued') {
+                continue;
+            }
+            $indentId = (int)$order['data']['indent'];
+            if ($indentId === $excludeIndent) {
+                continue;
+            }
+            $previousBoq = $rows[$rows[$indentId]['data']['boq'] ?? 0]['data'] ?? [];
+            $previousItem = (int)($previousBoq['item_id'] ?? 0);
+            $sameItem = $itemId && $previousItem ? $itemId === $previousItem
+                : $name !== '' && strcasecmp(trim($previousBoq['name'] ?? ''),$name) === 0;
+            if (!$sameItem) {
+                continue;
+            }
+            $date = $order['data']['issued_at'] ?? '';
+            $latestDate = $latest['data']['issued_at'] ?? '';
+            if (!$latest || $date > $latestDate || ($date === $latestDate && (int)$order['id'] > (int)$latest['id'])) {
+                $latest = $order;
+            }
+        }
+        return $latest['data'] ?? [];
+    }
+
     private static function indentItemValues($row,$rows) {
         $data = $row['data'];
         $id = (int)$row['id'];
@@ -2238,7 +2267,7 @@ final class Frontier {
         ];
         $orders = [];
         $quotes = [];
-        $past = null;
+        $past = self::lastIssuedPurchase($rows,$boq,$id);
         $already = 0;
         $selected = null;
         foreach ($rows as $record) {
@@ -2254,12 +2283,6 @@ final class Frontier {
                 $indentId = (int)$recordData['indent'];
                 if ($indentId === $id) {
                     $orders[$recordId] = $recordData['qty'];
-                } elseif (!$past && $recordId < $id) {
-                    $previousBoq = $rows[$rows[$indentId]['data']['boq'] ?? 0]['data'] ?? [];
-                    if (($itemId && (int)($previousBoq['item_id'] ?? 0) === $itemId)
-                        || (!$itemId && !empty($boq['name']) && strcasecmp($previousBoq['name'] ?? '',$boq['name']) === 0)) {
-                        $past = $recordData;
-                    }
                 }
             } elseif ($record['kind'] === 'indent' && $recordId < $id && (int)$recordData['boq'] === $boqId
                 && in_array($record['status'],['pending','approved'],true)) {
@@ -2678,8 +2701,10 @@ final class Frontier {
                 $groups[$group] = ['label'=>$number.' · '.self::siteNumberWithName($site),'items'=>[]];
             }
             $line = $data['line_number'] ?? 1;
+            $past = self::lastIssuedPurchase($rows,$boq,$id);
             $groups[$group]['items'][] = ['id'=>$id,'line'=>$line,'number'=>$number.'/'.$line,
                 'name'=>$boq['name'] ?? '', 'qty'=>$data['qty'],'locked'=>isset($selected[$id]),
+                'lastSupplier'=>$past ? self::supplierDisplay($past,$rows) : '', 'lastRate'=>$past['rate'] ?? '',
                 'quotes'=>array_values(array_slice($quotes[$id] ?? [],0,3,true))];
         }
         $source = $rows[absint($_GET['source'] ?? 0)] ?? null;
@@ -2695,7 +2720,7 @@ final class Frontier {
         self::field($rows,'quote','employee','Compared By','');
         echo '</div><h2>Indent Items</h2><p class="frontier-quotation-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
-        foreach (['Sl No.','Item','Qty','Supplier 1','Rate 1',
+        foreach (['Sl No.','Item','Qty','Last Supplier','Last Supplier Rate','Supplier 1','Rate 1',
             'Supplier 2','Rate 2','Supplier 3','Rate 3'] as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';
         }
