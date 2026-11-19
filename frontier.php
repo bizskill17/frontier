@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.86
+ * Version: 1.9.87
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1985,7 +1985,8 @@ HTML;
         if ($isGrnView) {
             $fields = $grnFields[$grnScreen];
         }
-        $showStatus = !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems && !$isGrnView;
+        $masterRecordStatus = isset(self::GROUPS['Master'][self::$screen]) && $kind !== 'employee';
+        $showStatus = !$masterRecordStatus && !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems && !$isGrnView;
         $showActions = $grnScreen !== 'grn' && !in_array($mode,['items','selected'],true);
         $rowValues = static function ($row) use ($rows,$kind,$indentItems,$choosePending,$chooseMaster,$choiceItems,$pendingQuote) {
             [$values,$status] = $indentItems ? [self::indentItemValues($row,$rows),$row['status']] : self::recordValues($row,$rows,$kind);
