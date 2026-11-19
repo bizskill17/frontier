@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.57
+ * Version: 1.9.58
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -347,7 +347,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.57');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.58');
         self::enqueueDropdownSearch();
     }
 
@@ -365,7 +365,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.57');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.58');
         }
     }
 
@@ -869,7 +869,7 @@ final class Frontier {
                     continue;
                 }
                 $value = $editing ? ($edit['data'][$field] ?? '') : '';
-                $prefill = ['quote_form'=>'indent','po_form'=>'quote','grn_form'=>'po'][self::$screen] ?? '';
+                $prefill = ['quote_form'=>'indent','po_form'=>'quote','grn_form'=>'po','cancel'=>'po'][self::$screen] ?? '';
                 if (!$editing && $field === $prefill) {
                     $value = absint($_GET['source'] ?? 0);
                 }
@@ -1245,7 +1245,7 @@ final class Frontier {
         if ($showStatus) {
             echo '<th scope="col">Status</th>';
         }
-        $actionClass = $pendingPo ? ' class="frontier-pending-po-action"' : '';
+        $actionClass = $pendingPo ? ' class="frontier-pending-po-action"' : ($poRegister ? ' class="frontier-po-actions"' : '');
         if ($showActions) {
             echo '<th scope="col"'.$actionClass.'>Actions</th>';
         }
@@ -1530,13 +1530,28 @@ final class Frontier {
             if ($status === 'draft') {
                 self::button($row,'issue','Issue PO');
                 self::deleteAction($row,'delete','Delete draft','Delete this draft?');
-            } elseif ($status === 'issued') {
+            }
+            if (in_array($status,['draft','issued'],true)) {
+                $linked = false;
+                $openLine = null;
                 foreach (self::purchaseOrderGroup($rows,$row) as $line) {
-                    if (self::linked($rows,$line['id'])) {
-                        return;
+                    $linked = $linked || self::linked($rows,$line['id']);
+                    if ($line['status'] === 'issued' && self::balance($rows,$line) > 0) {
+                        $openLine = $openLine ?? $line['id'];
                     }
                 }
-                self::button($row,'cancel_po','Cancel PO',true);
+                if (!$linked) {
+                    echo '<details class="frontier-po-cancel"><summary class="button">Cancel PO</summary>';
+                    self::button($row,'cancel_po','Confirm cancellation',true);
+                    echo '</details>';
+                } elseif ($openLine !== null && self::canView('cancel') && self::can('cancel')) {
+                    $url = add_query_arg(['add'=>1,'source'=>$openLine],self::url('cancel'));
+                    echo '<a class="button" href="'.esc_url($url).'">Cancel PO Items</a>';
+                } elseif (self::$screen === 'po') {
+                    echo '<small>No cancellable balance</small>';
+                }
+            } elseif (self::$screen === 'po' && $status === 'cancelled') {
+                echo '<small>Cancelled</small>';
             }
         }
         if ($kind === 'grn' && $mode === 'slip' && self::can('grn')) {
@@ -1985,7 +2000,7 @@ final class Frontier {
                 $data['issued_at'] = current_time('mysql');
                 break;
             case 'cancel_po':
-                self::requireRule($kind === 'po' && $status === 'issued' && !self::linked($rows,$row['id']),'Use line cancellation for an order with procurement activity.');
+                self::requireRule($kind === 'po' && in_array($status,['draft','issued'],true) && !self::linked($rows,$row['id']),'Use line cancellation for an order with procurement activity.');
                 $status = 'cancelled';
                 break;
             case 'approve_grn':
