@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.6
+ * Version: 1.9.7
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2381,7 +2381,7 @@ final class Frontier {
         $columns = [
             'date'=>'Indent Date','number'=>'Indent No.','site'=>'Site Number with Name','requested'=>'Requested By',
             'pdf'=>'PDF','timestamp'=>'Timestamp','total'=>'Total Quantity','received'=>'Quantity Received',
-            'pending_receive'=>'Pending to Receive','target'=>'Indent Target Date','decision'=>'Decision Timestamp',
+            'pending_receive'=>'Pending to Receive','target'=>'Indent Target Date','decision'=>'Approved Timestamp',
             'by'=>'Approved/Rejected By','status'=>'Status','remarks'=>'Remarks',
             'pending_order'=>'Pending To Order','ordered'=>'Quantity Ordered',
         ];
