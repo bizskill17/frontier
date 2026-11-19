@@ -3,7 +3,7 @@ document.querySelectorAll('.frontier-pages select:not([multiple])').forEach((sel
     if (!options.some((option) => option.value !== '')) return;
 
     const fieldLabel = select.closest('label');
-    const name = fieldLabel ? fieldLabel.firstChild.textContent.trim() : select.name;
+    const name = fieldLabel ? fieldLabel.firstChild.textContent.replace(/\s*\*$/, '').trim() : select.name;
     const search = document.createElement('input');
     search.type = 'search';
     search.placeholder = 'Search ' + name;

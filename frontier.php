@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.7.9
+ * Version: 1.7.10
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -287,7 +287,7 @@ final class Frontier {
     }
 
     private static function enqueueDropdownSearch() {
-        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.7.9',true);
+        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.7.10',true);
     }
 
     public static function workspaceTemplate($template) {
@@ -533,7 +533,7 @@ final class Frontier {
                 if ($field === 'ref' && in_array($kind,['site','supplier'],true)) {
                     continue;
                 }
-                self::field($rows,$kind,$field,$label,$editing ? ($edit['data'][$field] ?? '') : '');
+                self::field($rows,$kind,$field,$label,$editing ? ($edit['data'][$field] ?? '') : '',$editing && !empty($edit['data']['wp_user_id']));
             }
             if (isset(self::FILES[$kind])) {
                 self::uploadField($kind,$kind === 'invoice');
@@ -718,8 +718,12 @@ final class Frontier {
         }
     }
 
+    private static function requiredLabel($label,$required=true) {
+        return '<span>'.esc_html($label).($required ? ' <span aria-hidden="true" style="color:#b42318">*</span>' : '').'</span>';
+    }
+
     private static function uploadField($kind,$required=false) {
-        echo '<p><label>'.esc_html(self::FILES[$kind]).' <input type="file" name="frontier_document" accept=".pdf,.png,.jpg,.jpeg" '.($required ? 'required' : '').'></label></p>';
+        echo '<p><label>'.self::requiredLabel(self::FILES[$kind],$required).' <input type="file" name="frontier_document" accept=".pdf,.png,.jpg,.jpeg" '.($required ? 'required' : '').'></label></p>';
     }
 
     private const SUPPLIER_TEXT_LIMITS = ['address'=>5000,'term'=>20000];
@@ -737,13 +741,14 @@ final class Frontier {
             || ($kind === 'site' && $field === 'telegram');
     }
 
-    private static function field($rows,$kind,$field,$label,$value) {
-        echo '<p><label>'.esc_html($label).' ';
+    private static function field($rows,$kind,$field,$label,$value,$hasLogin=false) {
+        $required = $field === 'password' ? !$hasLogin : ($field !== 'reorder' && !self::optionalField($kind,$field));
+        echo '<p><label>'.self::requiredLabel($label,$required);
         if ($kind === 'supplier' && isset(self::SUPPLIER_TEXT_LIMITS[$field])) {
             printf('<textarea name="%s" rows="4" maxlength="%d">%s</textarea>',
                 esc_attr($field),self::SUPPLIER_TEXT_LIMITS[$field],esc_textarea($value));
         } elseif ($kind === 'employee' && $field === 'password') {
-            echo '<input type="password" name="password" autocomplete="new-password" maxlength="4096">';
+            echo '<input type="password" name="password" autocomplete="new-password" maxlength="4096"'.($required ? ' required' : '').'>';
             echo '<small>Required for a new login. Leave blank to keep an existing password.</small>';
         } elseif (isset(self::FIELDS[$field])) {
             echo '<select name="'.esc_attr($field).'"'.(self::optionalField($kind,$field) ? '' : ' required').'><option value="">Select</option>';
@@ -817,7 +822,7 @@ final class Frontier {
     private static function button($row,$operation,$label,$reason=false) {
         self::formStart($row['kind'],$operation,$row['id']);
         if ($reason) {
-            echo '<label>Reason <input name="reason" required maxlength="200"></label> ';
+            echo '<label>'.self::requiredLabel('Reason').' <input name="reason" required maxlength="200"></label> ';
         }
         self::submitButton($label);
         echo '</form>';
@@ -1191,7 +1196,7 @@ final class Frontier {
     private static function uploadTemplateForm($kind) {
         $operation = ['employee'=>'import','item'=>'import_items','supplier'=>'import_suppliers'][$kind];
         self::formStart($kind,$operation);
-        echo '<p><label>CSV file <input type="file" name="import_template" accept=".csv,text/csv" required></label></p>';
+        echo '<p><label>'.self::requiredLabel('CSV file').' <input type="file" name="import_template" accept=".csv,text/csv" required></label></p>';
         self::submitButton('Import',true);
         echo ' <a class="button" href="'.esc_url(self::url($kind)).'">Cancel</a></form>';
     }
