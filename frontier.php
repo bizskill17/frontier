@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.4.0
+ * Version: 1.5.0
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -13,6 +13,7 @@ final class Frontier {
         'item'=>'Item Master',
         'category'=>'Item Categories',
         'item_type'=>'Item Type',
+        'supplier'=>'Supplier Master',
     ];
 
     private const GROUPS = [
@@ -39,11 +40,12 @@ final class Frontier {
     private static $screen = '';
 
     private const FIELDS = [
-        'employee'=>['ref'=>'Employee code', 'name'=>'Employee name'],
-        'item'=>['ref'=>'Item code', 'name'=>'Item name', 'category'=>'Item category', 'item_type'=>'Item type', 'unit'=>'Unit'],
+        'employee'=>['name'=>'Name', 'email'=>'Email Id', 'mobile'=>'Mobile', 'department'=>'Department', 'login'=>'User ID', 'password'=>'Password', 'role'=>'Role'],
+        'item'=>['name'=>'Name', 'category'=>'Item Category', 'item_type'=>'Item Type'],
         'category'=>['name'=>'Category name'],
         'item_type'=>['name'=>'Type name'],
-        'site'=>['name'=>'Site name'],
+        'site'=>['ref'=>'Site Number', 'due'=>'Site Date', 'name'=>'Site Name', 'address'=>'Site Address', 'employee'=>'Site Manager', 'telegram'=>'Telegram Group Id'],
+        'supplier'=>['ref'=>'Supplier Code', 'name'=>'Supplier Names', 'contact'=>'Contact Number', 'alternate'=>'Alternate Contact Number', 'email'=>'Email Id', 'address'=>'Address', 'city'=>'City', 'state'=>'State', 'pin'=>'PIN', 'mobile'=>'Mobile', 'gst'=>'GST', 'term'=>'Term'],
         'boq'=>['site'=>'Site', 'section'=>'Section', 'name'=>'Item', 'unit'=>'Unit', 'qty'=>'Planned quantity'],
         'indent'=>['boq'=>'BOQ item', 'qty'=>'Required quantity', 'due'=>'Required by'],
         'quote'=>['indent'=>'Approved indent', 'name'=>'Supplier', 'rate'=>'Unit rate', 'tax'=>'Tax %', 'freight'=>'Freight', 'due'=>'Delivery date', 'note'=>'Payment terms'],
@@ -54,7 +56,7 @@ final class Frontier {
         'invoice'=>['name'=>'Supplier', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'qty'=>'Total invoice quantity'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.4.0';
+    private const PAGE_VERSION = '1.5.0';
     private const PAGE_SLUGS = [
         'boq_form'=>'create-boq', 'boq_items'=>'boq-item-master',
         'indent_master'=>'indent-master', 'indent_items'=>'indents-item-master',
@@ -62,11 +64,18 @@ final class Frontier {
         'po_form'=>'create-purchase-order', 'po_items'=>'purchase-order-items',
         'grn_form'=>'goods-receipt-form', 'grn_items'=>'goods-receipt-items', 'grn_slip'=>'upload-grn-slip',
         'employee'=>'employee-master', 'item'=>'item-master',
-        'category'=>'item-categories', 'item_type'=>'item-type',
+        'category'=>'item-categories', 'item_type'=>'item-type', 'supplier'=>'supplier-master',
         'home'=>'frontier', 'site'=>'site-master', 'boq'=>'boq', 'indent'=>'indents',
         'quote'=>'quotation-comparison', 'po'=>'purchase-orders', 'follow'=>'delivery-follow-up',
         'cancel'=>'cancel-po-items', 'grn'=>'goods-receipt-notes', 'stock'=>'received-stock',
         'invoice'=>'supplier-invoices', 'match'=>'invoice-matching',
+    ];
+    private const EMPLOYEE_ROLES = [
+        'frontier_requester'=>'Frontier Requester',
+        'frontier_approver'=>'Frontier Indent Approver',
+        'frontier_buyer'=>'Frontier Buyer',
+        'frontier_receiver'=>'Frontier Receiving',
+        'frontier_accounts'=>'Frontier Accounts',
     ];
     private static $front = false;
 
@@ -459,7 +468,7 @@ final class Frontier {
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
         $edit = $rows[absint($_GET['edit'] ?? 0)] ?? null;
-        $editing = $edit && $edit['kind'] === $kind && (isset(self::MASTERS[$kind])
+        $editing = $edit && $edit['kind'] === $kind && ((isset(self::MASTERS[$kind]) || $kind === 'site')
             || ($kind === 'indent' && in_array($edit['status'],['draft','returned','approved'],true)));
         if ($kind === 'stock') {
             self::stock($rows);
@@ -616,10 +625,26 @@ final class Frontier {
         echo '<p><label>'.esc_html(self::FILES[$kind]).' <input type="file" name="frontier_document" accept=".pdf,.png,.jpg,.jpeg" '.($required ? 'required' : '').'></label></p>';
     }
 
+    private static function optionalField($kind,$field) {
+        return in_array($field,['reject','tax','freight'],true)
+            || ($field === 'note' && in_array($kind,['quote','match'],true))
+            || ($kind === 'supplier' && !in_array($field,['ref','name'],true))
+            || ($kind === 'site' && in_array($field,['telegram','employee'],true));
+    }
+
     private static function field($rows,$kind,$field,$label,$value) {
         echo '<p><label>'.esc_html($label).' ';
-        if (isset(self::FIELDS[$field])) {
-            echo '<select name="'.esc_attr($field).'" required><option value="">Select</option>';
+        if ($kind === 'employee' && $field === 'role') {
+            echo '<select name="role" required><option value="">Select</option>';
+            foreach (self::EMPLOYEE_ROLES as $key=>$name) {
+                echo '<option value="'.esc_attr($key).'" '.selected($value,$key,false).'>'.esc_html($name).'</option>';
+            }
+            echo '</select>';
+        } elseif ($kind === 'employee' && $field === 'password') {
+            echo '<input type="password" name="password" autocomplete="new-password" maxlength="4096">';
+            echo '<small>Required for a new login. Leave blank to keep an existing password.</small>';
+        } elseif (isset(self::FIELDS[$field])) {
+            echo '<select name="'.esc_attr($field).'"'.(self::optionalField($kind,$field) ? '' : ' required').'><option value="">Select</option>';
             foreach (self::eligible($rows,$kind,$field) as $row) {
                 echo '<option value="'.esc_attr($row['id']).'" '.selected($value,$row['id'],false).'>'.esc_html(self::label($row,$rows)).'</option>';
             }
@@ -628,8 +653,8 @@ final class Frontier {
             echo '<input type="checkbox" name="reorder" value="1">';
         } else {
             $numeric = in_array($field,['qty','rate','tax','freight','reject'],true);
-            $type = $numeric ? 'number' : ($field === 'due' ? 'date' : 'text');
-            $optional = in_array($field,['reject','tax','freight'],true) || ($field === 'note' && in_array($kind,['quote','match'],true));
+            $type = $numeric ? 'number' : (['due'=>'date','email'=>'email','mobile'=>'tel','contact'=>'tel','alternate'=>'tel'][$field] ?? 'text');
+            $optional = self::optionalField($kind,$field);
             printf('<input type="%s" name="%s" value="%s" %s %s>',esc_attr($type),esc_attr($field),esc_attr($value),
                 $numeric ? 'step="0.001" min="0"' : 'maxlength="200"', $optional ? '' : 'required');
         }
@@ -643,7 +668,7 @@ final class Frontier {
         if (in_array($mode,['items','selected'],true)) {
             return;
         }
-        if (isset(self::MASTERS[$kind])) {
+        if ((isset(self::MASTERS[$kind]) || $kind === 'site') && self::can($kind === 'site' ? 'sites' : $kind)) {
             echo '<a class="button" href="'.esc_url(add_query_arg('edit',$row['id'],self::url($kind))).'">Edit</a>';
         }
         if ($kind === 'indent') {
@@ -693,6 +718,10 @@ final class Frontier {
         $kind = $row['kind'];
         $data = $row['data'];
         $messages = [];
+        if (in_array($kind,['supplier','site'],true) && !empty($data['ref'])) {
+            $label = $kind === 'site' ? 'Site Number with Name' : 'Suppliers Name with Code';
+            $messages[] = $label.' · '.$data['ref'].' - '.$data['name'];
+        }
         foreach (self::FIELDS[$kind] as $field=>$label) {
             if (!isset($data[$field]) || $data[$field] === '') {
                 continue;
@@ -700,6 +729,8 @@ final class Frontier {
             $value = $data[$field];
             if (isset(self::FIELDS[$field],$rows[$value])) {
                 $value = self::label($rows[$value],$rows);
+            } elseif ($field === 'role') {
+                $value = self::EMPLOYEE_ROLES[$value] ?? $value;
             } elseif ($field === 'due') {
                 $value = implode('/',array_reverse(explode('-',$value)));
             } elseif ($field === 'reorder') {
@@ -776,7 +807,14 @@ final class Frontier {
     private static function readFields($rows,$kind) {
         $data = [];
         foreach (self::FIELDS[$kind] as $field=>$label) {
+            if ($field === 'password') {
+                continue;
+            }
             $value = self::input($field);
+            if ($value === '' && self::optionalField($kind,$field) && isset(self::FIELDS[$field])) {
+                $data[$field] = '';
+                continue;
+            }
             if (isset(self::FIELDS[$field])) {
                 $record = self::eligible($rows,$kind,$field)[absint($value)] ?? null;
                 self::requireRule($record,'Choose a valid '.$label.'.');
@@ -799,7 +837,10 @@ final class Frontier {
             } elseif ($field === 'reorder') {
                 $value = $value === '1';
             } else {
-                $optional = $field === 'note' && in_array($kind,['quote','match'],true);
+                $optional = self::optionalField($kind,$field);
+                if ($field === 'email' && $value !== '') {
+                    self::requireRule(is_email($value),'Enter a valid email address.');
+                }
                 self::requireRule(($value !== '' || $optional) && strlen($value) <= 200,'Check '.$label.' (maximum 200 bytes).');
             }
             $data[$field] = $value;
@@ -848,17 +889,21 @@ final class Frontier {
     }
 
     private static function validateMaster($rows,$kind,$data,$id=0) {
-        $key = isset($data['ref']) ? 'ref' : 'name';
+        $key = $kind === 'employee' ? 'login' : (isset($data['ref']) ? 'ref' : 'name');
         foreach ($rows as $row) {
             if ($row['kind'] === $kind && (int)$row['id'] !== (int)$id) {
-                self::requireRule(strcasecmp($row['data'][$key],$data[$key]) !== 0,
-                    'This '.($key === 'ref' ? 'code' : 'name').' already exists.');
+                if ($kind === 'item' && ((int)($row['data']['category'] ?? 0) !== (int)$data['category']
+                    || (int)($row['data']['item_type'] ?? 0) !== (int)$data['item_type'])) {
+                    continue;
+                }
+                self::requireRule(strcasecmp($row['data'][$key] ?? '',$data[$key]) !== 0,
+                    'This '.(['ref'=>'code or number','login'=>'user ID'][$key] ?? 'name').' already exists.');
             }
         }
     }
 
     private static function validateNew($rows,$kind,&$data) {
-        if (isset(self::MASTERS[$kind])) {
+        if (isset(self::MASTERS[$kind]) || $kind === 'site') {
             self::validateMaster($rows,$kind,$data);
         }
         switch ($kind) {
@@ -916,9 +961,10 @@ final class Frontier {
         $update = [];
         switch ($action) {
             case 'edit':
-                if (isset(self::MASTERS[$kind])) {
-                    $data = self::readFields($rows,$kind);
-                    self::validateMaster($rows,$kind,$data,$row['id']);
+                if (isset(self::MASTERS[$kind]) || $kind === 'site') {
+                    $fields = self::readFields($rows,$kind);
+                    self::validateMaster($rows,$kind,$fields,$row['id']);
+                    $data = $fields + $row['data'];
                     break;
                 }
                 self::requireRule($kind === 'indent' && in_array($status,['draft','returned','approved'],true),'This indent cannot be edited.');
@@ -973,6 +1019,33 @@ final class Frontier {
         return $update + ['status'=>$status,'details'=>wp_json_encode($data)];
     }
 
+    private static function employeeAccount($data) {
+        $linkedId = absint($data['wp_user_id'] ?? 0);
+        $account = $linkedId ? get_userdata($linkedId) : null;
+        self::requireRule(current_user_can('promote_users') && ($linkedId
+            ? current_user_can('edit_user',$linkedId)
+            : current_user_can('create_users')), 'You do not have permission to manage employee logins.');
+        self::requireRule(isset(self::EMPLOYEE_ROLES[$data['role']]) && get_role($data['role']), 'Choose a Frontier role.');
+        self::requireRule(strlen($data['login']) <= 60 && validate_username($data['login']), 'Enter a valid WordPress user ID.');
+        if ($linkedId) {
+            self::requireRule($account && $account->roles && !array_diff($account->roles,array_keys(self::EMPLOYEE_ROLES))
+                && !is_super_admin($linkedId) && $account->user_login === $data['login'],
+                'The linked account must keep its existing User ID and a Frontier role.');
+        }
+        $input = $_POST['password'] ?? '';
+        $password = is_string($input) ? wp_unslash($input) : '';
+        self::requireRule(($linkedId && $password === '') || (strlen($password) >= 12 && strlen($password) <= 4096
+            && trim($password) === $password), 'Enter a password of 12 to 4096 characters without spaces at either end.');
+        $user = ['user_login'=>$data['login'], 'user_email'=>$data['email'],
+            'display_name'=>$data['name'], 'role'=>$data['role']];
+        if ($password !== '') {
+            $user['user_pass'] = $password;
+        }
+        $id = $linkedId ? wp_update_user(['ID'=>$linkedId] + $user) : wp_insert_user($user);
+        self::requireRule(!is_wp_error($id), is_wp_error($id) ? $id->get_error_message() : '');
+        return (int)$id;
+    }
+
     public static function save() {
         global $wpdb;
         check_admin_referer('frontier_save');
@@ -987,11 +1060,23 @@ final class Frontier {
             wp_die('Frontier is busy. Please retry.', '', ['response'=>503]);
         }
         $error = null;
+        $transaction = false;
+        $accountId = 0;
         try {
             $rows = self::rows();
+            if ($kind === 'employee' && in_array($action,['create','edit'],true)) {
+                if ($wpdb->query('START TRANSACTION') === false) {
+                    throw new RuntimeException('Employee account transaction could not start.');
+                }
+                $transaction = true;
+            }
             if ($action === 'create') {
                 $data = self::readFields($rows,$kind);
                 self::validateNew($rows,$kind,$data);
+                if ($transaction) {
+                    $accountId = self::employeeAccount($data);
+                    $data['wp_user_id'] = $accountId;
+                }
                 $status = ['indent'=>'draft','po'=>'draft','grn'=>'pending','quote'=>'received','invoice'=>'pending_match'][$kind] ?? 'recorded';
                 $document = isset(self::FILES[$kind]) ? self::document($kind === 'invoice') : [];
                 $result = $wpdb->insert(self::table(),$document + ['kind'=>$kind,'status'=>$status,'details'=>wp_json_encode($data)]);
@@ -1002,15 +1087,32 @@ final class Frontier {
                     self::requireRule($kind === 'po' && $row['status'] === 'draft' && !self::linked($rows,$row['id']),'Only an unused draft PO may be deleted.');
                     $result = $wpdb->delete(self::table(),['id'=>$row['id']]);
                 } else {
-                    $result = $wpdb->update(self::table(),self::transition($rows,$row,$action),['id'=>$row['id']]);
+                    $update = self::transition($rows,$row,$action);
+                    if ($transaction) {
+                        $data = json_decode($update['details'],true);
+                        $accountId = self::employeeAccount($data);
+                        $data['wp_user_id'] = $accountId;
+                        $update['details'] = wp_json_encode($data);
+                    }
+                    $result = $wpdb->update(self::table(),$update,['id'=>$row['id']]);
                 }
             }
             if ($result === false) {
                 throw new RuntimeException('The record could not be saved.');
             }
+            if ($transaction && $wpdb->query('COMMIT') === false) {
+                throw new RuntimeException('Employee account transaction could not finish.');
+            }
+            $transaction = false;
         } catch (Throwable $exception) {
             $error = $exception instanceof DomainException ? $exception->getMessage() : 'Frontier could not save the record.';
         } finally {
+            if ($transaction) {
+                $wpdb->query('ROLLBACK');
+            }
+            if ($accountId) {
+                clean_user_cache($accountId);
+            }
             $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)',$lock));
         }
         if ($error !== null) {
