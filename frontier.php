@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.27
+ * Version: 1.9.28
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -737,7 +737,24 @@ final class Frontier {
             foreach ($query as $key=>$value) {
                 echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
             }
-            self::field($rows,'quote','indent','Compare quotations for',absint($_GET['indent'] ?? 0));
+            $filter = self::indentGroupFilter();
+            echo '<p><label>Indent No. with Site Name<select name="indent_group"><option value="">Select indent</option>';
+            $listed = [];
+            foreach ($rows as $quote) {
+                if ($quote['kind'] !== 'quote' || $quote['status'] !== 'selected') {
+                    continue;
+                }
+                $indent = $rows[$quote['data']['indent'] ?? 0] ?? null;
+                if (!$indent || isset($listed[self::indentGroup($indent)])) {
+                    continue;
+                }
+                $group = self::indentGroup($indent);
+                $listed[$group] = true;
+                $details = self::supplierIndentDetails($indent,$rows);
+                $label = $details['indent_number'].' · '.$details['site_name'];
+                echo '<option value="'.esc_attr($group).'" '.selected($filter,$group,false).'>'.esc_html($label).'</option>';
+            }
+            echo '</select></label></p>';
             echo '<button class="button">Filter</button> <a href="'.esc_url($url).'">Show all</a></form>';
         }
         $canAdd = in_array($mode,['form','combined','register'],true) && self::can($kind === 'site' ? 'sites' : $kind);
@@ -801,7 +818,8 @@ final class Frontier {
                 || ($mode === 'selected' && $row['status'] !== 'selected')) {
                 continue;
             }
-            if ($indentGroup !== '' && self::indentGroup($row) !== $indentGroup) {
+            $groupRow = self::$screen === 'choose_master' ? ($rows[$row['data']['indent'] ?? 0] ?? null) : $row;
+            if ($indentGroup !== '' && (!$groupRow || self::indentGroup($groupRow) !== $indentGroup)) {
                 continue;
             }
             $listing[] = $row;
@@ -809,7 +827,7 @@ final class Frontier {
         if (self::$screen === 'quote') {
             self::quotationRegister($listing,$rows);
         } else {
-            self::renderRecords($listing,$rows,$kind,$indentGroup !== '' ? 'register' : $mode);
+            self::renderRecords($listing,$rows,$kind,$indentGroup !== '' && self::$screen !== 'choose_master' ? 'register' : $mode);
         }
         echo '</div>';
     }
@@ -929,7 +947,7 @@ final class Frontier {
                 $listing[] = $row;
             }
         }
-        self::renderRecords($listing,$rows,$kind,'queue');
+        self::renderRecords($listing,$rows,$kind,'queue',$choiceItems);
     }
 
     private static function pagedRows($rows) {
@@ -961,7 +979,7 @@ final class Frontier {
         echo '</p></nav>';
     }
 
-    private static function renderRecords($listing,$rows,$kind,$mode) {
+    private static function renderRecords($listing,$rows,$kind,$mode,$choiceItems=[]) {
         $fields = self::FIELDS[$kind];
         unset($fields['password']);
         $fields += [
@@ -977,6 +995,19 @@ final class Frontier {
         ][$kind] ?? [];
         if (self::$screen === 'pending_po') {
             $fields['pending_quantity'] = 'Pending To Order';
+        }
+        $choosePending = self::$screen === 'pending_choose';
+        $chooseMaster = self::$screen === 'choose_master';
+        if ($choosePending || $chooseMaster) {
+            $fields = ['site_name'=>'Site Number with Name','indent_number'=>'Indent No.','indent_date'=>'Indent Date',
+                'line_number'=>'Sl No.','item_name'=>'Item Name','qty'=>'Qty','unit'=>'Unit'];
+            $fields += $choosePending ? [
+                'supplier_1'=>'Supplier 1','rate_1'=>'Rate 1','supplier_2'=>'Supplier 2','rate_2'=>'Rate 2',
+                'supplier_3'=>'Supplier 3','rate_3'=>'Rate 3','quote_date'=>'Quotation Date','comparison_name'=>'Compared By',
+            ] : [
+                'supplier'=>'Supplier Finalized','rate'=>'Rate Finalized','selection_date'=>'Selection Date',
+                'comparison_name'=>'Compared By','attachment'=>'Quotation File','reason'=>'Selection Reason',
+            ];
         }
         $pendingQuote = self::$screen === 'pending_quote';
         if ($pendingQuote) {
@@ -1006,6 +1037,24 @@ final class Frontier {
         echo '</tr></thead><tbody>';
         foreach ($pageRows as $row) {
             [$values,$status] = $indentItems ? [self::indentItemValues($row,$rows),$row['status']] : self::recordValues($row,$rows,$kind);
+            if ($choosePending || $chooseMaster) {
+                $indentId = (int)($row['data']['indent'] ?? 0);
+                $indent = $rows[$indentId] ?? [];
+                $values = self::supplierIndentDetails($indent,$rows) + $values;
+                if ($choosePending) {
+                    foreach (array_values(array_slice($choiceItems[$indentId] ?? [],0,3)) as $index=>$quote) {
+                        $slot = $index + 1;
+                        $values['supplier_'.$slot] = self::supplierDisplay($quote['data'],$rows);
+                        $values['rate_'.$slot] = $quote['data']['rate'];
+                    }
+                    $status = 'pending_supplier_selection';
+                } else {
+                    $data = $row['data'];
+                    $values['comparison_name'] = $data['compared_by'] ?? $data['comparison_name'] ?? '';
+                    $values['selection_date'] = self::indentDisplayDate($data['selection_date'] ?? substr($data['compared_at'] ?? '',0,10));
+                    $status = 'finalized';
+                }
+            }
             if ($pendingQuote) {
                 $indent = $row['data'];
                 $boq = $rows[$indent['boq'] ?? 0]['data'] ?? [];
@@ -2338,7 +2387,7 @@ final class Frontier {
     }
 
     private static function indentGroupFilter() {
-        if (self::$screen !== 'indent_items' || !is_string($_GET['indent_group'] ?? null)) {
+        if (!in_array(self::$screen,['indent_items','choose_master'],true) || !is_string($_GET['indent_group'] ?? null)) {
             return '';
         }
         return sanitize_key(wp_unslash($_GET['indent_group']));
@@ -2804,6 +2853,21 @@ final class Frontier {
                 throw new RuntimeException('Indent could not be saved.');
             }
         }
+    }
+
+    private static function supplierIndentDetails($indent,$rows) {
+        $data = $indent['data'] ?? [];
+        $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
+        $site = $rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
+        return [
+            'site_name'=>self::siteNumberWithName($site),
+            'indent_number'=>$data['indent_number'] ?? (isset($indent['id']) ? '#'.$indent['id'] : ''),
+            'indent_date'=>self::indentDisplayDate($data['indent_date'] ?? ''),
+            'line_number'=>$data['line_number'] ?? ($data ? 1 : ''),
+            'item_name'=>$boq['name'] ?? '',
+            'qty'=>$data['qty'] ?? '',
+            'unit'=>$data['unit'] ?? $boq['unit'] ?? '',
+        ];
     }
 
     private static function supplierChoices($rows) {
