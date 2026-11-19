@@ -419,3 +419,51 @@ body.frontier-workspace {
     outline: 2px solid #164f8a;
     outline-offset: 2px;
 }
+
+.frontier-stage-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    list-style: none;
+    padding: 0;
+    margin: 10px 0;
+}
+
+.frontier-stage-key li {
+    border: 1px solid #cbd6e4;
+    border-radius: 5px;
+    padding: 2px 8px;
+}
+
+.frontier-pages .frontier-table .frontier-stage-start {
+    border-inline-start: 2px solid #aabbd0;
+}
+
+.frontier-pages .frontier-table td.frontier-stage-indent,
+.frontier-stage-key .frontier-stage-indent { background: #EAF3FF; }
+.frontier-pages .frontier-table th.frontier-stage-indent { background: #D9E9FC; }
+
+.frontier-pages .frontier-table td.frontier-stage-approval,
+.frontier-stage-key .frontier-stage-approval { background: #FFF4D8; }
+.frontier-pages .frontier-table th.frontier-stage-approval { background: #F6E7B7; }
+
+.frontier-pages .frontier-table td.frontier-stage-quotation,
+.frontier-stage-key .frontier-stage-quotation { background: #F1ECFF; }
+.frontier-pages .frontier-table th.frontier-stage-quotation { background: #E7DDFB; }
+
+.frontier-pages .frontier-table td.frontier-stage-selection,
+.frontier-stage-key .frontier-stage-selection { background: #E4F6F2; }
+.frontier-pages .frontier-table th.frontier-stage-selection { background: #D0EEE7; }
+
+.frontier-pages .frontier-table td.frontier-stage-order,
+.frontier-stage-key .frontier-stage-order { background: #FFF0E4; }
+.frontier-pages .frontier-table th.frontier-stage-order { background: #F9DEC9; }
+
+.frontier-pages .frontier-table td.frontier-stage-receipt,
+.frontier-stage-key .frontier-stage-receipt { background: #EAF6E9; }
+.frontier-pages .frontier-table th.frontier-stage-receipt { background: #D8EDD6; }
+
+.frontier-pages .frontier-table td.frontier-stage-cancel,
+.frontier-stage-key .frontier-stage-cancel { background: #FCECEF; }
+.frontier-pages .frontier-table th.frontier-stage-cancel { background: #F7DCE3; }
+
