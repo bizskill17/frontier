@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.36
+ * Version: 1.9.37
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -339,7 +339,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.36');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.37');
         self::enqueueDropdownSearch();
     }
 
@@ -357,7 +357,7 @@ final class Frontier {
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.10',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-form.js',__FILE__),['frontier-dropdown-search'],'1.9.1',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.36');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.37');
         }
     }
 
@@ -3032,12 +3032,12 @@ final class Frontier {
         }
         echo '</tbody></table></div><p><strong>Total Amount <output data-po-total aria-live="polite"></output></strong></p>';
         echo '<p><a class="button" href="'.esc_url(self::url('pending_po')).'">Cancel</a> <button type="submit" class="button button-primary" data-po-save disabled>Create Purchase Order</button></p>';
-        echo '<section data-po-terms hidden><h2>Supplier Terms</h2>';
+        echo '<section data-po-terms hidden><h2>Supplier Terms</h2><div class="frontier-po-terms-grid">';
         foreach ($suppliers as $key=>$supplier) {
             echo '<p data-po-terms-supplier="'.esc_attr($key).'" hidden><label>'.esc_html($supplier['label']);
             echo '<textarea name="po_terms['.esc_attr($key).']" rows="3" maxlength="20000" disabled>'.esc_textarea($supplier['terms']).'</textarea></label></p>';
         }
-        echo '</section>';
+        echo '</div></section>';
         echo <<<'HTML'
 <script>
 (() => {
@@ -3066,7 +3066,7 @@ final class Frontier {
             const amount = valid ? Math.round((qty.valueAsNumber * Number(row.dataset.rate) + Number.EPSILON) * 100) : 0;
             row.querySelector('[data-po-amount]').textContent = valid ? currency.format(amount / 100) : '';
             total += amount;
-            if (valid) suppliers.add(row.dataset.poSupplier);
+            if (qty.valueAsNumber > 0) suppliers.add(row.dataset.poSupplier);
             ready ||= valid;
             invalid ||= !qty.validity.valid;
         }
@@ -3085,11 +3085,15 @@ final class Frontier {
             field.querySelector('textarea').disabled = field.hidden;
         }
         form.querySelector('[data-po-total]').textContent = currency.format(total / 100);
-        form.querySelector('[data-po-save]').disabled = !ready || invalid;
+        const headerComplete = group.value && form.elements.employee.value
+            && form.elements.due.value && form.elements.target_date.value;
+        form.querySelector('[data-po-save]').disabled = !ready || invalid || !headerComplete;
     }
-    group.addEventListener('change', render);
+    form.addEventListener('change', event => {
+        if (event.target.matches('[name="po_group"], [name="employee"], [name="due"], [name="target_date"]')) render();
+    });
     form.addEventListener('input', event => {
-        if (event.target.matches('[data-po-qty]')) render();
+        if (event.target.matches('[data-po-qty], [name="due"], [name="target_date"]')) render();
     });
     render();
 })();

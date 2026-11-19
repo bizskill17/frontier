@@ -317,3 +317,9 @@ body.frontier-workspace {
 .frontier-main .frontier-po-form .frontier-table { margin-top: 6px; }
 .frontier-po-form textarea { width: 100%; padding: 7px 10px; border: 1px solid #aebed0; border-radius: 6px; font: inherit; resize: vertical; }
 .frontier-po-form [data-po-terms-supplier] textarea { display: block; margin-top: 4px; }
+
+.frontier-po-form [data-po-terms] { margin-top: 16px; padding-top: 8px; border-top: 1px solid #dce4ee; }
+.frontier-po-terms-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 10px 16px; }
+.frontier-po-terms-grid p { margin: 0; }
+.frontier-po-form [data-po-warning] { color: #b42318; }
+.frontier-main .frontier-po-form [data-po-save]:disabled { opacity: .55; cursor: not-allowed; }
