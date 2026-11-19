@@ -161,8 +161,6 @@ body.frontier-workspace {
 .frontier-quotation-form th:nth-child(5), .frontier-quotation-form th:nth-child(6) { background: #dfeeff; }
 .frontier-quotation-form th:nth-child(7), .frontier-quotation-form th:nth-child(8) { background: #dcf4ef; }
 .frontier-quotation-form th:nth-child(9), .frontier-quotation-form th:nth-child(10) { background: #ede6fb; }
-.frontier-quotation-form td:nth-child(5), .frontier-quotation-form td:nth-child(7), .frontier-quotation-form td:nth-child(9) { min-width: 185px; }
-.frontier-quotation-form td:nth-child(6), .frontier-quotation-form td:nth-child(8), .frontier-quotation-form td:nth-child(10) { min-width: 82px; }
 .frontier-quotation-save:disabled { opacity: .55; cursor: not-allowed; }
 .frontier-quotation-form .frontier-quotation-error { color: #a32121; }
 
@@ -188,3 +186,23 @@ body.frontier-workspace {
 .frontier-indent-dialog textarea, .frontier-indent-dialog input[readonly] { width: 100%; box-sizing: border-box; }
 .frontier-indent-dialog input[readonly] { background: #edf2f8; }
 .frontier-indent-dialog-actions { justify-content: flex-end; }
+
+.frontier-pages .frontier-quotation-form { padding: clamp(12px, 1.4vw, 18px); }
+.frontier-quotation-form .frontier-fields { gap: 10px; margin-bottom: 12px; }
+.frontier-quotation-form h2 { margin: 8px 0 5px; }
+.frontier-quotation-form .frontier-quotation-message { margin: 4px 0 8px; }
+.frontier-quotation-form .frontier-quotation-message:empty { display: none; }
+.frontier-pages .frontier-quotation-form .frontier-table { margin: 8px 0 0; }
+.frontier-quotation-form .frontier-table table { table-layout: fixed; min-width: 900px; }
+.frontier-pages .frontier-quotation-form .frontier-table th,
+.frontier-pages .frontier-quotation-form .frontier-table td { padding: 5px 7px; vertical-align: middle; }
+.frontier-quotation-form th { white-space: nowrap; }
+.frontier-quotation-form th:nth-child(1), .frontier-quotation-form th:nth-child(4) { width: 4%; }
+.frontier-quotation-form th:nth-child(2) { width: 6%; }
+.frontier-quotation-form th:nth-child(3) { width: 17%; }
+.frontier-quotation-form th:nth-child(5), .frontier-quotation-form th:nth-child(7), .frontier-quotation-form th:nth-child(9) { width: 17%; }
+.frontier-quotation-form th:nth-child(6), .frontier-quotation-form th:nth-child(8), .frontier-quotation-form th:nth-child(10) { width: 6%; }
+.frontier-quotation-form td:nth-child(3) { overflow-wrap: anywhere; }
+.frontier-pages .frontier-quotation-form input:not([type="checkbox"]),
+.frontier-pages .frontier-quotation-form select { min-height: 30px; padding-block: 4px; }
+.frontier-pages .frontier-quotation-form .frontier-table input { width: 100%; min-width: 0; padding-inline: 6px; }
