@@ -55,7 +55,7 @@
         }
         for (const item of indent.items) {
             const row = table.insertRow();
-            for (const value of [item.line, item.number, item.name, item.qty]) {
+            for (const value of [item.line, item.name, item.qty]) {
                 row.insertCell().textContent = value;
             }
             const pairs = [];
