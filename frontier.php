@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.32
+ * Version: 1.9.33
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1271,7 +1271,7 @@ final class Frontier {
         $next = [
             'pending_quote'=>['quote_form','Update'],
             'pending_choose'=>['choose_form','Update'],
-            'pending_po'=>['po_form','Create Purchase Order'],
+            'pending_po'=>['po_form','Create PO'],
             'pending_grn'=>['grn_form','Create Goods Receipt'],
         ][self::$screen] ?? null;
         if ($next) {
@@ -1379,7 +1379,20 @@ final class Frontier {
         if (self::$screen === 'pending_po' && isset($rows[$data['indent'] ?? 0])) {
             $indent = $rows[$data['indent']];
             $values = self::supplierIndentDetails($indent,$rows) + $values;
-            $values['due'] = self::indentDisplayDate($indent['data']['due'] ?? '');
+            $due = $indent['data']['due'] ?? '';
+            if ($due === '') {
+                $group = self::indentGroup($indent);
+                foreach ($rows as $line) {
+                    if ($line['kind'] !== 'indent' || self::indentGroup($line) !== $group) {
+                        continue;
+                    }
+                    $lineDue = $line['data']['due'] ?? '';
+                    if ($lineDue !== '' && ($due === '' || $lineDue < $due)) {
+                        $due = $lineDue;
+                    }
+                }
+            }
+            $values['due'] = self::indentDisplayDate($due);
             $values['pending_quantity'] = self::available($rows,$indent);
             $values['ordered_quantity'] = round($indent['data']['qty'] - $values['pending_quantity'],3);
         }
