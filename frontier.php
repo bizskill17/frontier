@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.3
+ * Version: 1.6.4
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -79,6 +79,11 @@ final class Frontier {
     ];
     private static $front = false;
 
+    private const IMPORT_TEMPLATES = [
+        'employee'=>['Name'],
+        'item'=>['Name','Item Category','Item Type'],
+    ];
+
     private const FILES = ['quote'=>'Quotation file', 'grn'=>'Signed GRN slip', 'invoice'=>'Invoice copy'];
 
     public static function boot() {
@@ -91,6 +96,7 @@ final class Frontier {
         add_filter('wp_nav_menu_objects', [self::class, 'filterClassicNavigation']);
         add_shortcode('frontier_view', [self::class, 'shortcode']);
         add_action('admin_menu', [self::class, 'menu']);
+        add_action('admin_post_frontier_template', [self::class, 'downloadTemplate']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
     }
@@ -450,27 +456,8 @@ final class Frontier {
             echo '<div class="notice notice-success" role="status"><p>Saved.</p></div>';
         }
         self::$screen = $kind;
-        if ($kind === 'employee' && !isset($_GET['add']) && !isset($_GET['edit'])) {
-            if (isset($_GET['imported'])) {
-                echo '<p role="status">'.esc_html(absint($_GET['imported']).' employee records added.').'</p>';
-            }
-            echo '<details><summary>Bulk Add Employees</summary>';
-            self::formStart('employee','import');
-            echo '<p><label>Employee names <textarea name="employee_names" rows="10" cols="44" required></textarea></label></p>';
-            echo '<p>Enter one name per line or paste a single-column table.</p>';
-            self::submitButton('Import Employees',true);
-            echo '</form></details>';
-        }
-        if ($kind === 'item' && !isset($_GET['add']) && !isset($_GET['edit'])) {
-            if (isset($_GET['imported'])) {
-                echo '<p role="status">'.esc_html(absint($_GET['imported']).' item records added.').'</p>';
-            }
-            echo '<details><summary>Bulk Add Items</summary>';
-            self::formStart('item','import_items');
-            echo '<p><label>Items <textarea name="item_rows" rows="12" cols="75" required></textarea></label></p>';
-            echo '<p>Paste a three-column table in this order: Name, Item Category, Item Type.</p>';
-            self::submitButton('Import Items',true);
-            echo '</form></details>';
+        if (isset(self::IMPORT_TEMPLATES[$kind]) && !isset($_GET['add']) && !isset($_GET['edit'])) {
+            self::templateControls($kind);
         }
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
@@ -1067,12 +1054,78 @@ final class Frontier {
         return (int)$id;
     }
 
+    private static function templateControls($kind) {
+        if (isset($_GET['imported'])) {
+            echo '<p role="status">'.esc_html(absint($_GET['imported']).' '.$kind.' records added.').'</p>';
+        }
+        $download = add_query_arg(['action'=>'frontier_template','kind'=>$kind],admin_url('admin-post.php'));
+        echo '<p><a class="button" href="'.esc_url(wp_nonce_url($download,'frontier_template_'.$kind)).'">Download Template</a></p>';
+        echo '<details><summary class="button">Upload Template</summary>';
+        self::formStart($kind,$kind === 'employee' ? 'import' : 'import_items');
+        echo '<p><label>CSV file <input type="file" name="import_template" accept=".csv,text/csv" required></label></p>';
+        self::submitButton('Import',true);
+        echo '</form></details>';
+    }
+
+    public static function downloadTemplate() {
+        $kind = isset($_GET['kind']) && is_string($_GET['kind']) ? sanitize_key(wp_unslash($_GET['kind'])) : '';
+        if (!isset(self::IMPORT_TEMPLATES[$kind]) || !self::canView($kind)) {
+            wp_die('Access denied.', '', ['response'=>403]);
+        }
+        check_admin_referer('frontier_template_'.$kind);
+        nocache_headers();
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="frontier-'.$kind.'-template.csv"');
+        $output = fopen('php://output','wb');
+        fputcsv($output,self::IMPORT_TEMPLATES[$kind],',','"','');
+        fclose($output);
+        exit;
+    }
+
+    private static function readImportTemplate($kind,$limit) {
+        $file = $_FILES['import_template'] ?? [];
+        $path = $file['tmp_name'] ?? '';
+        self::requireRule(($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK
+            && is_string($path) && is_uploaded_file($path) && ($file['size'] ?? 0) <= 500000
+            && is_string($file['name'] ?? null) && strtolower(pathinfo($file['name'],PATHINFO_EXTENSION)) === 'csv',
+            'Upload a CSV template up to 500 KB.');
+        $stream = fopen($path,'rb');
+        self::requireRule($stream !== false,'Could not open the CSV file.');
+        try {
+            if (fread($stream,3) !== "\xEF\xBB\xBF") {
+                rewind($stream);
+            }
+            $headers = fgetcsv($stream,0,',','"','');
+            $expected = self::IMPORT_TEMPLATES[$kind];
+            self::requireRule($headers && array_map('trim',$headers) === $expected,
+                'Use the template headers in this order: '.implode(', ',$expected).'.');
+            $rows = [];
+            $line = 1;
+            while (($row = fgetcsv($stream,0,',','"','')) !== false) {
+                $line++;
+                $row = array_map(static function ($value) {
+                    return trim(sanitize_text_field((string)$value));
+                },$row);
+                if ($row === [''] || $row === array_fill(0,count($expected),'')) {
+                    continue;
+                }
+                self::requireRule(count($row) === count($expected),'Check the column count on CSV row '.$line.'.');
+                foreach ($row as $value) {
+                    self::requireRule($value !== '' && strlen($value) <= 200,'Check the values on CSV row '.$line.'.');
+                }
+                $rows[] = $row;
+                self::requireRule(count($rows) <= $limit,'Upload up to '.$limit.' records.');
+            }
+            self::requireRule($rows,'Add at least one record below the header.');
+            return $rows;
+        } finally {
+            fclose($stream);
+        }
+    }
+
     private static function importEmployees($rows) {
         global $wpdb;
-        $raw = $_POST['employee_names'] ?? '';
-        self::requireRule(is_string($raw) && strlen($raw) <= 30000,'Enter up to 250 employee names.');
-        $lines = preg_split('/\R/',wp_unslash($raw));
-        self::requireRule(count($lines) <= 255,'Enter up to 250 employee names.');
+        $names = self::readImportTemplate('employee',250);
         $usedNames = [];
         $usedLogins = [];
         foreach ($rows as $row) {
@@ -1083,14 +1136,8 @@ final class Frontier {
             }
         }
         $count = 0;
-        $hasNames = false;
-        foreach ($lines as $line) {
-            $line = html_entity_decode($line, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $name = trim(preg_replace('/[\s\p{Z}]+/u',' ',sanitize_text_field(trim($line," \t|"))) ?? '');
-            if ($name === '' || preg_match('/^:?-{3,}:?$/D',$name)) {
-                continue;
-            }
-            $hasNames = true;
+        foreach ($names as [$value]) {
+            $name = preg_replace('/[\s\p{Z}]+/u',' ',trim($value)) ?? '';
             $nameKey = strtolower($name);
             if (isset($usedNames[$nameKey])) {
                 continue;
@@ -1112,33 +1159,12 @@ final class Frontier {
             $usedNames[$nameKey] = true;
             $usedLogins[$login] = true;
         }
-        self::requireRule($hasNames,'Enter at least one employee name.');
         return $count;
     }
 
     private static function importItems($records) {
         global $wpdb;
-        $raw = $_POST['item_rows'] ?? '';
-        self::requireRule(is_string($raw) && strlen($raw) <= 500000,'Paste up to 1,000 item rows.');
-        $items = [];
-        foreach (preg_split('/\R/',wp_unslash($raw)) as $index=>$line) {
-            if (trim($line) === '') {
-                continue;
-            }
-            $cells = strpos($line,"\t") !== false ? explode("\t",$line) : explode('|',trim(trim($line),'|'));
-            $cells = array_map(static function ($cell) {
-                return trim(sanitize_text_field(html_entity_decode($cell, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
-            },$cells);
-            self::requireRule(count($cells) === 3,'Expected three columns on row '.($index+1).'.');
-            if (preg_match('/^:?-{3,}:?$/D',$cells[0]) || array_map('strtolower',$cells) === ['name','item category','item type']) {
-                continue;
-            }
-            foreach ($cells as $value) {
-                self::requireRule($value !== '' && strlen($value) <= 200,'Check the values on row '.($index+1).'.');
-            }
-            $items[] = $cells;
-        }
-        self::requireRule(count($items) > 0 && count($items) <= 1000,'Paste between 1 and 1,000 item rows.');
+        $items = self::readImportTemplate('item',1000);
         $lookup = ['category'=>[], 'item_type'=>[]];
         $existing = [];
         foreach ($records as $record) {
