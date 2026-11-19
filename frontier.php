@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.5
+ * Version: 1.9.6
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -746,6 +746,10 @@ final class Frontier {
     }
 
     private static function pendingWork($rows,$screen) {
+        if ($screen === 'pending_indent') {
+            self::indentRegister($rows,true);
+            return;
+        }
         $listing = [];
         $quoted = [];
         $selected = [];
@@ -770,9 +774,6 @@ final class Frontier {
             $indentId = (int)($row['data']['indent'] ?? 0);
             $indent = $rows[$indentId] ?? null;
             switch ($screen) {
-                case 'pending_indent':
-                    $pending = $row['status'] === 'pending';
-                    break;
                 case 'pending_quote':
                     $pending = $row['status'] === 'approved' && !isset($quoted[$id]);
                     break;
@@ -839,13 +840,6 @@ final class Frontier {
         ][$kind] ?? [];
         if (self::$screen === 'pending_po') {
             $fields['pending_quantity'] = 'Pending To Order';
-        }
-        if (self::$screen === 'pending_indent') {
-            $fields = [
-                'indent_number'=>'Indent No.','indent_date'=>'Indent Date','site_name'=>'Site Number with Name',
-                'requested_name'=>'Requested By','line_number'=>'Sl No.','approval_item'=>'Item',
-                'qty'=>'Quantity Requested','unit'=>'Unit','excess'=>'Excess Quantity','due'=>'Target Date',
-            ];
         }
         $indentItems = self::$screen === 'indent_items';
         if ($indentItems) {
@@ -1153,14 +1147,6 @@ final class Frontier {
         }
         if (in_array($kind,['supplier','site'],true) && !empty($data['ref'])) {
             $values['combined_name'] = $data['ref'].' - '.$data['name'];
-        }
-        if (self::$screen === 'pending_indent' && $kind === 'indent') {
-            $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
-            $values['approval_item'] = $boq['name'] ?? '';
-            $values['indent_number'] = $data['indent_number'] ?? '#'.$row['id'];
-            $values['site_name'] = self::siteNumberWithName($rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? []);
-            $values['line_number'] = $data['line_number'] ?? 1;
-            $values['unit'] = $data['unit'] ?? ($boq['unit'] ?? '');
         }
         if (self::$screen === 'pending_po' && isset($rows[$data['indent'] ?? 0])) {
             $values['pending_quantity'] = self::available($rows,$rows[$data['indent']]);
@@ -2321,7 +2307,7 @@ final class Frontier {
         return $date ? implode('/',array_reverse(explode('-',$date))) : '';
     }
 
-    private static function indentRegister($rows) {
+    private static function indentRegister($rows,$pendingOnly=false) {
         $pos = [];
         $received = [];
         foreach ($rows as $row) {
@@ -2363,13 +2349,16 @@ final class Frontier {
                     'site'=>self::siteNumberWithName($rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? []),
                     'requested'=>$data['requested_name'] ?? '', 'timestamp'=>$data['indent_timestamp'] ?? '',
                     'total'=>0,'received'=>0,'pending_receive'=>0,'ordered'=>0,'pending_order'=>0,
-                    'target'=>'','decision'=>'','by'=>'','statuses'=>[],'remarks'=>[],
+                    'target'=>'','decision'=>'','by'=>'','statuses'=>[],'remarks'=>[],'pending_lines'=>0,
                 ];
             }
             $entry = &$groups[$group];
             $ordered = $byIndent[$id]['ordered'] ?? 0;
             $receivedQty = $byIndent[$id]['received'] ?? 0;
             $entry['statuses'][$status] = true;
+            if ($status === 'pending') {
+                $entry['pending_lines']++;
+            }
             $entry['total'] += $data['qty'];
             $entry['ordered'] += $ordered;
             $entry['received'] += $receivedQty;
@@ -2396,8 +2385,16 @@ final class Frontier {
             'by'=>'Approved/Rejected By','status'=>'Status','remarks'=>'Remarks',
             'pending_order'=>'Pending To Order','ordered'=>'Quantity Ordered',
         ];
+        if ($pendingOnly) {
+            $groups = array_filter($groups,static function ($entry) { return $entry['pending_lines'] > 0; });
+            $columns = [
+                'number'=>'Indent No.','date'=>'Indent Date','site'=>'Site Number with Name',
+                'requested'=>'Requested By','target'=>'Target Date','pending_lines'=>'Pending Items',
+                'total'=>'Total Quantity','pdf'=>'PDF','actions'=>'Actions',
+            ];
+        }
         [$pageRows,$page,$pages,$total] = self::pagedRows($groups);
-        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Indent Master"><table class="widefat striped"><thead><tr>';
+        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Indent register"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';
         }
@@ -2409,6 +2406,8 @@ final class Frontier {
                 if ($field === 'number') {
                     $url = add_query_arg('indent_group',$entry['group'],self::url('indent_items'));
                     echo '<a href="'.esc_url($url).'">'.esc_html((string)$entry['number']).'</a>';
+                } elseif ($field === 'actions') {
+                    self::button($rows[$entry['id']],'approve_indent_group','Approve Indent');
                 } elseif ($field === 'pdf') {
                     $id = $entry['id'];
                     $url = add_query_arg(['action'=>'frontier_indent_pdf','id'=>$id],admin_url('admin-post.php'));
@@ -2433,7 +2432,7 @@ final class Frontier {
             echo '</tr>';
         }
         if (!$total) {
-            echo '<tr><td colspan="'.count($columns).'">No indents yet.</td></tr>';
+            echo '<tr><td colspan="'.count($columns).'">'.($pendingOnly ? 'No indents pending approval.' : 'No indents yet.').'</td></tr>';
         }
         echo '</tbody></table></div>';
         self::pagination($page,$pages,$total);
@@ -2567,12 +2566,28 @@ final class Frontier {
         }
     }
 
+    private static function approveIndentGroup($rows,$id) {
+        global $wpdb;
+        $anchor = $rows[$id] ?? null;
+        self::requireRule($anchor && $anchor['kind'] === 'indent','Indent not found.');
+        $group = self::indentGroup($anchor);
+        foreach ($rows as $row) {
+            if ($row['kind'] !== 'indent' || $row['status'] !== 'pending' || self::indentGroup($row) !== $group) {
+                continue;
+            }
+            $update = self::transition($rows,$row,'approve');
+            if ($wpdb->update(self::table(),$update,['id'=>$row['id']]) !== 1) {
+                throw new RuntimeException('Indent approval could not be saved.');
+            }
+        }
+    }
+
     public static function save() {
         global $wpdb;
         check_admin_referer('frontier_save');
         $kind = sanitize_key(self::input('kind'));
         $action = sanitize_key(self::input('operation'));
-        $capability = ['approve'=>'approve','return'=>'approve','approve_grn'=>'stock'][$action] ?? ($kind === 'site' ? 'sites' : $kind);
+        $capability = ['approve'=>'approve','approve_indent_group'=>'approve','return'=>'approve','approve_grn'=>'stock'][$action] ?? ($kind === 'site' ? 'sites' : $kind);
         if (!isset(self::FIELDS[$kind]) || !self::canView($kind) || !self::can($capability)) {
             wp_die('Access denied.', '', ['response'=>403]);
         }
@@ -2589,14 +2604,17 @@ final class Frontier {
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && $action === 'import_items')
                 || ($kind === 'supplier' && $action === 'import_suppliers')
-                || ($kind === 'indent' && $action === 'create_indent')
+                || ($kind === 'indent' && in_array($action,['create_indent','approve_indent_group'],true))
                 || ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true))) {
                 if ($wpdb->query('START TRANSACTION') === false) {
                     throw new RuntimeException('Database transaction could not start.');
                 }
                 $transaction = true;
             }
-            if ($kind === 'indent' && $action === 'create_indent') {
+            if ($kind === 'indent' && $action === 'approve_indent_group') {
+                self::approveIndentGroup($rows,absint(self::input('id')));
+                $result = true;
+            } elseif ($kind === 'indent' && $action === 'create_indent') {
                 self::saveIndent($rows);
                 $result = true;
             } elseif ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true)) {
