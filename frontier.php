@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.8.3
+ * Version: 1.8.4
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -107,6 +107,7 @@ final class Frontier {
         add_action('admin_menu', [self::class, 'menu']);
         add_action('admin_enqueue_scripts', [self::class, 'adminDropdownSearch']);
         add_action('admin_post_frontier_template', [self::class, 'downloadTemplate']);
+        add_action('admin_post_frontier_boq_print', [self::class, 'printBoq']);
         add_action('admin_post_frontier_boq_excel', [self::class, 'boqExcel']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
@@ -541,6 +542,19 @@ final class Frontier {
         self::$screen = $kind;
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = self::rows();
+        if ($kind === 'boq') {
+            if ($mode === 'form') {
+                if (self::can('boq')) {
+                    self::boqForm($rows);
+                } else {
+                    echo '<p>You do not have permission to create a BOQ.</p>';
+                }
+            } else {
+                self::boqRegister($rows,$mode === 'items');
+            }
+            echo '</div>';
+            return;
+        }
         if ($kind === 'site' && isset($_GET['site_action']) && self::can('sites')) {
             $action = $_GET['site_action'];
             $site = $rows[absint($_GET['site_id'] ?? 0)] ?? null;
@@ -587,11 +601,6 @@ final class Frontier {
             } else {
                 echo '<p><a class="button frontier-add" href="'.esc_url($addUrl).'">Add</a></p>';
             }
-        }
-        if ($showForm && $kind === 'boq') {
-            self::boqForm($rows);
-            echo '</div>';
-            return;
         }
         if ($showForm) {
             self::formStart($kind,$editing ? 'edit' : 'create',$editing ? $edit['id'] : 0);
@@ -670,7 +679,6 @@ final class Frontier {
         $fields = self::FIELDS[$kind];
         unset($fields['password']);
         $fields += [
-            'boq'=>['boq_number'=>'BOQ Number','boq_date'=>'BOQ Date','prepared_name'=>'Prepared By','group_id'=>'Group Id','line_number'=>'Sl. No.'],
             'site'=>['combined_name'=>'Site Number with Name','status_date'=>'Status Date','status_remark'=>'Remark','updated_by'=>'Updated By'],
             'supplier'=>['combined_name'=>'Suppliers Name with Code'],
             'indent'=>['reason'=>'Reason'],
@@ -947,12 +955,6 @@ final class Frontier {
             $values['combined_name'] = $data['ref'].' - '.$data['name'];
         }
         $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
-        if ($kind === 'boq' && !empty($data['boq_number'])) {
-            foreach (['boq_number','prepared_name','group_id','line_number'] as $key) {
-                $values[$key] = $data[$key] ?? '';
-            }
-            $values['boq_date'] = implode('/',array_reverse(explode('-',$data['boq_date'])));
-        }
         if ($kind === 'site' && !empty($data['status_date'])) {
             $values['status_date'] = implode('/',array_reverse(explode('-',$data['status_date'])));
             $values['status_remark'] = $data['status_remark'] ?? '';
@@ -1569,6 +1571,168 @@ final class Frontier {
         }
     }
 
+    private static function boqGroup($row) {
+        $number = $row['data']['boq_number'] ?? 0;
+        return $number ? 'number-'.$number : 'legacy-'.$row['id'];
+    }
+
+    private static function boqRegister($rows,$itemsOnly) {
+        $indents = [];
+        $approvedOrders = [];
+        foreach ($rows as $row) {
+            $data = $row['data'];
+            if ($row['kind'] === 'indent' && in_array($row['status'],['pending','approved'],true)) {
+                $id = (int)$data['boq'];
+                $indents[$id] = ($indents[$id] ?? 0) + $data['qty'];
+            } elseif ($row['kind'] === 'po' && $row['status'] === 'issued') {
+                $approvedOrders[$row['id']] = (float)$data['qty'];
+            }
+        }
+        $receipts = [];
+        foreach ($rows as $row) {
+            $po = $row['data']['po'] ?? 0;
+            if (!isset($approvedOrders[$po])) {
+                continue;
+            }
+            if ($row['kind'] === 'cancel') {
+                $approvedOrders[$po] -= $row['data']['qty'];
+            } elseif ($row['kind'] === 'grn' && $row['status'] === 'approved') {
+                $receipts[$po] = ($receipts[$po] ?? 0) + $row['data']['qty'];
+            }
+        }
+        $ordered = [];
+        $received = [];
+        foreach ($approvedOrders as $po=>$quantity) {
+            $indent = $rows[$rows[$po]['data']['indent']] ?? null;
+            if (!$indent || $indent['kind'] !== 'indent') {
+                continue;
+            }
+            $id = (int)$indent['data']['boq'];
+            $ordered[$id] = ($ordered[$id] ?? 0) + max(0,$quantity);
+            $received[$id] = ($received[$id] ?? 0) + ($receipts[$po] ?? 0);
+        }
+        $groups = [];
+        $items = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] !== 'boq') {
+                continue;
+            }
+            $data = $row['data'];
+            $id = (int)$row['id'];
+            $key = self::boqGroup($row);
+            $date = !empty($data['boq_date']) ? implode('/',array_reverse(explode('-',$data['boq_date']))) : '';
+            $timestamp = !empty($data['boq_timestamp']) ? mysql2date('d/m/Y H:i:s',$data['boq_timestamp'],false) : '';
+            $header = [
+                'date'=>$date,'number'=>$data['boq_number'] ?? '#'.$id,
+                'site'=>$rows[$data['site'] ?? 0]['data']['name'] ?? '',
+                'prepared'=>$data['prepared_name'] ?? '', 'timestamp'=>$timestamp,
+            ];
+            $quantity = (float)$data['qty'];
+            $indented = $indents[$id] ?? 0;
+            $order = $ordered[$id] ?? 0;
+            $receipt = $received[$id] ?? 0;
+            $item = $rows[$data['item_id'] ?? 0]['data'] ?? [];
+            $items[$key][] = $header + [
+                'line'=>$data['line_number'] ?? 1,'item'=>$data['name'] ?? '',
+                'qty'=>$quantity,'unit'=>$data['unit'] ?? '',
+                'indented'=>$indented,'pending_indent'=>max(0,$quantity-$indented),
+                'ordered'=>$order,'pending_order'=>max(0,$indented-$order),
+                'category'=>$rows[$item['category'] ?? 0]['data']['name'] ?? ($data['item_category'] ?? ''),
+                'received'=>$receipt,'pending_receive'=>max(0,$order-$receipt),
+            ];
+            if (!isset($groups[$key])) {
+                $groups[$key] = $header + ['pdf'=>$id,'qty'=>0,'indented'=>0,'pending_indent'=>0];
+            }
+            $groups[$key]['qty'] += $quantity;
+            $groups[$key]['indented'] += $indented;
+            $groups[$key]['pending_indent'] += max(0,$quantity-$indented);
+        }
+        $columns = $itemsOnly ? [
+            'timestamp'=>'Timestamp','number'=>'BOQ No.','date'=>'BOQ Date','site'=>'Site Name','prepared'=>'BOQ Prepared By',
+            'line'=>'Sl No.','item'=>'Item Name','qty'=>'Quantity Required','unit'=>'Units','indented'=>'Quantity Already Indented',
+            'pending_indent'=>'Quantity Pending to be Indented','ordered'=>'Quantity Ordered','pending_order'=>'Pending to Order',
+            'category'=>'Item Category','received'=>'Quantity Received','pending_receive'=>'Pending to Receive',
+        ] : [
+            'date'=>'BOQ Date','number'=>'BOQ No.','site'=>'Site Name','prepared'=>'Prepared By','pdf'=>'Pdf',
+            'timestamp'=>'Timestamp','qty'=>'Total Quantity','indented'=>'Quantity Indented','pending_indent'=>'Pending to Indent',
+        ];
+        if ($itemsOnly) {
+            $listing = [];
+            foreach ($items as $lines) {
+                foreach (array_reverse($lines) as $line) {
+                    $listing[] = $line;
+                }
+            }
+        } else {
+            $listing = $groups;
+        }
+        [$pageRows,$page,$pages,$total] = self::pagedRows($listing);
+        echo '<div class="frontier-table" tabindex="0" role="region" aria-label="BOQ records"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $label) {
+            echo '<th scope="col">'.esc_html($label).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($pageRows as $record) {
+            echo '<tr>';
+            foreach ($columns as $key=>$label) {
+                echo '<td>';
+                if ($key === 'pdf') {
+                    $id = $record['pdf'];
+                    $url = add_query_arg(['action'=>'frontier_boq_print','id'=>$id],admin_url('admin-post.php'));
+                    echo '<a target="_blank" rel="noopener" href="'.esc_url(wp_nonce_url($url,'frontier_boq_print_'.$id)).'">Print / Save PDF</a>';
+                } else {
+                    $value = $record[$key];
+                    echo esc_html(is_float($value) ? (string)round($value,3) : (string)$value);
+                }
+                echo '</td>';
+            }
+            echo '</tr>';
+        }
+        if (!$total) {
+            echo '<tr><td colspan="'.count($columns).'">No BOQs yet.</td></tr>';
+        }
+        echo '</tbody></table></div>';
+        self::pagination($page,$pages,$total);
+    }
+
+    public static function printBoq() {
+        $id = absint($_GET['id'] ?? 0);
+        if (!self::canView('boq')) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        check_admin_referer('frontier_boq_print_'.$id);
+        $rows = self::rows();
+        $boq = $rows[$id] ?? null;
+        if (!$boq || $boq['kind'] !== 'boq') {
+            wp_die('BOQ not found.','Frontier',['response'=>404]);
+        }
+        $key = self::boqGroup($boq);
+        $header = $boq['data'];
+        $number = $header['boq_number'] ?? '#'.$id;
+        $site = $rows[$header['site'] ?? 0]['data']['name'] ?? '';
+        $siteDate = !empty($header['boq_date']) ? implode('/',array_reverse(explode('-',$header['boq_date']))) : '';
+        nocache_headers();
+        header('Content-Type: text/html; charset=UTF-8');
+        echo '<!doctype html><html lang="en"><meta charset="utf-8"><title>'.esc_html('BOQ '.$number).'</title>';
+        echo '<style>body{font:15px system-ui;margin:32px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:8px;text-align:left}@media print{button{display:none}}</style>';
+        echo '<button type="button" onclick="window.print()">Print / Save PDF</button><h1>'.esc_html('BOQ '.$number).'</h1>';
+        echo '<p>'.esc_html($site).'<br>'.esc_html($siteDate).'<br>'.esc_html($header['prepared_name'] ?? '').'</p>';
+        echo '<table><thead><tr><th>Sl No.</th><th>Item Name</th><th>Quantity</th><th>Units</th></tr></thead><tbody>';
+        foreach (array_reverse($rows) as $row) {
+            if ($row['kind'] !== 'boq' || self::boqGroup($row) !== $key) {
+                continue;
+            }
+            $data = $row['data'];
+            echo '<tr>';
+            foreach ([$data['line_number'] ?? 1,$data['name'] ?? '',$data['qty'] ?? '',$data['unit'] ?? ''] as $value) {
+                echo '<td>'.esc_html((string)$value).'</td>';
+            }
+            echo '</tr>';
+        }
+        echo '</tbody></table></html>';
+        exit;
+    }
+
     private static function boqForm($rows) {
         $items = [];
         foreach ($rows as $row) {
@@ -1666,7 +1830,8 @@ final class Frontier {
             $last = max($last,(int)($row['data']['boq_number'] ?? 0));
         }
         $header = ['site'=>(int)$site['id'],'prepared_by'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name'],
-            'group_id'=>$site['data']['telegram'] ?? '', 'boq_date'=>$dateText,'boq_number'=>$last+1,'boq_token'=>$token];
+            'group_id'=>$site['data']['telegram'] ?? '', 'boq_date'=>$dateText,'boq_number'=>$last+1,
+            'boq_token'=>$token,'boq_timestamp'=>current_time('mysql')];
         foreach (array_values($lines) as $index=>$line) {
             $number = $index+1;
             self::requireRule(is_array($line),'Check BOQ row '.$number.'.');
@@ -1678,7 +1843,8 @@ final class Frontier {
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0,'Enter a valid quantity on row '.$number.'.');
             self::requireRule($unit !== '' && strlen($unit) <= 200,'Enter a unit on row '.$number.'.');
             self::insertImportedRecord('boq',$header + ['item_id'=>$itemId,'name'=>$item['data']['name'],
-                'qty'=>(float)$qty,'unit'=>$unit,'section'=>'','line_number'=>$number]);
+                'qty'=>(float)$qty,'unit'=>$unit,'section'=>'','line_number'=>$number,
+                'item_category'=>$rows[$item['data']['category'] ?? 0]['data']['name'] ?? '']);
         }
     }
 
