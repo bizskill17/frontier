@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.6.9
+ * Version: 1.7.0
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -686,7 +686,9 @@ final class Frontier {
 
     private static function field($rows,$kind,$field,$label,$value) {
         echo '<p><label>'.esc_html($label).' ';
-        if ($kind === 'employee' && $field === 'password') {
+        if ($field === 'ref' && in_array($kind,['site','supplier'],true)) {
+            printf('<input type="text" readonly value="%s" placeholder="Assigned on save">',esc_attr($value));
+        } elseif ($kind === 'employee' && $field === 'password') {
             echo '<input type="password" name="password" autocomplete="new-password" maxlength="4096">';
             echo '<small>Required for a new login. Leave blank to keep an existing password.</small>';
         } elseif (isset(self::FIELDS[$field])) {
@@ -847,7 +849,7 @@ final class Frontier {
     private static function readFields($rows,$kind) {
         $data = [];
         foreach (self::FIELDS[$kind] as $field=>$label) {
-            if ($field === 'password') {
+            if ($field === 'password' || ($field === 'ref' && in_array($kind,['site','supplier'],true))) {
                 continue;
             }
             $value = self::input($field);
@@ -928,6 +930,24 @@ final class Frontier {
         exit;
     }
 
+    private static function masterCodeNumber($code) {
+        return preg_match('/^S\s*-\s*(\d{1,9})$/iD',trim($code),$match) ? (int)$match[1] : 0;
+    }
+
+    private static function formatMasterCode($number) {
+        return sprintf('S - %04d',$number);
+    }
+
+    private static function lastMasterCode($rows,$kind) {
+        $last = 0;
+        foreach ($rows as $row) {
+            if ($row['kind'] === $kind) {
+                $last = max($last,self::masterCodeNumber($row['data']['ref'] ?? ''));
+            }
+        }
+        return $last;
+    }
+
     private static function validateMaster($rows,$kind,$data,$id=0) {
         $key = $kind === 'employee' ? 'login' : (isset($data['ref']) ? 'ref' : 'name');
         foreach ($rows as $row) {
@@ -1003,6 +1023,9 @@ final class Frontier {
             case 'edit':
                 if (isset(self::MASTERS[$kind]) || $kind === 'site') {
                     $fields = self::readFields($rows,$kind);
+                    if (in_array($kind,['site','supplier'],true)) {
+                        $fields['ref'] = ($row['data']['ref'] ?? '') ?: self::formatMasterCode(self::lastMasterCode($rows,$kind)+1);
+                    }
                     self::validateMaster($rows,$kind,$fields,$row['id']);
                     $data = $fields + $row['data'];
                     break;
@@ -1191,7 +1214,7 @@ final class Frontier {
                 }
                 self::requireRule(count($row) === count($expected),'Check the column count on CSV row '.$line.'.');
                 foreach ($row as $index=>$value) {
-                    $optional = $kind === 'supplier' && $index >= 2;
+                    $optional = $kind === 'supplier' && $index !== 1;
                     $length = $kind === 'supplier' && $index === 2 ? 403 : 200;
                     self::requireRule(($optional || $value !== '') && strlen($value) <= $length,'Check the values on CSV row '.$line.'.');
                 }
@@ -1291,11 +1314,19 @@ final class Frontier {
 
     private static function importSuppliers($records) {
         $rows = self::readImportTemplate('supplier',5000);
+        $last = self::lastMasterCode($records,'supplier');
         $used = [];
         foreach ($records as $record) {
             if ($record['kind'] === 'supplier') {
-                $used[strtolower($record['data']['ref'])] = true;
+                $ref = $record['data']['ref'] ?? '';
+                $used[strtolower($ref)] = true;
+                if ($number = self::masterCodeNumber($ref)) {
+                    $used[strtolower(self::formatMasterCode($number))] = true;
+                }
             }
+        }
+        foreach ($rows as $row) {
+            $last = max($last,self::masterCodeNumber($row[0]));
         }
         $count = 0;
         foreach ($rows as $index=>$row) {
@@ -1303,6 +1334,17 @@ final class Frontier {
             $data = array_combine(array_keys(self::FIELDS['supplier']),$row);
             self::requireRule($data['email'] === '' || is_email($data['email']),
                 'Check the supplier email on data row '.($index+1).'.');
+            $code = strtolower($data['ref']);
+            if (isset($used[$code])) {
+                continue;
+            }
+            if ($data['ref'] === '') {
+                $data['ref'] = self::formatMasterCode(++$last);
+            } else {
+                $number = self::masterCodeNumber($data['ref']);
+                self::requireRule($number > 0,'Use a supplier code like S - 0001 on data row '.($index+1).', or leave it blank.');
+                $data['ref'] = self::formatMasterCode($number);
+            }
             $code = strtolower($data['ref']);
             if (isset($used[$code])) {
                 continue;
@@ -1361,6 +1403,9 @@ final class Frontier {
                 $result = true;
             } elseif ($action === 'create') {
                 $data = self::readFields($rows,$kind);
+                if (in_array($kind,['site','supplier'],true)) {
+                    $data['ref'] = self::formatMasterCode(self::lastMasterCode($rows,$kind)+1);
+                }
                 self::validateNew($rows,$kind,$data);
                 if ($transaction) {
                     $accountId = self::employeeAccount($data);
