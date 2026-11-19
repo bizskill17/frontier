@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.18
+ * Version: 1.9.19
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2756,22 +2756,14 @@ final class Frontier {
 
     private static function quotationForm($rows) {
         $groups = [];
-        $quotes = [];
-        $selected = [];
+        $quoted = [];
         $suppliers = [];
         foreach ($rows as $row) {
             $data = $row['data'];
             if ($row['kind'] === 'supplier') {
                 $suppliers[] = ['id'=>(int)$row['id'],'label'=>self::supplierDisplay(['supplier'=>$row['id']],$rows)];
             } elseif ($row['kind'] === 'quote') {
-                $indent = (int)$data['indent'];
-                if ($row['status'] === 'selected') {
-                    $selected[$indent] = true;
-                }
-                $supplier = (int)($data['supplier'] ?? 0);
-                if ($supplier && !isset($quotes[$indent][$supplier])) {
-                    $quotes[$indent][$supplier] = ['supplier'=>$supplier,'rate'=>$data['rate']];
-                }
+                $quoted[(int)$data['indent']] = true;
             }
         }
         foreach (array_reverse($rows) as $row) {
@@ -2780,6 +2772,9 @@ final class Frontier {
             }
             $data = $row['data'];
             $id = (int)$row['id'];
+            if (isset($quoted[$id])) {
+                continue;
+            }
             $group = self::indentGroup($row);
             $boq = $rows[$data['boq']]['data'] ?? [];
             $site = $rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
@@ -2790,9 +2785,9 @@ final class Frontier {
             $line = $data['line_number'] ?? 1;
             $past = self::lastIssuedPurchase($rows,$boq,$id);
             $groups[$group]['items'][] = ['id'=>$id,'line'=>$line,'number'=>$number.'/'.$line,
-                'name'=>$boq['name'] ?? '', 'qty'=>$data['qty'],'locked'=>isset($selected[$id]),
+                'name'=>$boq['name'] ?? '', 'qty'=>$data['qty'],'locked'=>false,
                 'lastSupplier'=>$past ? self::supplierDisplay($past,$rows) : '', 'lastRate'=>$past['rate'] ?? '',
-                'quotes'=>array_values(array_slice($quotes[$id] ?? [],0,3,true))];
+                'quotes'=>[]];
         }
         $source = $rows[absint($_GET['source'] ?? 0)] ?? null;
         $prefill = $source && $source['kind'] === 'indent' ? self::indentGroup($source) : '';
@@ -2839,19 +2834,10 @@ final class Frontier {
         foreach ($counts as $count) {
             self::requireRule($count === 3,'Every item being quoted must include three suppliers and three rates.');
         }
-        $existing = [];
-        $locked = [];
+        $quoted = [];
         foreach ($rows as $row) {
-            if ($row['kind'] !== 'quote') {
-                continue;
-            }
-            $data = $row['data'];
-            $indent = (int)$data['indent'];
-            if ($row['status'] === 'selected') {
-                $locked[$indent] = true;
-            }
-            if (!empty($data['supplier']) && !isset($existing[$indent][$data['supplier']])) {
-                $existing[$indent][$data['supplier']] = $row;
+            if ($row['kind'] === 'quote') {
+                $quoted[(int)$row['data']['indent']] = true;
             }
         }
         $now = current_time('mysql');
@@ -2864,28 +2850,20 @@ final class Frontier {
             $indent = $rows[$indentId] ?? null;
             $supplier = $rows[$supplierId] ?? null;
             self::requireRule($indent && $indent['kind'] === 'indent' && $indent['status'] === 'approved'
-                && self::indentGroup($indent) === $group && !isset($locked[$indentId]),
-                'Only approved items from this indent with no finalized supplier can be updated.');
+                && self::indentGroup($indent) === $group && !isset($quoted[$indentId]),
+                'Only approved items from this indent that have not been quoted can be submitted.');
             self::requireRule($supplier && $supplier['kind'] === 'supplier','Choose a supplier from Supplier Master.');
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$rate) && (float)$rate >= 0,'Enter a valid supplier rate.');
             self::requireRule(!isset($seen[$indentId][$supplierId]) && count($seen[$indentId] ?? []) < 3,
                 'Enter three distinct suppliers per item.');
             $seen[$indentId][$supplierId] = true;
-            $previous = $existing[$indentId][$supplierId] ?? null;
             $data = [
                 'indent'=>$indentId,'supplier'=>$supplierId,'name'=>$supplier['data']['name'],'rate'=>(float)$rate,
                 'quote_date'=>$dateText,'comparison_employee'=>(int)$employee['id'],
                 'comparison_name'=>$employee['data']['name'],
             ];
-            if ($previous && !array_diff_assoc($data,$previous['data'])) {
-                continue;
-            }
             $data['quote_timestamp'] = $now;
-            if ($previous) {
-                $result = $wpdb->update(self::table(),['details'=>wp_json_encode($data + $previous['data'])],['id'=>$previous['id']]);
-            } else {
-                $result = $wpdb->insert(self::table(),['kind'=>'quote','status'=>'received','details'=>wp_json_encode($data)]);
-            }
+            $result = $wpdb->insert(self::table(),['kind'=>'quote','status'=>'received','details'=>wp_json_encode($data)]);
             if ($result === false) {
                 throw new RuntimeException('Supplier quotations could not be saved.');
             }
