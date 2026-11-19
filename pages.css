@@ -471,3 +471,8 @@ body.frontier-workspace {
 .frontier-stage-key .frontier-stage-cancel { background: #FCECEF; }
 .frontier-pages .frontier-table th.frontier-stage-cancel { background: #F7DCE3; }
 
+
+/* Distinguish fields that cannot currently be edited. */
+.frontier-pages form :is(input[readonly], textarea[readonly], input:disabled, select:disabled, textarea:disabled) {
+    background-color: #eef0f3;
+}
