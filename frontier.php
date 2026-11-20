@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.112
+ * Version: 1.9.113
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1512,7 +1512,7 @@ CSS
         }
         $canAdd = in_array($mode,['form','combined','register'],true) && self::can($kind === 'site' ? 'sites' : $kind);
         $showForm = $canAdd && $mode !== 'register' && ($editing || isset($_GET['add']));
-        if ($canAdd && !$showForm && self::$screen !== 'quote') {
+        if ($canAdd && !$showForm && !in_array(self::$screen,['quote','cancel'],true)) {
             $formScreen = $mode === 'register' ? ([
                 'boq'=>'boq_form','indent'=>'indent','quote'=>'quote_form','po'=>'po_form','grn'=>'grn_form',
             ][$kind] ?? self::$screen) : self::$screen;
