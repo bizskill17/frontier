@@ -546,3 +546,20 @@ body.frontier-workspace {
 .frontier-report-site > a,
 .frontier-report-site > button,
 .frontier-report-filters > button { flex: 0 0 auto; white-space: nowrap; }
+
+.frontier-pages .frontier-dashboard-steps th:last-child,
+.frontier-pages .frontier-dashboard-steps td:last-child {
+    width: 7rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.frontier-pages .frontier-dashboard-steps .frontier-dashboard-step {
+    width: min(100%, 17rem);
+    height: auto;
+    white-space: normal;
+    text-align: left;
+    background: #e4effc;
+    border-color: #9cb9db;
+    font-weight: 600;
+}
+.frontier-pages .frontier-dashboard-steps .frontier-dashboard-step:hover { background: #d6e8fc; }

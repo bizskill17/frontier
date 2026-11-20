@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.198
+ * Version: 1.9.199
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,7 +445,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.193');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.199');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -921,7 +921,7 @@ JS
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.193');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.199');
         }
     }
 
@@ -1808,26 +1808,26 @@ JS
             if (!self::$front && ($frontUrl = self::frontUrl('home'))) {
                 echo '<p><a class="button" href="'.esc_url($frontUrl).'">Open Frontier on the site</a></p>';
             }
-            if (self::$front) {
-                echo '<div class="frontier-overview">';
-            }
+            $steps = ['boq_form','site','pending_indent','pending_quote','pending_choose',
+                'pending_po','po_form','pending_grn','grn_slip'];
+            $actions = ['boq_form'=>'boq','site'=>'sites','po_form'=>'po'];
             $counts = $counts ?? self::dashboardCounts($rows ?? self::rows());
-            foreach ((array_diff_key(self::GROUPS,['Master'=>true])) as $group=>$views) {
-                $visible = array_filter(array_keys($views),[self::class,'canView']);
-                if (!$visible) {
+            echo '<div class="frontier-table frontier-dashboard-steps" role="region" aria-label="Dashboard steps">';
+            echo '<table class="widefat striped"><thead><tr><th scope="col">Step</th><th scope="col">Count</th></tr></thead><tbody>';
+            foreach ($steps as $step) {
+                if (!self::canView($step) || (isset($actions[$step]) && !self::can($actions[$step]))) {
                     continue;
                 }
-                echo '<section class="frontier-card-'.esc_attr(sanitize_title($group)).'"><h2>'.esc_html($group).'</h2><ul>';
-                foreach ($visible as $key) {
-                    echo '<li><a class="frontier-dashboard-link" href="'.esc_url(self::url($key)).'"><span>'.esc_html($views[$key]).'</span>';
-                    if (isset($counts[$key])) {
-                        echo '<span class="frontier-dashboard-count">'.esc_html(number_format_i18n($counts[$key])).'</span>';
-                    }
-                    echo '</a></li>';
+                $url = self::url($step);
+                if ($step === 'site') {
+                    $url = add_query_arg('add',1,$url);
                 }
-                echo '</ul></section>';
+                echo '<tr><td><a class="button frontier-dashboard-step" href="'.esc_url($url).'">'
+                    .esc_html($step === 'site' ? 'Add Site' : $tabs[$step]).'</a></td>';
+                $count = isset($actions[$step]) || !isset($counts[$step]) ? '—' : number_format_i18n($counts[$step]);
+                echo '<td>'.esc_html($count).'</td></tr>';
             }
-            echo self::$front ? '</div></div>' : '</div>';
+            echo '</tbody></table></div></div>';
             return;
         }
         if (!self::$front) {
