@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.123
+ * Version: 1.9.124
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1960,7 +1960,29 @@ CSS
         if ($group = self::indentGroupFilter()) {
             $url = add_query_arg('indent_group',$group,$url);
         }
+        if (isset(self::GROUPS['Master'][self::$screen]) && ($sort = self::tableQuery('frontier_sort')) !== '') {
+            $url = add_query_arg(['frontier_sort'=>$sort,'frontier_dir'=>self::tableQuery('frontier_dir')],$url);
+        }
         return $url;
+    }
+
+    private static function masterSort($columns) {
+        $field = self::tableQuery('frontier_sort');
+        $direction = self::tableQuery('frontier_dir') === 'desc' ? 'desc' : 'asc';
+        return [isset(self::GROUPS['Master'][self::$screen],$columns[$field]) ? $field : '',$direction];
+    }
+
+    private static function masterTableHeading($field,$label,$active,$direction) {
+        $next = $field === $active && $direction === 'asc' ? 'desc' : 'asc';
+        $url = add_query_arg(['frontier_sort'=>$field,'frontier_dir'=>$next],self::tableSearchUrl());
+        if (($search = self::tableQuery('frontier_search')) !== '') {
+            $url = add_query_arg('frontier_search',$search,$url);
+        }
+        $sort = $field === $active ? ($direction === 'asc' ? 'ascending' : 'descending') : '';
+        $indicator = $sort === 'ascending' ? ' ↑' : ($sort === 'descending' ? ' ↓' : ' ↕');
+        echo '<th scope="col"'.($sort !== '' ? ' aria-sort="'.$sort.'"' : '').'>';
+        echo '<a href="'.esc_url($url).'" aria-label="'.esc_attr('Sort by '.$label.' '.($next === 'asc' ? 'ascending' : 'descending')).'">';
+        echo self::tableHeading($label).'<span aria-hidden="true">'.$indicator.'</span></a></th>';
     }
 
     private static function pagedRows($rows,$columns,$values) {
@@ -1987,6 +2009,7 @@ CSS
         if (!isset($dimensions['date'])) {
             $from = $to = '';
         }
+        [$sort,$direction] = self::masterSort($columns);
         $site = isset($dimensions['site']) ? $site : '';
         $item = isset($dimensions['item']) ? $item : '';
         $hasFacets = $from !== '' || $to !== '' || $site !== '' || $item !== '';
@@ -2027,6 +2050,9 @@ CSS
                 if (($value = self::tableQuery($key)) !== '') {
                     $exportArgs[$key] = $value;
                 }
+            }
+            if ($sort !== '') {
+                $exportArgs += ['frontier_sort'=>$sort,'frontier_dir'=>$direction];
             }
             if ($group = self::indentGroupFilter()) {
                 $exportArgs['indent_group'] = $group;
@@ -2116,6 +2142,22 @@ HTML;
                 }
                 return true;
             },ARRAY_FILTER_USE_BOTH);
+        }
+        if ($sort !== '') {
+            $keys = [];
+            foreach ($rows as $id=>$row) {
+                $cells = $cellCache[$id] ?? $values($row,$id);
+                $cellCache[$id] = $cells;
+                $value = (string)($cells[$sort] ?? '');
+                if (in_array($sort,['due','status_date'],true) && preg_match('~^(\d{2})/(\d{2})/(\d{4})$~D',$value,$date)) {
+                    $value = $date[3].$date[2].$date[1];
+                }
+                $keys[$id] = $value;
+            }
+            uksort($rows,static function ($a,$b) use ($keys,$direction) {
+                $order = strnatcasecmp($keys[$a],$keys[$b]);
+                return $direction === 'desc' ? -$order : $order;
+            });
         }
         if (self::$exportBuffer !== null) {
             self::sendTableExcel($columns,$rows,$values,$cellCache);
@@ -2334,11 +2376,18 @@ HTML;
         }
         $tableClass = $indentItems ? ' frontier-indent-items-table' : '';
         echo '<div class="frontier-table frontier-master-table'.$tableClass.'" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
-        foreach ($fields as $field=>$label) {
-            echo '<th scope="col"'.($stageClasses[$field] ?? '').'>'.self::tableHeading($label).'</th>';
-        }
-        if ($showStatus) {
-            echo '<th scope="col">Status</th>';
+        if (isset(self::GROUPS['Master'][self::$screen])) {
+            [$sort,$direction] = self::masterSort($searchFields);
+            foreach ($searchFields as $field=>$label) {
+                self::masterTableHeading($field,$label,$sort,$direction);
+            }
+        } else {
+            foreach ($fields as $field=>$label) {
+                echo '<th scope="col"'.($stageClasses[$field] ?? '').'>'.self::tableHeading($label).'</th>';
+            }
+            if ($showStatus) {
+                echo '<th scope="col">Status</th>';
+            }
         }
         $actionClass = $pendingPo ? ' class="frontier-pending-po-action"' : ($poRegister ? ' class="frontier-po-actions"' : '');
         if ($showActions) {
