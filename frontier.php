@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.109
+ * Version: 1.9.110
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2095,6 +2095,10 @@ HTML;
             'grn'=>['attachment'=>'GRN Slip'],
             'invoice'=>['matched'=>'Matched Amount','attachment'=>'Invoice Copy'],
         ][$kind] ?? [];
+        if ($kind === 'cancel') {
+            $fields = ['cancel_date'=>'Cancel Date','po'=>'PO No.','item_name'=>'Item Name','qty'=>'Quantity Cancelled',
+                'note'=>'Cancel Reason','reorder'=>'Return to Purchasing','cancel_by'=>'Cancelled By'];
+        }
         $pendingPo = self::$screen === 'pending_po';
         if ($pendingPo) {
             $fields = [
@@ -2166,8 +2170,8 @@ HTML;
             $fields = $grnFields[$grnScreen];
         }
         $masterRecordStatus = isset(self::GROUPS['Master'][self::$screen]) && $kind !== 'employee';
-        $showStatus = !$masterRecordStatus && !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems && !$isGrnView;
-        $showActions = $indentItems || $chooseMaster || $grnScreen !== 'grn' && !in_array($mode,['items','selected'],true);
+        $showStatus = $kind !== 'cancel' && !$masterRecordStatus && !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems && !$isGrnView;
+        $showActions = $poItems || $indentItems || $chooseMaster || ($kind !== 'cancel' && $grnScreen !== 'grn' && !in_array($mode,['items','selected'],true));
         $rowValues = static function ($row) use ($rows,$kind,$indentItems,$choosePending,$chooseMaster,$choiceItems,$pendingQuote) {
             [$values,$status] = $indentItems ? [self::indentItemValues($row,$rows),$row['status']] : self::recordValues($row,$rows,$kind);
             if ($choosePending || $chooseMaster) {
@@ -2315,6 +2319,8 @@ HTML;
                 echo '<div class="frontier-row-actions">';
                 if ($indentItems) {
                     self::indentCancelAction($row,$values);
+                } elseif ($poItems) {
+                    self::purchaseOrderItemCancelAction($row,$rows,$values);
                 } elseif ($chooseMaster) {
                     self::supplierRegisterActions($rows,(int)($row['data']['indent'] ?? 0),true);
                 } else {
@@ -2654,6 +2660,14 @@ HTML;
             $values['pending_quantity'] = self::available($rows,$indent);
             $values['ordered_quantity'] = round(self::indentNetQuantity($indent) - $values['pending_quantity'],3);
         }
+        if ($kind === 'cancel') {
+            $po = $rows[$data['po'] ?? 0] ?? null;
+            $indent = $rows[$po['data']['indent'] ?? 0] ?? [];
+            $values['po'] = $po['data']['ref'] ?? ($values['po'] ?? '');
+            $values['item_name'] = self::supplierIndentDetails($indent,$rows)['item_name'];
+            $values['cancel_date'] = self::indentDisplayDate($data['cancel_date'] ?? '');
+            $values['cancel_by'] = $data['cancel_by'] ?? '';
+        }
         $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
         if ($kind === 'quote') {
             $values['quote_date'] = self::indentDisplayDate($data['quote_date'] ?? '');
@@ -2895,6 +2909,8 @@ HTML;
                 $po = $rows[$data['po']];
                 self::requireRule($data['qty'] <= self::balance($rows,$po),'Cancellation exceeds the available PO quantity.');
                 $data['released'] = $data['reorder'] ? $data['qty'] : 0;
+                $data['cancel_date'] = current_time('Y-m-d');
+                $data['cancel_by'] = wp_get_current_user()->display_name;
                 break;
             case 'match':
                 $grn = $rows[$data['grn']];
@@ -4089,6 +4105,39 @@ HTML;
             echo '</tr>';
         }
         echo '</tbody></table></td></tr>';
+    }
+
+    private static function purchaseOrderItemCancelAction($row,$rows,$values) {
+        if ($row['status'] !== 'issued' || !self::can('cancel') || !self::canView('cancel')) {
+            return;
+        }
+        $balance = self::balance($rows,$row);
+        if ($balance <= 0) {
+            return;
+        }
+        $title = 'frontier-po-cancel-title-'.(int)$row['id'];
+        $limit = esc_attr($balance);
+        echo '<button type="button"'.self::actionIconAttributes('Cancel PO Item')
+            .' style="color:#b42318" onclick="this.nextElementSibling.showModal()">'
+            .self::actionIcon('×').'</button>';
+        echo '<dialog class="frontier-indent-dialog" aria-labelledby="'.esc_attr($title).'">';
+        echo '<div class="frontier-indent-dialog-header"><h2 id="'.esc_attr($title).'">Cancel PO Item</h2>';
+        echo '<button type="button" class="button frontier-dialog-close" onclick="this.closest(\'dialog\').close()" aria-label="Close">×</button></div>';
+        self::formStart('cancel','cancel_po_item');
+        echo '<input type="hidden" name="po" value="'.esc_attr($row['id']).'">';
+        echo '<input type="hidden" name="expected_balance" value="'.$limit.'">';
+        foreach (['PO No.'=>$values['ref'],'Item'=>$values['item_name'],
+            'Available to Cancel'=>trim($balance.' '.$values['unit'])] as $label=>$value) {
+            echo '<p><label>'.esc_html($label).' <input readonly style="background:#e9edf2" value="'.esc_attr($value).'"></label></p>';
+        }
+        echo '<p><label>'.self::requiredLabel('Quantity to Cancel')
+            .' <input type="number" name="qty" min="0.001" max="'.$limit.'" step="0.001" required></label></p>';
+        echo '<p><label>'.self::requiredLabel('Cancel Reason')
+            .' <textarea name="note" rows="3" maxlength="200" required></textarea></label></p>';
+        echo '<p><label><input type="checkbox" name="reorder" value="1"> Return to purchasing</label></p>';
+        echo '<div class="frontier-indent-dialog-actions"><button type="button" class="button" onclick="this.closest(\'dialog\').close()">Back</button>';
+        echo '<button type="submit" class="button button-primary" style="background:#b42318;border-color:#b42318;color:#fff">Confirm cancellation</button>';
+        echo '</div></form></dialog>';
     }
 
     private static function indentCancelAction($row,$values) {
@@ -5589,7 +5638,12 @@ HTML;
         $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
         $access = self::assignedViewAccess(get_current_user_id());
         $configured = !current_user_can('manage_options') && is_array($access) && isset($access['role']);
+        $rowPoCancellation = $action === 'cancel_po_item';
         $allowedView = $configured ? ($sameKind && self::canView($screen)) : self::canView($kind);
+        if ($rowPoCancellation) {
+            $allowedView = $kind === 'cancel' && $screen === 'po_items'
+                && self::canView('po_items') && self::canView('cancel');
+        }
         if (!isset(self::FIELDS[$kind]) || !$allowedView || !self::can($capability)
             || ($action === 'cancel_indent_item' && ($kind !== 'indent' || !self::canView('indent_items')))) {
             wp_die('Access denied.', '', ['response'=>403]);
@@ -5700,8 +5754,13 @@ HTML;
             } elseif ($kind === 'employee' && $action === 'import') {
                 $imported = self::importEmployees($rows);
                 $result = true;
-            } elseif ($action === 'create') {
+            } elseif ($action === 'create' || $rowPoCancellation) {
                 $data = self::readFields($rows,$kind);
+                if ($rowPoCancellation) {
+                    $expected = self::input('expected_balance');
+                    self::requireRule(is_numeric($expected) && (float)$expected === self::balance($rows,$rows[$data['po']]),
+                        'The available quantity changed. Reload Purchase Orders Items and try again.');
+                }
                 if (in_array($kind,['site','supplier'],true)) {
                     $data['ref'] = self::formatMasterCode(self::nextNumber($kind,self::lastMasterCode($rows,$kind)));
                 }
@@ -5769,7 +5828,9 @@ HTML;
         $screen = sanitize_key(self::input('screen'));
         $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
         $destination = $action !== 'create_boq' && $sameKind && self::canView($screen) ? $screen : $kind;
-        if ($action === 'create_indent') {
+        if ($rowPoCancellation) {
+            $destination = 'po_items';
+        } elseif ($action === 'create_indent') {
             $destination = 'indent_master';
         } elseif ($action === 'save_quotations') {
             $destination = 'quote';
