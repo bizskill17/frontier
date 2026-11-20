@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.177
+ * Version: 1.9.178
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3118,7 +3118,6 @@ HTML;
         $tab = self::tableQuery('report_tab');
         $tab = isset($tabs[$tab]) ? $tab : array_key_first($tabs);
         $line = absint(self::tableQuery('report_line'));
-        $group = isset(self::REPORT_GROUPS[$tab]) && self::tableQuery('report_mode') === 'summary';
         $filters = [];
         foreach (['item','type','supplier','status','from','to'] as $field) {
             $filters[$field] = self::tableQuery('report_'.$field);
@@ -3152,8 +3151,8 @@ HTML;
                 $filtered[] = $record;
             }
         }
-        $columns = $group ? self::REPORT_GROUPS[$tab][3] : $tabs[$tab][2];
-        $displayRows = $group ? self::reportGroupRows($filtered,self::REPORT_GROUPS[$tab]) : array_column($filtered,'cells');
+        $columns = $tabs[$tab][2];
+        $displayRows = array_column($filtered,'cells');
 
         if (self::$exportBuffer !== null) {
             if (!isset($sites[$site])) {
@@ -3177,7 +3176,7 @@ HTML;
         $formAction = strtok($url,'?');
         parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$route);
         echo '<form method="get" action="'.esc_url($formAction).'"><div class="frontier-fields">';
-        foreach ($route + ['report_tab'=>$tab,'report_mode'=>$group ? 'summary' : 'items','report_line'=>$line] as $key=>$value) {
+        foreach ($route + ['report_tab'=>$tab,'report_line'=>$line] as $key=>$value) {
             echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
         }
         echo '<p><label>Site Name<select name="report_site" required><option value="">Select Site</option>';
@@ -3216,21 +3215,13 @@ HTML;
                 .esc_url(add_query_arg($context + ['report_tab'=>$key,'report_item'=>$filters['item'],'report_type'=>$filters['type']],$url)).'">'.esc_html($spec[0]).'</a>';
         }
         echo '</nav>';
-        $query = $context + ['report_tab'=>$tab,'report_mode'=>$group ? 'summary' : 'items'];
+        $query = $context + ['report_tab'=>$tab];
         foreach ($filters as $field=>$value) {
             $query['report_'.$field] = $value;
         }
         if ($line) {
             echo '<p>BOQ item '.esc_html($boqs[$line]['name']).' · <a href="'
                 .esc_url(add_query_arg(array_replace($query,['report_line'=>0]),$url)).'">Show all items</a></p>';
-        }
-        if (isset(self::REPORT_GROUPS[$tab])) {
-            echo '<nav class="frontier-settings-nav" aria-label="Report detail level">';
-            foreach (['items'=>'Item Detail','summary'=>'Document Summary'] as $mode=>$label) {
-                echo '<a class="button" '.($query['report_mode'] === $mode ? 'aria-current="page" ' : '').'href="'
-                    .esc_url(add_query_arg(array_replace($query,['report_mode'=>$mode]),$url)).'">'.esc_html($label).'</a>';
-            }
-            echo '</nav>';
         }
         $endpoint = add_query_arg($query + ['action'=>'frontier_table_excel','view'=>'site_report'],admin_url('admin-post.php'));
         foreach (['view'=>'Download Current View','site'=>'Download Full Site Report'] as $mode=>$label) {
