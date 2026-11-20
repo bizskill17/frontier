@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.107
+ * Version: 1.9.108
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -511,6 +511,9 @@ final class Frontier {
 }
 .frontier-main .frontier-indent-items-table th {
     white-space: normal;
+}
+.frontier-indent-items-table .frontier-indent-heading-line {
+    white-space: nowrap;
 }
 .frontier-indent-items-table .frontier-indent-column-item,
 .frontier-indent-items-table .frontier-indent-column-site {
@@ -2236,7 +2239,18 @@ HTML;
         $tableClass = $indentItems ? ' frontier-indent-items-table' : '';
         echo '<div class="frontier-table frontier-master-table'.$tableClass.'" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
         foreach ($fields as $field=>$label) {
-            echo '<th scope="col"'.($stageClasses[$field] ?? '').'>'.esc_html($label).'</th>';
+            $heading = esc_html($label);
+            if ($indentItems) {
+                $words = explode(' ',$label);
+                if (count($words) > 2) {
+                    $midpoint = intdiv(count($words),2);
+                    $firstLine = implode(' ',array_slice($words,0,$midpoint));
+                    $secondLine = implode(' ',array_slice($words,$midpoint));
+                    $heading = '<span class="frontier-indent-heading-line">'.esc_html($firstLine).'</span><br>'
+                        .'<span class="frontier-indent-heading-line">'.esc_html($secondLine).'</span>';
+                }
+            }
+            echo '<th scope="col"'.($stageClasses[$field] ?? '').'>'.$heading.'</th>';
         }
         if ($showStatus) {
             echo '<th scope="col">Status</th>';
