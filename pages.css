@@ -499,20 +499,26 @@ body.frontier-workspace {
     background-color: #eef0f3;
 }
 
-.frontier-site-report-table[data-report-tab="summary"] { --report-hue: 210; }
-.frontier-site-report-table[data-report-tab="boq"] { --report-hue: 177; }
-.frontier-site-report-table[data-report-tab="indent"] { --report-hue: 268; }
-.frontier-site-report-table[data-report-tab="quote"] { --report-hue: 38; }
-.frontier-site-report-table[data-report-tab="choose"] { --report-hue: 219; }
-.frontier-site-report-table[data-report-tab="po"] { --report-hue: 198; }
-.frontier-site-report-table[data-report-tab="grn"] { --report-hue: 128; }
-.frontier-site-report-table[data-report-tab="invoice"] { --report-hue: 329; }
+/* Sitewise Report keeps related columns in the same colour family. */
+.frontier-site-report-table { --report-hue: 210; }
+.frontier-site-report-table [data-report-group="boq"] { --report-hue: 177; }
+.frontier-site-report-table [data-report-group="indent"] { --report-hue: 268; }
+.frontier-site-report-table [data-report-group="quote"],
+.frontier-site-report-table [data-report-group="supplier1"] { --report-hue: 38; }
+.frontier-site-report-table [data-report-group="supplier2"] { --report-hue: 178; }
+.frontier-site-report-table [data-report-group="supplier3"] { --report-hue: 266; }
+.frontier-site-report-table [data-report-group="selection"] { --report-hue: 219; }
+.frontier-site-report-table [data-report-group="order"] { --report-hue: 198; }
+.frontier-site-report-table [data-report-group="receipt"] { --report-hue: 128; }
+.frontier-site-report-table [data-report-group="cancel"] { --report-hue: 11; }
+.frontier-site-report-table [data-report-group="invoice"] { --report-hue: 329; }
+.frontier-site-report-table [data-report-group="document"] { --report-hue: 245; }
 .frontier-pages .frontier-site-report-table thead th {
     background: hsl(var(--report-hue), 62%, 88%);
 }
 .frontier-pages .frontier-site-report-table tbody td {
-    background: hsl(var(--report-hue), 60%, 97%);
+    background: hsl(var(--report-hue), 60%, 96%);
 }
 .frontier-pages .frontier-site-report-table tbody tr:nth-child(even) td {
-    background: hsl(var(--report-hue), 60%, 94%);
+    background: hsl(var(--report-hue), 60%, 93%);
 }

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.186
+ * Version: 1.9.187
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,7 +445,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.186');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.187');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -921,7 +921,7 @@ JS
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.186');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.187');
         }
     }
 
@@ -3361,15 +3361,27 @@ HTML;
         $pages = max(1,(int)ceil($total/25));
         $page = max(1,min($pages,absint(self::tableQuery('report_page'))));
         $offset = ($page-1)*25;
+
+        $columnGroups = [
+            'summary'=>['boq','item','item','boq','receipt','receipt','receipt','item'],
+            'boq'=>['boq','boq','item','item','boq','indent','indent','document'],
+            'indent'=>['indent','indent','item','item','indent','indent','indent','order','order','receipt','receipt','document'],
+            'quote'=>['indent','quote','item','supplier1','supplier1','supplier2','supplier2','supplier3','supplier3'],
+            'choose'=>['indent','selection','item','quote','quote','supplier1','supplier1','supplier2','supplier2',
+                'supplier3','supplier3','selection','selection','selection'],
+            'po'=>['order','order','indent','item','item','selection','order','order','cancel','receipt','receipt','invoice','invoice','document'],
+            'grn'=>['receipt','receipt','order','item','item','selection','receipt','order','receipt','receipt','document','document','document'],
+            'invoice'=>['invoice','invoice','order','item','selection','invoice','invoice','invoice','document','invoice'],
+        ][$tab];
         echo '<div class="frontier-table frontier-site-report-table" data-report-tab="'.esc_attr($tab).'" tabindex="0" role="region" aria-label="'.esc_attr($tabs[$tab][0]).'"><table class="widefat striped"><thead><tr>';
-        foreach ($columns as $column) {
-            echo '<th scope="col">'.self::tableHeading($column).'</th>';
+        foreach ($columns as $index=>$column) {
+            echo '<th scope="col" data-report-group="'.esc_attr($columnGroups[$index]).'">'.self::tableHeading($column).'</th>';
         }
         echo '</tr></thead><tbody>';
         foreach (array_slice($displayRows,$offset,25,true) as $index=>$cells) {
             echo '<tr>';
             foreach ($cells as $column=>$cell) {
-                echo '<td>';
+                echo '<td data-report-group="'.esc_attr($columnGroups[$column]).'">';
                 if ($tab === 'summary' && $column === 0) {
                     $detail = add_query_arg(['report_site'=>$site,'report_tab'=>'boq','report_line'=>$filtered[$index]['boq']],$url);
                     echo '<a href="'.esc_url($detail).'">'.esc_html($cell).'</a>';
