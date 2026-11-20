@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.118
+ * Version: 1.9.119
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,6 +445,11 @@ final class Frontier {
         remove_action('wp_head', '_admin_bar_bump_cb');
         wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.93');
         wp_add_inline_style('frontier-pages', <<<'CSS'
+.frontier-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
 .frontier-sidebar .frontier-dashboard-link {
     display: flex;
     align-items: center;
@@ -619,6 +624,9 @@ CSS
     toggle.hidden = false;
     toggle.addEventListener('click', () => {
         setHidden(!menu.hidden);
+        if (!menu.hidden && window.matchMedia('(max-width: 760px)').matches) {
+            menu.scrollIntoView({block: 'start'});
+        }
         try { localStorage.setItem(key, String(menu.hidden)); } catch {}
     });
 })();
