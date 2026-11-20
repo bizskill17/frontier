@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.135
+ * Version: 1.9.136
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -4600,7 +4600,7 @@ HTML;
         self::field($rows,'indent','due','Indent Date',current_time('Y-m-d'));
         self::field($rows,'indent','employee','Requested By','');
         self::field($sites,'indent','site','Site Number with Name','');
-        echo '<p><label>Indent Target Date <input type="date" name="target_date"></label></p>';
+        echo '<p><label>'.self::requiredLabel('Indent Target Date').'<input type="date" name="target_date" required></label></p>';
         echo '</div><div class="frontier-master-toolbar"><h2>Indent Items</h2><button type="button" class="button frontier-indent-add" disabled>＋ Add More</button></div>';
         echo '<p class="frontier-indent-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
@@ -4638,10 +4638,8 @@ HTML;
             }
         }
         $targetDate = self::input('target_date');
-        if ($targetDate !== '') {
-            $target = DateTimeImmutable::createFromFormat('!Y-m-d',$targetDate);
-            self::requireRule($target && $target->format('Y-m-d') === $targetDate,'Enter a valid indent target date.');
-        }
+        $target = DateTimeImmutable::createFromFormat('!Y-m-d',$targetDate);
+        self::requireRule($target && $target->format('Y-m-d') === $targetDate,'Enter a valid indent target date.');
         $header = ['indent_number'=>self::nextNumber('indent',$last),'indent_date'=>$dateText,'indent_token'=>$token,
             'indent_timestamp'=>current_time('mysql'),'due'=>$targetDate,
             'requested_by'=>(int)$employee['id'],'requested_name'=>$employee['data']['name'],'site'=>(int)$site['id']];
