@@ -1,4 +1,7 @@
 .frontier-pages .frontier-table { overflow-x: auto; margin-block: 1.25rem; }
+.frontier-table-grab { cursor: grab; }
+.frontier-table-grabbing, .frontier-table-grabbing * { cursor: grabbing; user-select: none; }
+
 /* Let users drag wide tables horizontally without scrolling the page. */
 @media (pointer: fine) {
     .frontier-pages .frontier-table::-webkit-scrollbar:horizontal { height: 14px; }

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.172
+ * Version: 1.9.173
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -444,7 +444,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.171');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.173');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -838,6 +838,63 @@ CSS
     private static function enqueueDropdownSearch() {
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.154',true);
         wp_add_inline_script('frontier-dropdown-search', <<<'JS'
+(() => {
+    const interactive = 'a, button, input, textarea, select, label, summary, [contenteditable], [role="button"], [role="listbox"], dialog';
+    let drag;
+    let suppressClick = false;
+
+    function scrollableTable(target) {
+        if (target.closest(interactive)) return null;
+        const table = target.closest('.frontier-pages .frontier-table');
+        if (!table || table.scrollWidth <= table.clientWidth) return null;
+        const overflow = getComputedStyle(table).overflowX;
+        return overflow === 'auto' || overflow === 'scroll' ? table : null;
+    }
+
+    document.addEventListener('pointermove', (event) => {
+        if (event.pointerType !== 'mouse') return;
+        if (drag && event.pointerId === drag.id) {
+            const distance = event.clientX - drag.x;
+            if (!drag.moved && Math.abs(distance) < 4) return;
+            if (!drag.moved) {
+                drag.table.classList.add('frontier-table-grabbing');
+                drag.table.setPointerCapture(event.pointerId);
+                drag.moved = true;
+            }
+            drag.table.scrollLeft = drag.left - distance;
+            return;
+        }
+        const table = event.target.closest('.frontier-pages .frontier-table');
+        if (table) table.classList.toggle('frontier-table-grab', scrollableTable(event.target) === table);
+    });
+
+    document.addEventListener('pointerdown', (event) => {
+        suppressClick = false;
+        if (event.pointerType !== 'mouse' || event.button !== 0) return;
+        const table = scrollableTable(event.target);
+        if (!table || event.target === table) return;
+        event.preventDefault();
+        drag = { table, id: event.pointerId, x: event.clientX, left: table.scrollLeft, moved: false };
+    });
+
+    function endDrag(event) {
+        if (!drag || drag.id !== event.pointerId) return;
+        suppressClick = drag.moved && event.type === 'pointerup';
+        drag.table.classList.remove('frontier-table-grabbing');
+        drag = undefined;
+    }
+
+    document.addEventListener('pointerup', endDrag);
+    document.addEventListener('pointercancel', endDrag);
+    document.addEventListener('lostpointercapture', endDrag);
+    document.addEventListener('click', (event) => {
+        if (!suppressClick || event.detail === 0) return;
+        suppressClick = false;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }, true);
+})();
+
 document.addEventListener('wheel', (event) => {
     if (!event.cancelable || event.defaultPrevented || event.ctrlKey || event.shiftKey ||
         !event.deltaY || event.deltaX) return;
@@ -862,7 +919,7 @@ JS
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.171');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.173');
         }
     }
 
