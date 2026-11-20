@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.97
+ * Version: 1.9.98
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -432,10 +432,12 @@ final class Frontier {
             return;
         }
         self::$front = true;
+        $rows = self::rows();
+        $counts = self::dashboardCounts($rows);
         ?>
         <a class="frontier-skip" href="#frontier-main">Skip to content</a>
         <div class="frontier-shell">
-            <?php self::workspaceNavigation($kind); ?>
+            <?php self::workspaceNavigation($kind,$counts); ?>
             <div class="frontier-main-column">
                 <header class="frontier-topbar">
                     <div class="frontier-topbar-start">
@@ -452,7 +454,7 @@ final class Frontier {
                     ?>
                 </header>
                 <main id="frontier-main" class="frontier-main">
-                    <?php self::render($kind); ?>
+                    <?php self::render($kind,$rows,$counts); ?>
                 </main>
             </div>
         </div>
@@ -967,7 +969,7 @@ final class Frontier {
         exit;
     }
 
-    private static function workspaceNavigation($current) {
+    private static function workspaceNavigation($current,$counts) {
         echo '<nav id="frontier-sidebar" class="frontier-sidebar" aria-label="Frontier navigation">';
         $orgName = trim((string)get_option('frontier_org_name',''));
         $brand = $orgName === '' ? 'Frontier' : $orgName;
@@ -981,7 +983,7 @@ final class Frontier {
             echo '<details'.(isset($visible[$current]) ? ' open' : '').'><summary>'.esc_html($group).'</summary><ul>';
             foreach ($visible as $view=>$label) {
                 echo '<li>';
-                self::workspaceNavigationLink($view,$label,$current);
+                self::workspaceNavigationLink($view,$label,$current,$counts[$view] ?? null);
                 echo '</li>';
             }
             echo '</ul></details>';
@@ -990,9 +992,13 @@ final class Frontier {
         echo '</nav>';
     }
 
-    private static function workspaceNavigationLink($view,$label,$current) {
+    private static function workspaceNavigationLink($view,$label,$current,$count=null) {
         $active = $view === $current ? ' aria-current="page"' : '';
-        echo '<a href="'.esc_url(self::url($view)).'"'.$active.'>'.esc_html($label).'</a>';
+        echo '<a class="frontier-dashboard-link" href="'.esc_url(self::url($view)).'"'.$active.'><span>'.esc_html($label).'</span>';
+        if ($count !== null) {
+            echo '<span class="frontier-dashboard-count">'.esc_html(number_format_i18n($count)).'</span>';
+        }
+        echo '</a>';
     }
 
     public static function shortcode() {
@@ -1195,7 +1201,7 @@ final class Frontier {
         self::render(isset(self::views()[$kind]) ? $kind : 'home');
     }
 
-    private static function render($kind) {
+    private static function render($kind,$rows=null,$counts=null) {
         if (!self::canView($kind)) {
             wp_die('Access denied.', '', ['response'=>403]);
         }
@@ -1211,7 +1217,7 @@ final class Frontier {
             if (self::$front) {
                 echo '<div class="frontier-overview">';
             }
-            $counts = self::dashboardCounts(self::rows());
+            $counts = $counts ?? self::dashboardCounts($rows ?? self::rows());
             foreach (self::GROUPS as $group=>$views) {
                 $visible = array_filter(array_keys($views),[self::class,'canView']);
                 if (!$visible) {
@@ -1264,7 +1270,7 @@ final class Frontier {
             return;
         }
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
-        $rows = self::rows();
+        $rows = $rows ?? self::rows();
         if (isset(self::PENDING_VIEWS[self::$screen])) {
             self::pendingWork($rows,self::$screen);
             echo '</div>';
