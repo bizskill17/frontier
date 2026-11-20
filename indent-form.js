@@ -26,7 +26,7 @@
             row.insert.disabled = !items.size || rows.length >= 100;
             row.number.textContent = index + 1;
             const available = item ? Math.max(0, round(item.qty - item.used)) : 0;
-            const details = item ? [item.unit, item.qty, item.used, available] : ['', '', '', ''];
+            const details = item ? [item.unit, item.qty, item.pending ?? 0, item.used, available] : ['', '', '', '', ''];
             row.details.forEach((cell, position) => { cell.textContent = details[position]; });
             const duplicate = (counts.get(row.item.value) || 0) > 1;
             const qty = Number(row.qty.value);
@@ -57,7 +57,7 @@
             item.add(new Option(entry.name + ' · BOQ ' + entry.number + '/' + entry.line, entry.id));
         }
         element.insertCell().append(item);
-        const details = Array.from({ length: 4 }, () => element.insertCell());
+        const details = Array.from({ length: 5 }, () => element.insertCell());
         const qty = document.createElement('input');
         qty.type = 'number';
         qty.required = true;

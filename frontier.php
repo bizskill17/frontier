@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.144
+ * Version: 1.9.145
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -558,13 +558,15 @@ body.frontier-workspace {
     }
     .frontier-main .frontier-indent-form tbody td:nth-child(1) { display: none; }
     .frontier-indent-form td:nth-child(2) { grid-column: 1 / -1; }
-    .frontier-indent-form td:nth-child(8) { align-self: end; }
+    .frontier-indent-form td:nth-child(7) { grid-column: 1 / -1; }
+    .frontier-indent-form td:nth-child(9) { align-self: end; }
     .frontier-indent-form td:nth-child(3)::before { content: 'Unit'; }
     .frontier-indent-form td:nth-child(4)::before { content: 'BOQ Quantity'; }
-    .frontier-indent-form td:nth-child(5)::before { content: 'Already Indented'; }
-    .frontier-indent-form td:nth-child(6)::before { content: 'Pending to Indent'; }
-    .frontier-indent-form td:nth-child(7)::before { content: 'Indent Now'; }
-    .frontier-indent-form td:nth-child(n+3):nth-child(-n+7)::before {
+    .frontier-indent-form td:nth-child(5)::before { content: 'Pending Approval Qty'; }
+    .frontier-indent-form td:nth-child(6)::before { content: 'Approved Qty'; }
+    .frontier-indent-form td:nth-child(7)::before { content: 'Pending to Indent'; }
+    .frontier-indent-form td:nth-child(8)::before { content: 'Indent Now'; }
+    .frontier-indent-form td:nth-child(n+3):nth-child(-n+8)::before {
         display: block;
         font-weight: 650;
     }
@@ -688,7 +690,7 @@ CSS
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.70',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.135',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.145',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.133',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.93');
@@ -4716,11 +4718,15 @@ HTML;
     }
 
     private static function indentForm($rows) {
+        $pending = [];
         $used = [];
         foreach ($rows as $row) {
             if ($row['kind'] === 'indent' && $row['status'] === 'approved') {
                 $id = $row['data']['boq'];
                 $used[$id] = ($used[$id] ?? 0) + $row['data']['qty'];
+            } elseif ($row['kind'] === 'indent' && $row['status'] === 'pending') {
+                $id = $row['data']['boq'];
+                $pending[$id] = ($pending[$id] ?? 0) + $row['data']['qty'];
             }
         }
         $sites = [];
@@ -4735,7 +4741,7 @@ HTML;
             $catalog[$site['id']][] = [
                 'id'=>(int)$row['id'],'name'=>$data['name'],'number'=>$data['boq_number'] ?? '#'.$row['id'],
                 'line'=>$data['line_number'] ?? 1,'unit'=>$data['unit'],'qty'=>(float)$data['qty'],
-                'used'=>round($used[$row['id']] ?? 0,3),
+                'used'=>round($used[$row['id']] ?? 0,3),'pending'=>round($pending[$row['id']] ?? 0,3),
             ];
         }
         self::formStart('indent','create_indent');
@@ -4748,7 +4754,7 @@ HTML;
         echo '</div><div class="frontier-master-toolbar"><h2>Indent Items</h2><button type="button" class="button frontier-indent-add" disabled>＋ Add More</button></div>';
         echo '<p class="frontier-indent-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
-        foreach (['Sl No.','Item Name','Unit','BOQ Quantity','Already Indented','Pending to Indent','Indent Now','Action'] as $label) {
+        foreach (['Sl No.','Item Name','Unit','BOQ Quantity','Pending Approval Qty','Approved Qty','Pending to Indent','Indent Now','Action'] as $label) {
             echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody></tbody></table></div>';
