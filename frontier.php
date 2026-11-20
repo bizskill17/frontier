@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.108
+ * Version: 1.9.109
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -503,16 +503,16 @@ final class Frontier {
     color: #432b00;
 }
 
-.frontier-main .frontier-indent-items-table th,
-.frontier-main .frontier-indent-items-table td {
+.frontier-main .frontier-table > table.widefat th,
+.frontier-main .frontier-table > table.widefat td {
     padding: 4px 7px;
     font-size: 13px;
     line-height: 1.3;
 }
-.frontier-main .frontier-indent-items-table th {
+.frontier-main .frontier-table > table.widefat th {
     white-space: normal;
 }
-.frontier-indent-items-table .frontier-indent-heading-line {
+.frontier-main .frontier-table .frontier-heading-line {
     white-space: nowrap;
 }
 .frontier-indent-items-table .frontier-indent-column-item,
@@ -1660,7 +1660,7 @@ CSS
         });
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Supplier Quotation Master"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+            echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '<th scope="col">Actions</th></tr></thead><tbody>';
         foreach ($pageRows as $quotes) {
@@ -1863,6 +1863,21 @@ CSS
     private static function exportLink($text,$action,$id) {
         $url = add_query_arg(['action'=>$action,'id'=>$id],admin_url('admin-post.php'));
         return ['text'=>$text,'url'=>html_entity_decode(wp_nonce_url($url,$action.'_'.$id),ENT_QUOTES,'UTF-8')];
+    }
+
+    private static function tableHeading($label) {
+        if (!self::$front) {
+            return esc_html($label);
+        }
+        $words = explode(' ',$label);
+        if (count($words) <= 2) {
+            return esc_html($label);
+        }
+        $midpoint = intdiv(count($words),2);
+        $firstLine = implode(' ',array_slice($words,0,$midpoint));
+        $secondLine = implode(' ',array_slice($words,$midpoint));
+        return '<span class="frontier-heading-line">'.esc_html($firstLine).'</span><br>'
+            .'<span class="frontier-heading-line">'.esc_html($secondLine).'</span>';
     }
 
     private static function tableQuery($key) {
@@ -2239,18 +2254,7 @@ HTML;
         $tableClass = $indentItems ? ' frontier-indent-items-table' : '';
         echo '<div class="frontier-table frontier-master-table'.$tableClass.'" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
         foreach ($fields as $field=>$label) {
-            $heading = esc_html($label);
-            if ($indentItems) {
-                $words = explode(' ',$label);
-                if (count($words) > 2) {
-                    $midpoint = intdiv(count($words),2);
-                    $firstLine = implode(' ',array_slice($words,0,$midpoint));
-                    $secondLine = implode(' ',array_slice($words,$midpoint));
-                    $heading = '<span class="frontier-indent-heading-line">'.esc_html($firstLine).'</span><br>'
-                        .'<span class="frontier-indent-heading-line">'.esc_html($secondLine).'</span>';
-                }
-            }
-            echo '<th scope="col"'.($stageClasses[$field] ?? '').'>'.$heading.'</th>';
+            echo '<th scope="col"'.($stageClasses[$field] ?? '').'>'.self::tableHeading($label).'</th>';
         }
         if ($showStatus) {
             echo '<th scope="col">Status</th>';
@@ -2345,7 +2349,7 @@ HTML;
             $item = $rows[$id]['data'];
             return [$item['name'],self::siteNumberWithName($rows[$item['site']]['data'] ?? []),round($quantity,3),$item['unit']];
         });
-        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>BOQ Item</th><th>Site Number with Name</th><th>Accepted Stock Received</th><th>Unit</th></tr></thead><tbody>';
+        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>BOQ Item</th><th>'.self::tableHeading('Site Number with Name').'</th><th>'.self::tableHeading('Accepted Stock Received').'</th><th>Unit</th></tr></thead><tbody>';
         foreach ($pageRows as $id=>$quantity) {
             $item = $rows[$id]['data'];
             echo '<tr><td>'.esc_html($item['name']).'</td><td>'.esc_html(self::siteNumberWithName($rows[$item['site']]['data'] ?? [])).'</td><td>'.esc_html(round($quantity,3)).'</td><td>'.esc_html($item['unit']).'</td></tr>';
@@ -3519,7 +3523,7 @@ HTML;
         });
         echo '<div class="frontier-table" tabindex="0" role="region" aria-label="BOQ records"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+            echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody>';
         foreach ($pageRows as $record) {
@@ -3628,7 +3632,7 @@ HTML;
         echo '<p class="frontier-boq-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
         foreach (['Sl. No.','Item Name','Quantity','Unit','Item Master Check','Action'] as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+            echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody></tbody></table></div>';
         echo '<datalist id="frontier-boq-items"></datalist>';
@@ -4021,7 +4025,7 @@ HTML;
         });
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Indent register"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+            echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody>';
         foreach ($pageRows as $entry) {
@@ -4074,7 +4078,7 @@ HTML;
         echo '<tr class="frontier-indent-panel" id="frontier-indent-items-'.esc_attr($id).'" hidden><td colspan="'.(int)$colspan.'">';
         echo '<table class="frontier-indent-item-table" aria-label="Indent items"><thead><tr>';
         foreach (['Sl No.','Item','Unit','Quantity Requested','Excess Quantity','Status'] as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+            echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody>';
         foreach (array_reverse($items) as $item) {
@@ -4226,7 +4230,7 @@ HTML;
         echo '<p class="frontier-indent-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
         foreach (['Sl No.','Item Name','Unit','Quantity Required','Already Indented','Pending to Indent','Indent Now','Action'] as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+            echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody></tbody></table></div>';
         echo '<script type="application/json" class="frontier-indent-data">'.wp_json_encode($catalog,
@@ -4341,7 +4345,7 @@ HTML;
         }
         echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="PO item invoices"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $column) {
-            echo '<th scope="col">'.esc_html($column).'</th>';
+            echo '<th scope="col">'.self::tableHeading($column).'</th>';
         }
         echo '</tr></thead><tbody>';
         foreach ($pageRows as $row) {
@@ -4582,7 +4586,7 @@ HTML;
         }
         echo '</div><h2>PO Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Items to receive"><table class="widefat striped"><thead><tr>';
         foreach (['Sl No.','PO Item No.','Item Name','Unit','Pending to Receive','Quantity Received'] as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+            echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody>';
         foreach ($orders as $id=>$lines) {
@@ -4771,7 +4775,7 @@ HTML;
         }
         echo '</div><h2>PO Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Purchase order items"><table class="widefat striped" style="min-width:1120px"><thead><tr>';
         foreach (['Sl No.','Item Name','Unit','Supplier Finalized','Rate Finalized','Pending to Order','Order Qty','Amount','Brand','Remarks'] as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+            echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody>';
         uasort($items,static function ($left,$right) {
@@ -5301,7 +5305,7 @@ HTML;
         $colors = [3=>'#dfeeff',4=>'#dfeeff',5=>'#dcf4ef',6=>'#dcf4ef',7=>'#ede6fb',8=>'#ede6fb'];
         foreach ($columns as $index=>$label) {
             $style = isset($colors[$index]) ? ' style="background:'.$colors[$index].'"' : '';
-            echo '<th scope="col"'.$style.'>'.esc_html($label).'</th>';
+            echo '<th scope="col"'.$style.'>'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody>';
         foreach ($groups as $group=>$items) {
@@ -5458,7 +5462,7 @@ HTML;
         echo '<div class="frontier-table" tabindex="0" role="region" aria-label="Supplier quotation items"><table class="widefat striped"><thead><tr>';
         foreach (['Sl No.','Item','Qty','Last Supplier','Last Supplier Rate','Supplier 1','Rate 1',
             'Supplier 2','Rate 2','Supplier 3','Rate 3'] as $label) {
-            echo '<th scope="col">'.esc_html($label).'</th>';
+            echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody></tbody></table></div><datalist id="frontier-quote-suppliers"></datalist>';
         echo '<script type="application/json" class="frontier-quotation-data">'.wp_json_encode(['groups'=>$groups,'suppliers'=>$suppliers],
