@@ -237,12 +237,19 @@ final class Frontier_Boq_Pdf {
             $offset += $length;
         }
         $columns = [32,77,293,352,412,478,563];
-        $tableHeader = static function () use (&$stream,&$y,$columns,$navy) {
+        $cellBorders = static function ($top,$bottom) use ($columns) {
+            $paths = "q 0.64 0.70 0.77 RG 0.65 w 32 $bottom  m 563 $bottom l\n";
+            foreach ($columns as $x) {
+                $paths .= "$x $top m $x $bottom l\n";
+            }
+            return $paths."S Q\n";
+        };
+        $tableHeader = static function () use (&$stream,&$y,$columns,$navy,$cellBorders) {
             $stream .= "$navy rg 32 ".($y-22)." 531 22 re f\n1 g\n";
             foreach (['Sl No.','Item Name','Unit','Order Qty','Rate','Amount'] as $index=>$label) {
                 $stream .= self::poAligned($label,$columns[$index]+6,$y-15,9,'left',true);
             }
-            $stream .= "0 g\n";
+            $stream .= $cellBorders($y,$y-22)."0 g\n";
             $y -= 22;
         };
         if ($y < 150) {
@@ -262,10 +269,13 @@ final class Frontier_Boq_Pdf {
                 $pageBreak();
                 $tableHeader();
             }
+            $rowTop = $y;
             for ($line=0;$line<$lines;$line++) {
                 if ($y < 110) {
+                    $stream .= $cellBorders($rowTop,$y);
                     $pageBreak();
                     $tableHeader();
+                    $rowTop = $y;
                 }
                 $stream .= self::line($names[$line] ?? '',83,$y-12,9);
                 $stream .= self::line($units[$line] ?? '',299,$y-12,9);
@@ -278,7 +288,7 @@ final class Frontier_Boq_Pdf {
                 $y -= 12;
             }
             $y -= 10;
-            $stream .= "0.78 0.82 0.86 RG 32 $y m 563 $y l S\n";
+            $stream .= $cellBorders($rowTop,$y);
         }
         if ($y < 126) {
             $pageBreak();
