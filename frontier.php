@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.167
+ * Version: 1.9.168
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -64,15 +64,15 @@ final class Frontier {
         'category'=>['name'=>'Category name'],
         'item_type'=>['name'=>'Type name'],
         'site'=>['ref'=>'Site Number', 'due'=>'Site Date', 'name'=>'Site Name', 'address'=>'Site Address', 'employee'=>'Site Manager', 'telegram'=>'Telegram Group Id'],
-        'supplier'=>['ref'=>'Supplier Code', 'name'=>'Supplier Names', 'contact'=>'Contact Number', 'alternate'=>'Alternate Contact Number', 'email'=>'Email Id', 'address'=>'Address', 'city'=>'City', 'state'=>'State', 'pin'=>'PIN', 'mobile'=>'Mobile', 'gst'=>'GST', 'term'=>'Term'],
-        'boq'=>['site'=>'Site Number with Name', 'section'=>'Section', 'name'=>'Item', 'unit'=>'Unit', 'qty'=>'Planned quantity'],
+        'supplier'=>['ref'=>'Supplier Code', 'name'=>'Supplier Name', 'contact'=>'Contact Number', 'alternate'=>'Alternate Contact Number', 'email'=>'Email Id', 'address'=>'Address', 'city'=>'City', 'state'=>'State', 'pin'=>'PIN', 'mobile'=>'Mobile', 'gst'=>'GST', 'term'=>'Term'],
+        'boq'=>['site'=>'Site Name', 'section'=>'Section', 'name'=>'Item', 'unit'=>'Unit', 'qty'=>'Planned quantity'],
         'indent'=>['boq'=>'BOQ item', 'qty'=>'Required quantity', 'due'=>'Required by'],
-        'quote'=>['indent'=>'Approved indent', 'supplier'=>'Supplier Name with Code', 'rate'=>'Unit rate', 'tax'=>'Tax %', 'freight'=>'Freight', 'due'=>'Delivery date', 'note'=>'Payment terms'],
+        'quote'=>['indent'=>'Approved indent', 'supplier'=>'Supplier Name', 'rate'=>'Unit rate', 'tax'=>'Tax %', 'freight'=>'Freight', 'due'=>'Delivery date', 'note'=>'Payment terms'],
         'po'=>['quote'=>'Selected quotation', 'qty'=>'Order quantity', 'ref'=>'PO number', 'due'=>'Expected delivery'],
         'follow'=>['po'=>'Purchase order', 'note'=>'Follow-up notes', 'due'=>'Next follow-up'],
         'cancel'=>['po'=>'Purchase order', 'qty'=>'Quantity to cancel', 'note'=>'Reason'],
         'grn'=>['po'=>'Purchase order', 'ref'=>'GRN number', 'due'=>'Receipt date', 'qty'=>'Accepted quantity', 'reject'=>'Rejected quantity'],
-        'invoice'=>['supplier'=>'Supplier Name with Code', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
+        'invoice'=>['supplier'=>'Supplier Name', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
     private const PAGE_VERSION = '1.9.55';
@@ -105,7 +105,7 @@ final class Frontier {
     private const IMPORT_TEMPLATES = [
         'employee'=>['Name'],
         'item'=>['Name','Item Category','Item Type'],
-        'supplier'=>['Supplier Code','Supplier Names','Suppliers Name with Code','Contact Number','Alternate Contact Number','Email Id','Address','City','State','PIN','Mobile','GST','Term'],
+        'supplier'=>['Supplier Name','Contact Number','Alternate Contact Number','Email Id','Address','City','State','PIN','Mobile','GST','Term'],
     ];
 
     private const FILES = ['quote'=>'Quotation file', 'grn'=>'Signed GRN slip', 'invoice'=>'Invoice copy'];
@@ -946,7 +946,7 @@ CSS
             return false;
         }
         $message = strtr($settings['approval_message'] ?? self::APPROVED_INDENT_MESSAGE,[
-            '{indent_number}'=>(string)$data['indent_number'],'{site_name}'=>self::siteNumberWithName($site),
+            '{indent_number}'=>(string)$data['indent_number'],'{site_name}'=>self::siteName($site),
             '{updated_by}'=>$data['decision_by'],'{status}'=>'Approved','{remarks}'=>$data['reason'],
         ]);
         $response = wp_remote_post('https://api.telegram.org/bot'.$settings['token'].'/sendMessage',[
@@ -1099,7 +1099,7 @@ CSS
             foreach ($suppliers as $supplier=>$lines) {
                 $blocks[] = ($supplier === '' ? '' : $supplier."\n").implode("\n",$lines);
             }
-            $message = self::procurementMessage($settings,$event,['site_name'=>self::siteNumberWithName($site),
+            $message = self::procurementMessage($settings,$event,['site_name'=>self::siteName($site),
                 'report_date'=>$now->format('d/m/Y'),'pending_items'=>implode("\n\n",$blocks)]);
             $chat = trim((string)($site['telegram'] ?? ''));
             if (self::procurementTelegram($settings,$chat,$message)) {
@@ -1215,7 +1215,7 @@ CSS
         $message = strtr($settings['message'],['{indent_number}'=>(string)$number,'{site_name}'=>$siteName,
             '{indent_date}'=>$date,'{requested_by}'=>$header['requested_name']]);
         $message = wp_html_excerpt($message,1000);
-        $pdf = Frontier_Boq_Pdf::buildIndent($number,self::siteNumberWithName($site),$date,$header['requested_name'],$items);
+        $pdf = Frontier_Boq_Pdf::buildIndent($number,self::siteName($site),$date,$header['requested_name'],$items);
         $boundary = 'frontier-'.wp_generate_uuid4();
         $body = "--$boundary\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n$chat\r\n";
         $body .= "--$boundary\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n$message\r\n";
@@ -1274,7 +1274,7 @@ CSS
     }
 
     private const NUMBER_FIELDS = ['boq'=>'BOQ Number','indent'=>'Indent Number','po'=>'PO Number',
-        'grn'=>'GRN Number','supplier'=>'Supplier Code','site'=>'Site Number'];
+        'grn'=>'GRN Number'];
 
     private static function fiscalYear($date) {
         return (int)substr($date,0,4) - ((int)substr($date,5,2) < 4 ? 1 : 0);
@@ -1630,10 +1630,8 @@ CSS
             + array_sum(array_intersect_key($released,$orders)),3);
     }
 
-    private static function siteNumberWithName($data) {
-        $code = $data['ref'] ?? '';
-        $name = $data['name'] ?? '';
-        return $code !== '' && $name !== '' ? $code.' - '.$name : ($name !== '' ? $name : $code);
+    private static function siteName($data) {
+        return $data['name'] ?? '';
     }
 
     private static function supplierDisplay($data,$rows) {
@@ -1656,8 +1654,7 @@ CSS
                 return $name;
             }
         }
-        $code = $master['data']['ref'] ?? '';
-        return ($code !== '' ? $code.' - ' : '').$master['data']['name'];
+        return $master['data']['name'];
     }
 
     private static function sameSupplier($first,$second) {
@@ -1669,7 +1666,7 @@ CSS
     private static function label($row,$rows) {
         $data = $row['data'];
         if ($row['kind'] === 'site') {
-            return self::siteNumberWithName($data);
+            return self::siteName($data);
         }
         if ($row['kind'] === 'supplier') {
             return self::supplierDisplay(['supplier'=>$row['id']],$rows);
@@ -2008,7 +2005,7 @@ CSS
             $boq = $rows[$indent['boq'] ?? 0]['data'] ?? [];
             $site = $rows[$indent['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
             $number = $indent['indent_number'] ?? ($indentId ? '#'.$indentId : '');
-            $siteLabel = self::siteNumberWithName($site);
+            $siteLabel = self::siteName($site);
             $indentLabel = implode(' · ',array_filter([(string)$number,$siteLabel],'strlen'));
             $timestamp = $latest['quote_timestamp'] ?? '';
             $values = [$indentLabel,$timestamp ? mysql2date('d/m/Y H:i:s',$timestamp,false) : '',
@@ -2499,13 +2496,15 @@ HTML;
     private static function renderRecords($listing,$rows,$kind,$mode,$choiceItems=[]) {
         $fields = self::FIELDS[$kind];
         unset($fields['password']);
+        if (in_array($kind,['supplier','site'],true)) {
+            unset($fields['ref']);
+        }
         $fields += [
-            'site'=>['combined_name'=>'Site Number with Name','status_date'=>'Status Date','status_remark'=>'Remark','updated_by'=>'Updated By'],
-            'supplier'=>['combined_name'=>'Suppliers Name with Code'],
-            'indent'=>['indent_number'=>'Indent No.','indent_date'=>'Indent Date','site_name'=>'Site Number with Name',
+            'site'=>['status_date'=>'Status Date','status_remark'=>'Remark','updated_by'=>'Updated By'],
+            'indent'=>['indent_number'=>'Indent No.','indent_date'=>'Indent Date','site_name'=>'Site Name',
                 'requested_name'=>'Requested By','line_number'=>'Sl No.','unit'=>'Unit','excess'=>'Excess Quantity','reason'=>'Reason'],
             'quote'=>['quote_date'=>'Quotation Date','comparison_name'=>'Compared By','reason'=>'Selection Reason','attachment'=>'Quotation File'],
-            'po'=>['supplier'=>'Supplier Name with Code','reason'=>'Reason','received'=>'Received','waiting'=>'Pending GRN Approval','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
+            'po'=>['supplier'=>'Supplier Name','reason'=>'Reason','received'=>'Received','waiting'=>'Pending GRN Approval','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'follow'=>['ordered'=>'Order Quantity','expected'=>'Expected Delivery','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'grn'=>['attachment'=>'GRN Slip'],
             'invoice'=>['matched'=>'Matched Amount','attachment'=>'Invoice Copy'],
@@ -2517,7 +2516,7 @@ HTML;
         $pendingPo = self::$screen === 'pending_po';
         if ($pendingPo) {
             $fields = [
-                'site_name'=>'Site Number with Name','indent_number'=>'Indent No.','indent_date'=>'Indent Date',
+                'site_name'=>'Site Name','indent_number'=>'Indent No.','indent_date'=>'Indent Date',
                 'due'=>'Required By','line_number'=>'Sl No.','item_name'=>'Item Name','unit'=>'Unit',
                 'qty'=>'Indent Qty','ordered_quantity'=>'Qty Ordered','pending_quantity'=>'Pending to Order',
                 'supplier'=>'Supplier Finalized','rate'=>'Rate Finalized',
@@ -2526,7 +2525,7 @@ HTML;
         $choosePending = self::$screen === 'pending_choose';
         $chooseMaster = self::$screen === 'choose_master';
         if ($choosePending || $chooseMaster) {
-            $fields = ['site_name'=>'Site Number with Name','indent_number'=>'Indent No.','indent_date'=>'Indent Date',
+            $fields = ['site_name'=>'Site Name','indent_number'=>'Indent No.','indent_date'=>'Indent Date',
                 'line_number'=>'Sl No.','item_name'=>'Item Name','qty'=>'Qty','unit'=>'Unit'];
             $fields += [
                 'supplier_1'=>'Supplier 1','rate_1'=>'Rate 1','supplier_2'=>'Supplier 2','rate_2'=>'Rate 2',
@@ -2543,7 +2542,7 @@ HTML;
         $pendingQuote = self::$screen === 'pending_quote';
         if ($pendingQuote) {
             $fields = [
-                'site_name'=>'Site Number with Name','item_name'=>'Item Name','qty'=>'Required Quantity',
+                'site_name'=>'Site Name','item_name'=>'Item Name','qty'=>'Required Quantity',
                 'due'=>'Required by','indent_number'=>'Indent No.','indent_date'=>'Indent Date',
                 'requested_name'=>'Requested By','line_number'=>'Sl No.','unit'=>'Unit',
                 'excess'=>'Excess Quantity','reason'=>'Reason',
@@ -2611,7 +2610,7 @@ HTML;
                 $indent = $row['data'];
                 $boq = $rows[$indent['boq'] ?? 0]['data'] ?? [];
                 $site = $rows[$indent['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
-                $values['site_name'] = self::siteNumberWithName($site);
+                $values['site_name'] = self::siteName($site);
                 $values['item_name'] = $boq['name'] ?? '';
                 $values['indent_number'] = $indent['indent_number'] ?? '#'.$row['id'];
                 $values['line_number'] = $indent['line_number'] ?? 1;
@@ -2792,14 +2791,14 @@ HTML;
             $boq = $rows[$rows[$po['data']['indent']]['data']['boq']];
             $received[$boq['id']] = ($received[$boq['id']] ?? 0) + $row['data']['qty'];
         }
-        [$pageRows,$page,$pages,$total] = self::pagedRows($received,['BOQ Item','Site Number with Name','Accepted Stock Received','Unit'],static function ($quantity,$id) use ($rows) {
+        [$pageRows,$page,$pages,$total] = self::pagedRows($received,['BOQ Item','Site Name','Accepted Stock Received','Unit'],static function ($quantity,$id) use ($rows) {
             $item = $rows[$id]['data'];
-            return [$item['name'],self::siteNumberWithName($rows[$item['site']]['data'] ?? []),round($quantity,3),$item['unit']];
+            return [$item['name'],self::siteName($rows[$item['site']]['data'] ?? []),round($quantity,3),$item['unit']];
         });
-        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>BOQ Item</th><th>'.self::tableHeading('Site Number with Name').'</th><th>'.self::tableHeading('Accepted Stock Received').'</th><th>Unit</th></tr></thead><tbody>';
+        echo '<div class="frontier-table"><table class="widefat striped"><thead><tr><th>BOQ Item</th><th>'.self::tableHeading('Site Name').'</th><th>'.self::tableHeading('Accepted Stock Received').'</th><th>Unit</th></tr></thead><tbody>';
         foreach ($pageRows as $id=>$quantity) {
             $item = $rows[$id]['data'];
-            echo '<tr><td>'.esc_html($item['name']).'</td><td>'.esc_html(self::siteNumberWithName($rows[$item['site']]['data'] ?? [])).'</td><td>'.esc_html(round($quantity,3)).'</td><td>'.esc_html($item['unit']).'</td></tr>';
+            echo '<tr><td>'.esc_html($item['name']).'</td><td>'.esc_html(self::siteName($rows[$item['site']]['data'] ?? [])).'</td><td>'.esc_html(round($quantity,3)).'</td><td>'.esc_html($item['unit']).'</td></tr>';
         }
         if (!$total) {
             echo '<tr><td colspan="4">No stock receipts approved yet.</td></tr>';
@@ -3117,9 +3116,6 @@ HTML;
         if (in_array($kind,['quote','po','invoice'],true)) {
             $values['supplier'] = self::supplierDisplay($data,$rows);
         }
-        if (in_array($kind,['supplier','site'],true) && !empty($data['ref'])) {
-            $values['combined_name'] = $data['ref'].' - '.$data['name'];
-        }
         if (self::$screen === 'pending_po' && isset($rows[$data['indent'] ?? 0])) {
             $indent = $rows[$data['indent']];
             $values = self::supplierIndentDetails($indent,$rows) + $values;
@@ -3159,7 +3155,7 @@ HTML;
                 $values[$key] = $data[$key] ?? '';
             }
             $values['indent_date'] = implode('/',array_reverse(explode('-',$data['indent_date'])));
-            $values['site_name'] = self::siteNumberWithName($rows[$data['site']]['data'] ?? []);
+            $values['site_name'] = self::siteName($rows[$data['site']]['data'] ?? []);
         }
         if ($kind === 'site' && !empty($data['status_date'])) {
             $values['status_date'] = implode('/',array_reverse(explode('-',$data['status_date'])));
@@ -3392,6 +3388,18 @@ HTML;
     }
 
     private static function validateMaster($rows,$kind,$data,$id=0) {
+        if (in_array($kind,['supplier','site'],true)) {
+            $nameKey = self::itemNameKey($data['name']);
+            $label = $kind === 'site' ? 'site' : 'supplier';
+            self::requireRule($nameKey !== '','Enter a '.$label.' name.');
+            foreach ($rows as $row) {
+                if ($row['kind'] === $kind && (int)$row['id'] !== (int)$id) {
+                    self::requireRule(self::itemNameKey($row['data']['name']) !== $nameKey,
+                        'This '.$label.' name already exists.');
+                }
+            }
+            return;
+        }
         if ($kind === 'item') {
             $nameKey = self::itemNameKey($data['name']);
             if ($id && self::itemNameKey($rows[$id]['data']['name'] ?? '') === $nameKey) {
@@ -3728,9 +3736,6 @@ HTML;
         $output = fopen('php://output','wb');
         fwrite($output,"\xEF\xBB\xBF");
         $headers = self::IMPORT_TEMPLATES[$kind];
-        if ($kind === 'supplier' && !$export) {
-            unset($headers[0],$headers[2]);
-        }
         fputcsv($output,array_values($headers),',','"','');
         foreach ($records as $row) {
             if ($row['kind'] !== 'supplier') {
@@ -3738,10 +3743,9 @@ HTML;
             }
             $data = $row['data'];
             $values = [];
-            foreach (array_keys(self::FIELDS['supplier']) as $field) {
+            foreach (array_keys(array_diff_key(self::FIELDS['supplier'],['ref'=>true])) as $field) {
                 $values[] = (string)($data[$field] ?? '');
             }
-            array_splice($values,2,0,[$values[0].' - '.$values[1]]);
             $values = array_map(static function ($value) {
                 return preg_match('/^\s*[=+\-@]/u',$value) ? "'".$value : $value;
             },$values);
@@ -3781,12 +3785,12 @@ HTML;
             if ($kind === 'supplier') {
                 $headers = array_map(static function ($header) {
                     $key = strtolower($header);
-                    return in_array($key,['supplier name','suppliers name','name'],true) ? 'supplier names' : $key;
+                    return in_array($key,['supplier names','suppliers name','name'],true) ? 'supplier name' : $key;
                 },$headers);
                 $expectedKeys = array_map('strtolower',$expected);
-                self::requireRule(in_array('supplier names',$headers,true)
+                self::requireRule(in_array('supplier name',$headers,true)
                     && count(array_unique($headers)) === count($headers)
-                    && !array_diff($headers,$expectedKeys),
+                    && !array_diff($headers,$expectedKeys,['supplier code','suppliers name with code','supplier name with code']),
                     'Include Supplier Name and use the template headers for any optional columns.');
             } else {
                 self::requireRule($headers === $expected,
@@ -3814,19 +3818,21 @@ HTML;
                     $row = array_map(static function ($key) use ($byHeader) {
                         return $byHeader[$key] ?? '';
                     },$expectedKeys);
-                    $row[0] = '';
-                    $row[2] = '';
                 } else {
                     self::requireRule(count($row) === count($headers),'Check the column count on CSV row '.$line.'.');
                 }
                 foreach ($row as $index=>$value) {
                     $label = $expected[$index];
-                    $optional = $kind === 'supplier' && $index !== 1;
+                    $optional = $kind === 'supplier' && $index !== 0;
                     $length = $kind === 'supplier' ? (self::SUPPLIER_TEXT_LIMITS[strtolower($label)] ?? 200) : 200;
                     self::requireRule($optional || $value !== '',$label.' is required on CSV row '.$line.'.');
                     self::requireRule(strlen($value) <= $length,$label.' on CSV row '.$line.' exceeds '.$length.' bytes.');
                 }
-                $rows[] = $row;
+                if ($kind === 'supplier') {
+                    $rows[$line] = $row;
+                } else {
+                    $rows[] = $row;
+                }
                 self::requireRule(count($rows) <= $limit,'Upload up to '.$limit.' records.');
             }
             self::requireRule($rows,'Add at least one record below the header.');
@@ -3922,33 +3928,29 @@ HTML;
 
     private static function importSuppliers($records) {
         $rows = self::readImportTemplate('supplier',5000);
-        $last = self::nextNumber('supplier',self::lastMasterCode($records,'supplier'))-1;
-        $fields = array_values(array_diff(array_keys(self::FIELDS['supplier']),['ref']));
-        $signature = static function ($data) use ($fields) {
-            return wp_json_encode(array_map(static function ($field) use ($data) {
-                return strtolower(trim($data[$field] ?? ''));
-            },$fields));
-        };
+        $fields = array_keys(array_diff_key(self::FIELDS['supplier'],['ref'=>true]));
         $used = [];
         foreach ($records as $record) {
             if ($record['kind'] === 'supplier') {
-                $used[$signature($record['data'])] = true;
+                $used[self::itemNameKey($record['data']['name'])] = 'Supplier Master';
             }
         }
-        $count = 0;
-        foreach ($rows as $row) {
-            array_splice($row,2,1);
-            $data = array_combine(array_keys(self::FIELDS['supplier']),$row);
-            $key = $signature($data);
-            if (isset($used[$key])) {
-                continue;
-            }
+        $suppliers = [];
+        foreach ($rows as $line=>$row) {
+            $data = array_combine($fields,$row);
+            $key = self::itemNameKey($data['name']);
+            self::requireRule($key !== '','Supplier Name is required on CSV row '.$line.'.');
+            self::requireRule(!isset($used[$key]),
+                'Duplicate supplier name on CSV row '.$line.' (already exists in '.($used[$key] ?? '').').');
+            $used[$key] = 'CSV row '.$line;
+            $suppliers[] = $data;
+        }
+        $last = self::nextNumber('supplier',self::lastMasterCode($records,'supplier'))-1;
+        foreach ($suppliers as $data) {
             $data['ref'] = self::formatMasterCode(++$last);
             self::insertImportedRecord('supplier',$data);
-            $used[$key] = true;
-            $count++;
         }
-        return $count;
+        return count($suppliers);
     }
 
     private static function insertImportedRecord($kind,$data) {
@@ -4033,7 +4035,7 @@ HTML;
             $timestamp = !empty($data['boq_timestamp']) ? mysql2date('d/m/Y H:i:s',$data['boq_timestamp'],false) : '';
             $header = [
                 'date'=>$date,'number'=>$data['boq_number'] ?? '#'.$id,
-                'site'=>self::siteNumberWithName($rows[$data['site'] ?? 0]['data'] ?? []),
+                'site'=>self::siteName($rows[$data['site'] ?? 0]['data'] ?? []),
                 'prepared'=>$data['prepared_name'] ?? '', 'timestamp'=>$timestamp,
             ];
             $quantity = (float)$data['qty'];
@@ -4058,12 +4060,12 @@ HTML;
             $groups[$key]['pending_indent'] += max(0,$quantity-$indented);
         }
         $columns = $itemsOnly ? [
-            'timestamp'=>'Timestamp','number'=>'BOQ No.','date'=>'BOQ Date','site'=>'Site Number with Name','prepared'=>'BOQ Prepared By',
+            'timestamp'=>'Timestamp','number'=>'BOQ No.','date'=>'BOQ Date','site'=>'Site Name','prepared'=>'BOQ Prepared By',
             'line'=>'Sl No.','item'=>'Item Name','qty'=>'Quantity Required','unit'=>'Units','indented'=>'Quantity Already Indented',
             'pending_indent'=>'Quantity Pending to be Indented','ordered'=>'Quantity Ordered','pending_order'=>'Pending to Order',
             'category'=>'Item Category','received'=>'Quantity Received','pending_receive'=>'Pending to Receive',
         ] : [
-            'date'=>'BOQ Date','number'=>'BOQ No.','site'=>'Site Number with Name','prepared'=>'Prepared By',
+            'date'=>'BOQ Date','number'=>'BOQ No.','site'=>'Site Name','prepared'=>'Prepared By',
             'timestamp'=>'Timestamp','qty'=>'Total Quantity','indented'=>'Quantity Indented','pending_indent'=>'Pending to Indent',
         ];
         if (!$itemsOnly) {
@@ -4136,7 +4138,7 @@ HTML;
         }
         $header = $boq['data'];
         $number = $header['boq_number'] ?? '#'.$id;
-        $site = self::siteNumberWithName($rows[$header['site'] ?? 0]['data'] ?? []);
+        $site = self::siteName($rows[$header['site'] ?? 0]['data'] ?? []);
         $date = !empty($header['boq_date']) ? implode('/',array_reverse(explode('-',$header['boq_date']))) : '';
         $lines = [];
         foreach (self::boqLines($rows,$id) as $row) {
@@ -4184,12 +4186,12 @@ HTML;
         self::field($rows,'boq','due','BOQ Date',$header['boq_date'] ?? current_time('Y-m-d'));
         if ($used) {
             $siteId = $header['site'];
-            echo '<input type="hidden" name="site" value="'.esc_attr($siteId).'"><p><label>Site Number with Name <input readonly value="';
-            echo esc_attr(self::siteNumberWithName($rows[$siteId]['data'] ?? [])).'"></label></p>';
+            echo '<input type="hidden" name="site" value="'.esc_attr($siteId).'"><p><label>Site Name <input readonly value="';
+            echo esc_attr(self::siteName($rows[$siteId]['data'] ?? [])).'"></label></p>';
         } else {
             $occupied = self::boqSites($rows);
             unset($occupied[$header['site'] ?? 0]);
-            self::field(array_diff_key($rows,$occupied),'boq','site','Site Number with Name',$header['site'] ?? '');
+            self::field(array_diff_key($rows,$occupied),'boq','site','Site Name',$header['site'] ?? '');
         }
         self::field($rows,'boq','employee','Prepared By',$header['prepared_by'] ?? '');
         echo '</div>';
@@ -4407,7 +4409,7 @@ HTML;
 
     private static function indentItemColumns() {
         return [
-            'entered'=>'Indent Timestamp','number'=>'Indent No.','date'=>'Indent Date','site'=>'Site Number with Name',
+            'entered'=>'Indent Timestamp','number'=>'Indent No.','date'=>'Indent Date','site'=>'Site Name',
             'requested'=>'Requested By','sl'=>'Sl No.','item'=>'Item','unit'=>'Units','boq_qty'=>'Quantity as per BOQ',
             'already'=>'Quantity Already Indented','qty'=>'Quantity Required Now','excess'=>'Whether Excess Indented',
             'last_supplier'=>'Last Supplier','last_rate'=>'Last Rate',
@@ -4464,7 +4466,7 @@ HTML;
         };
         $values = [
             'entered'=>$timestamp($data['indent_timestamp'] ?? ''),'number'=>$data['indent_number'] ?? '#'.$id,
-            'date'=>self::indentDisplayDate($data['indent_date'] ?? ''),'site'=>self::siteNumberWithName($site),
+            'date'=>self::indentDisplayDate($data['indent_date'] ?? ''),'site'=>self::siteName($site),
             'requested'=>$data['requested_name'] ?? '', 'sl'=>$data['line_number'] ?? 1,
             'item'=>$boq['name'] ?? '', 'unit'=>$data['unit'] ?? ($boq['unit'] ?? ''),
             'boq_qty'=>$boq['qty'] ?? '', 'qty'=>$data['qty'],
@@ -4603,7 +4605,7 @@ HTML;
                 $groups[$group] = [
                     'id'=>$id,'number'=>$data['indent_number'] ?? '#'.$id,'group'=>$group,
                     'date'=>$data['indent_date'] ?? '',
-                    'site'=>self::siteNumberWithName($rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? []),
+                    'site'=>self::siteName($rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? []),
                     'requested'=>$data['requested_name'] ?? '', 'timestamp'=>$data['indent_timestamp'] ?? '',
                     'total'=>0,'received'=>0,'pending_receive'=>0,'ordered'=>0,'pending_order'=>0,
                     'target'=>'','decision'=>'','by'=>'','statuses'=>[],'remarks'=>[],'pending_lines'=>0,
@@ -4636,7 +4638,7 @@ HTML;
             unset($entry);
         }
         $columns = [
-            'date'=>'Indent Date','number'=>'Indent No.','site'=>'Site Number with Name','requested'=>'Requested By',
+            'date'=>'Indent Date','number'=>'Indent No.','site'=>'Site Name','requested'=>'Requested By',
             'pdf'=>'PDF','timestamp'=>'Timestamp','total'=>'Total Quantity','received'=>'Quantity Received',
             'pending_receive'=>'Pending to Receive','target'=>'Indent Target Date','decision'=>'Approved Timestamp',
             'by'=>'Approved/Rejected By','status'=>'Status','remarks'=>'Remarks',
@@ -4645,7 +4647,7 @@ HTML;
         if ($pendingOnly) {
             $groups = array_filter($groups,static function ($entry) { return $entry['pending_lines'] > 0; });
             $columns = [
-                'number'=>'Indent No.','date'=>'Indent Date','site'=>'Site Number with Name',
+                'number'=>'Indent No.','date'=>'Indent Date','site'=>'Site Name',
                 'requested'=>'Requested By','target'=>'Target Date','pending_lines'=>'Pending Items',
                 'total'=>'Total Quantity','pdf'=>'PDF','actions'=>'Actions',
             ];
@@ -4847,7 +4849,7 @@ HTML;
         $group = self::indentGroup($indent);
         $data = $indent['data'];
         $boq = $rows[$data['boq']]['data'] ?? [];
-        $site = self::siteNumberWithName($rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? []);
+        $site = self::siteName($rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? []);
         $lines = [];
         foreach (array_reverse($rows) as $row) {
             if ($row['kind'] !== 'indent' || self::indentGroup($row) !== $group) {
@@ -5266,7 +5268,7 @@ HTML;
         self::field($rows,'grn','employee','GRN Prepared By','');
         self::field($rows,'grn','ref','GRN Slip No.','');
         echo '</div><div class="frontier-fields">';
-        foreach (['supplier'=>'Supplier','po_date'=>'PO Date','indent_number'=>'Indent No.','site_name'=>'Site Number with Name'] as $field=>$label) {
+        foreach (['supplier'=>'Supplier','po_date'=>'PO Date','indent_number'=>'Indent No.','site_name'=>'Site Name'] as $field=>$label) {
             echo '<p><label>'.esc_html($label).'<input type="text" data-grn-detail="'.esc_attr($field).'" readonly></label></p>';
         }
         echo '</div><h2>PO Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Items to receive"><table class="widefat striped"><thead><tr>';
@@ -5851,7 +5853,7 @@ HTML;
         $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
         $site = $rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
         return [
-            'site_name'=>self::siteNumberWithName($site),
+            'site_name'=>self::siteName($site),
             'indent_number'=>$data['indent_number'] ?? (isset($indent['id']) ? '#'.$indent['id'] : ''),
             'indent_date'=>self::indentDisplayDate($data['indent_date'] ?? ''),
             'line_number'=>$data['line_number'] ?? ($data ? 1 : ''),
@@ -5979,7 +5981,7 @@ HTML;
             $data = $first['data'];
             $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
             $site = $rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
-            $label = ($data['indent_number'] ?? '#'.$first['id']).' · '.self::siteNumberWithName($site);
+            $label = ($data['indent_number'] ?? '#'.$first['id']).' · '.self::siteName($site);
             echo '<option value="'.esc_attr($group).'" '.selected($prefill,$group,false).'>'.esc_html($label).'</option>';
         }
         echo '</select></label></p>';
@@ -6121,7 +6123,7 @@ HTML;
             $site = $rows[$data['site'] ?? ($boq['site'] ?? 0)]['data'] ?? [];
             $number = $data['indent_number'] ?? '#'.$id;
             if (!isset($groups[$group])) {
-                $groups[$group] = ['label'=>$number.' · '.self::siteNumberWithName($site),'items'=>[]];
+                $groups[$group] = ['label'=>$number.' · '.self::siteName($site),'items'=>[]];
             }
             $line = $data['line_number'] ?? 1;
             $past = self::lastIssuedPurchase($rows,$boq,$id);
