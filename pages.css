@@ -377,7 +377,7 @@ body.frontier-workspace {
     vertical-align: middle;
 }
 
-.frontier-pages form.frontier-entry .frontier-table :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+.frontier-pages form.frontier-entry .frontier-table :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):not(:where(.frontier-indent-form .frontier-combobox input)) {
     box-sizing: border-box;
     min-height: 30px;
     padding-block: 4px;
