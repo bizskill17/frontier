@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.184
+ * Version: 1.9.185
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2949,8 +2949,8 @@ HTML;
         'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3']],
         'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Supplier Finalized','Rate Finalized','Compared By']],
         'po'=>['Purchase Order',['po_items'],['PO No.','PO Date','Indent No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice','PO PDF']],
-        'grn'=>['GRN',['grn_items'],['GRN No.','GRN Date','PO No.','PO Item Ref.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Pending Before Receipt','Quantity Received','GRN Slip','GRN PDF','Slip Number']],
-        'invoice'=>['Invoice',['po_invoice_master'],['Invoice No.','Invoice Date','PO No.','PO Item Ref.','Item Name','Supplier Name','Quantity Invoiced','Invoice Rate','Allocated Amount','Invoice Copy','Pending for Invoice']],
+        'grn'=>['GRN',['grn_items'],['GRN No.','GRN Date','PO No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Pending Before Receipt','Quantity Received','GRN Slip','GRN PDF','Slip Number']],
+        'invoice'=>['Invoice',['po_invoice_master'],['Invoice No.','Invoice Date','PO No.','Item Name','Supplier Name','Quantity Invoiced','Invoice Rate','Allocated Amount','Invoice Copy','Pending for Invoice']],
     ];
 
     private static function reportTabs() {
@@ -3135,7 +3135,7 @@ HTML;
                 $boq = $indents[$orders[$po]];
                 $status = ucfirst($row['status']);
                 $groupId = self::goodsReceiptNumberId($row);
-                $add('grn',$boq,[$data['grn_no'],$data['grn_date'],$data['po_no'],$data['po_no'].'('.$data['sl'].')',
+                $add('grn',$boq,[$data['grn_no'],$data['grn_date'],$data['po_no'],
                     $data['item_name'],$data['unit'],$data['supplier'],$status,$data['ordered'],$data['pending'],
                     $data['received'],$slips[$groupId] ?? '',$pdf('grn','frontier_grn_pdf',$id),$data['slip_no']],
                     $row['data']['due'] ?? '',$data['supplier'],$status,$groupId);
@@ -3157,7 +3157,7 @@ HTML;
                 $rate = (float)($data['rate'] ?? 0);
                 $ref = $order['ref'] ?? '#'.$po;
                 $add('invoice',$boq,[$invoice['data']['ref'] ?? '',self::indentDisplayDate($date),$ref,
-                    $ref.'('.($rows[$orders[$po]]['data']['line_number'] ?? 1).')',$boqs[$boq]['name'],$supplier,$qty,$rate,round($qty*$rate,2),
+                    $boqs[$boq]['name'],$supplier,$qty,$rate,round($qty*$rate,2),
                     !empty($invoice['filename']) && self::canFile('invoice') ?
                     self::exportLink('Invoice Copy','frontier_file',$invoice['id']) : '',
                     $rows[$po]['status'] === 'cancelled' ? 0 : max(0,round(($order['qty'] ?? 0)
@@ -3171,7 +3171,7 @@ HTML;
         'boq'=>['BOQ Summary',[0,1,3],[4,5,6],['BOQ No.','BOQ Date','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent']],
         'indent'=>['Indent Summary',[0,1,4,3],[6,7,8,9,10],['Indent No.','Indent Date','Requested By','Unit','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive']],
         'po'=>['PO Summary',[0,1,5,4],[7,8,9,10,11,12],['PO No.','PO Date','Supplier Name','Unit','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice']],
-        'grn'=>['GRN Summary',[0,1,6,13,7,5],[10],['GRN No.','GRN Date','Supplier Name','Slip Number','Status','Unit','Recorded Receipt Quantity']],
+        'grn'=>['GRN Summary',[0,1,5,12,6,4],[9],['GRN No.','GRN Date','Supplier Name','Slip Number','Status','Unit','Recorded Receipt Quantity']],
     ];
 
     private static function reportGroupRows($records,$definition) {
