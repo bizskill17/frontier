@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.176
+ * Version: 1.9.177
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2867,8 +2867,8 @@ HTML;
 
     private const REPORT_TABS = [
         'summary'=>['Site Final Summary',['boq_items','grn_items'],['BOQ Number','Item Name','Unit','BOQ Quantity','Quantity Received','Excess Received','Yet to Receive','Item Type']],
-        'boq'=>['BOQ',['boq_items'],['BOQ No.','BOQ Date','BOQ Item Ref.','Item Name','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent','BOQ PDF']],
-        'indent'=>['Indent',['indent_items'],['Indent No.','Indent Date','BOQ Item Ref.','Item Name','Unit','Requested By','Status','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive','Indent PDF']],
+        'boq'=>['BOQ',['boq_items'],['BOQ No.','BOQ Date','Item Name','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent','BOQ PDF']],
+        'indent'=>['Indent',['indent_items'],['Indent No.','Indent Date','Item Name','Unit','Requested By','Status','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive','Indent PDF']],
         'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier Name','Quoted Rate','Status','Quotation File']],
         'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier Finalized','Rate Finalized','Compared By','Selection Reason','Compared Quotations']],
         'po'=>['Purchase Order',['po_items'],['PO No.','PO Date','Indent No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice','PO PDF']],
@@ -2955,7 +2955,6 @@ HTML;
         };
         foreach ($boqs as $id=>$data) {
             $number = $data['boq_number'] ?? '#'.$id;
-            $ref = $number.'('.($data['line_number'] ?? 1).')';
             $date = $data['boq_date'] ?? '';
             $qty = (float)($data['qty'] ?? 0);
             $used = round($totals['indented'][$id] ?? 0,3);
@@ -2964,7 +2963,7 @@ HTML;
             $type = $rows[$item['item_type'] ?? 0]['data']['name'] ?? '';
             $add('summary',$id,[$number,$data['name'],$data['unit'],$qty,$received,
                 max(0,round($received-$qty,3)),max(0,round($qty-$received,3)),$type]);
-            $add('boq',$id,[$number,self::indentDisplayDate($date),$ref,$data['name'],$data['unit'],$qty,
+            $add('boq',$id,[$number,self::indentDisplayDate($date),$data['name'],$data['unit'],$qty,
                 $used,max(0,round($qty-$used,3)),$pdf('boq','frontier_boq_print',$id)],$date,'','',self::boqGroup($rows[$id]));
         }
         foreach ($indents as $id=>$boq) {
@@ -2975,8 +2974,7 @@ HTML;
             $status = ucfirst($row['status']);
             $ordered = round($indentOrdered[$id] ?? 0,3);
             $received = round($indentReceived[$id] ?? 0,3);
-            $ref = ($line['boq_number'] ?? '#'.$boq).'('.($line['line_number'] ?? 1).')';
-            $add('indent',$boq,[$data['indent_number'] ?? '#'.$id,self::indentDisplayDate($date),$ref,$line['name'],
+            $add('indent',$boq,[$data['indent_number'] ?? '#'.$id,self::indentDisplayDate($date),$line['name'],
                 $data['unit'] ?? $line['unit'],$data['requested_name'] ?? '',$status,(float)$data['qty'],$ordered,
                 $row['status'] === 'approved' ? max(0,round(self::indentNetQuantity($row)-$ordered,3)) : 0,
                 $received,max(0,round($ordered-$received,3)),$pdf('indent','frontier_indent_pdf',$id)],$date,'',$status,self::indentGroup($row));
@@ -3081,8 +3079,8 @@ HTML;
     }
 
     private const REPORT_GROUPS = [
-        'boq'=>['BOQ Summary',[0,1,4],[5,6,7],['BOQ No.','BOQ Date','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent']],
-        'indent'=>['Indent Summary',[0,1,5,4],[7,8,9,10,11],['Indent No.','Indent Date','Requested By','Unit','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive']],
+        'boq'=>['BOQ Summary',[0,1,3],[4,5,6],['BOQ No.','BOQ Date','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent']],
+        'indent'=>['Indent Summary',[0,1,4,3],[6,7,8,9,10],['Indent No.','Indent Date','Requested By','Unit','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive']],
         'po'=>['PO Summary',[0,1,5,4],[7,8,9,10,11,12],['PO No.','PO Date','Supplier Name','Unit','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice']],
         'grn'=>['GRN Summary',[0,1,6,13,7,5],[10],['GRN No.','GRN Date','Supplier Name','Slip Number','Status','Unit','Recorded Receipt Quantity']],
     ];
