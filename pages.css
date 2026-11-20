@@ -92,6 +92,11 @@ body.frontier-workspace {
 .frontier-boq-form .frontier-boq-save:disabled { opacity: .55; cursor: not-allowed; }
 
 .frontier-row-actions { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
+/* Let closed action controls set the table cell's minimum width. */
+.frontier-table td .frontier-row-actions:not(:has(> details[open])) {
+    flex-wrap: nowrap;
+    min-width: max-content;
+}
 .frontier-row-actions > * { min-width: 0; max-width: 100%; }
 .frontier-row-actions > details[open] { flex-basis: 100%; }
 .frontier-row-actions input { box-sizing: border-box; min-width: 0; max-width: 100%; }
