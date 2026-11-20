@@ -38,6 +38,8 @@ if (boqForm) {
         let unresolved = 0;
         rows.forEach((row, index) => {
             row.number.textContent = index + 1;
+            row.namePreview.textContent = row.name.value;
+            row.namePreview.parentElement.classList.toggle('is-empty', !row.name.value);
             const item = itemForRow(row);
             const unmatched = row.name.value.trim() !== '' && !item;
             row.element.classList.toggle('frontier-boq-unmatched', unmatched);
@@ -47,7 +49,7 @@ if (boqForm) {
             if (ambiguous && !row.locked) row.status.append(' ', row.selectItem);
             if (row.locked) row.status.textContent = 'Used in indent';
             row.status.classList.toggle('frontier-boq-matched', !!item);
-            if (!item) unresolved++;
+            if (!item || !row.unit.value) unresolved++;
         });
         save.disabled = uploading || !rows.length || unresolved > 0;
         message.textContent = '';
@@ -57,10 +59,12 @@ if (boqForm) {
         const element = table.insertRow();
         const number = element.insertCell();
         const inputs = {};
+        const namePreview = document.createElement('span');
+        namePreview.setAttribute('aria-hidden', 'true');
         const initialName = byId.get(values.item)?.name || values.name || '';
         for (const [key, title] of [['name', 'Item Name'], ['qty', 'Quantity'], ['unit', 'Unit']]) {
-            const input = document.createElement('input');
-            input.type = key === 'qty' ? 'number' : 'text';
+            const input = document.createElement(key === 'unit' ? 'select' : 'input');
+            if (key !== 'unit') input.type = key === 'qty' ? 'number' : 'text';
             input.required = true;
             input.setAttribute('aria-label', title);
             if (key === 'name') {
@@ -70,11 +74,29 @@ if (boqForm) {
                 input.min = '0.001';
                 input.step = '0.001';
             } else {
-                input.maxLength = 200;
+                input.append(new Option('Select Unit', ''));
+                data.units.forEach((unit) => input.append(new Option(unit, unit)));
+                const importedUnit = String(values.unit ?? '');
+                const match = data.units.find((unit) => normalize(unit) === normalize(importedUnit));
+                if (values.id && importedUnit && !data.units.includes(importedUnit)) {
+                    input.append(new Option(importedUnit, importedUnit));
+                }
+                input.value = values.id ? importedUnit : (match || '');
+                input.disabled = !!values.locked;
             }
-            input.value = key === 'name' ? initialName : (values[key] ?? '');
-            input.readOnly = !!values.locked;
-            element.insertCell().append(input);
+            if (key !== 'unit') {
+                input.value = key === 'name' ? initialName : (values[key] ?? '');
+                input.readOnly = !!values.locked;
+            }
+            const cell = element.insertCell();
+            if (key === 'name') {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'frontier-boq-name is-empty';
+                wrapper.append(input, namePreview);
+                cell.append(wrapper);
+            } else {
+                cell.append(input);
+            }
             inputs[key] = input;
         }
         const status = element.insertCell();
@@ -146,13 +168,14 @@ if (boqForm) {
         } else {
             actions.append(' ', remove);
         }
-        const row = { element, number, status, selectItem, addItem, id: values.id || 0,
+        const row = { element, number, status, namePreview, selectItem, addItem, id: values.id || 0,
             selectedItem: values.item ? { id: values.item } : undefined, locked: !!values.locked, ...inputs };
         remove.addEventListener('click', () => {
             element.remove();
             rows = rows.filter((entry) => entry !== row);
             sync();
         });
+        inputs.unit.addEventListener('change', sync);
         inputs.name.addEventListener('input', () => {
             row.selectedItem = undefined;
             sync();

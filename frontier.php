@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.129
+ * Version: 1.9.130
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -449,6 +449,27 @@ final class Frontier {
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
 }
+.frontier-boq-name {
+    position: relative;
+}
+.frontier-boq-name span {
+    display: block;
+    border: 1px solid #aebed0;
+    border-radius: 6px;
+    padding: 6px 9px;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+}
+.frontier-boq-name:not(:focus-within):not(.is-empty) input {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    opacity: 0;
+}
+.frontier-boq-name:focus-within span,
+.frontier-boq-name.is-empty span {
+    display: none;
+}
 .frontier-topbar {
     position: sticky;
     top: 0;
@@ -565,7 +586,7 @@ CSS
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.129',true);
+        wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.130',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.93');
         }
@@ -3881,7 +3902,7 @@ HTML;
         }
         echo '</tr></thead><tbody></tbody></table></div>';
         echo '<datalist id="frontier-boq-items"></datalist>';
-        echo '<script type="application/json" class="frontier-boq-data">'.wp_json_encode(['items'=>$items,'lines'=>$initialRows],
+        echo '<script type="application/json" class="frontier-boq-data">'.wp_json_encode(['items'=>$items,'lines'=>$initialRows,'units'=>self::boqUnits($rows)],
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
         echo '<p><button type="submit" class="button button-primary frontier-boq-save" disabled>Save BOQ</button> ';
         echo '<a class="button" href="'.esc_url(self::url('boq')).'">Cancel</a></p>';
@@ -3965,6 +3986,17 @@ HTML;
         }
     }
 
+    private static function boqUnits($rows) {
+        $units = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'units' && !empty($row['data']['name'])) {
+                $units[] = $row['data']['name'];
+            }
+        }
+        natcasesort($units);
+        return array_values(array_unique($units));
+    }
+
     private static function saveBoq($rows,$id=0) {
         global $wpdb;
         $existing = $id ? self::boqLines($rows,$id) : [];
@@ -3999,6 +4031,7 @@ HTML;
         $header = ['site'=>(int)$site['id'],'prepared_by'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name'],
             'group_id'=>$site['data']['telegram'] ?? '', 'boq_date'=>$dateText,'boq_number'=>$previous['boq_number'] ?? self::nextNumber('boq',$last),
             'boq_token'=>$previous['boq_token'] ?? $token,'boq_timestamp'=>$id ? ($previous['boq_timestamp'] ?? '') : current_time('mysql')];
+        $units = self::boqUnits($rows);
         $seen = [];
         foreach (array_values($lines) as $index=>$line) {
             $number = $index+1;
@@ -4014,7 +4047,8 @@ HTML;
             $sameSavedItem = $lineId && $itemId === (int)($old['item_id'] ?? 0);
             self::requireRule($sameSavedItem || ($item && $item['kind'] === 'item'),'Choose an Item Master entry on row '.$number.'.');
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0,'Enter a valid quantity on row '.$number.'.');
-            self::requireRule($unit !== '' && strlen($unit) <= 200,'Enter a unit on row '.$number.'.');
+            self::requireRule($unit !== '' && (in_array($unit,$units,true)
+                || ($lineId && $unit === ($old['unit'] ?? ''))),'Select a unit from Unit Master on row '.$number.'.');
             if (isset($used[$lineId])) {
                 self::requireRule($sameSavedItem && (float)$qty === (float)$old['qty'] && $unit === $old['unit'],
                     'An item already used in an indent cannot be changed.');
