@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.183
+ * Version: 1.9.184
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2947,7 +2947,7 @@ HTML;
         'boq'=>['BOQ',['boq_items'],['BOQ No.','BOQ Date','Item Name','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent','BOQ PDF']],
         'indent'=>['Indent',['indent_items'],['Indent No.','Indent Date','Item Name','Unit','Requested By','Status','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive','Indent PDF']],
         'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3']],
-        'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Supplier Finalized','Rate Finalized','Compared By','Selection Reason']],
+        'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Supplier Finalized','Rate Finalized','Compared By']],
         'po'=>['Purchase Order',['po_items'],['PO No.','PO Date','Indent No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice','PO PDF']],
         'grn'=>['GRN',['grn_items'],['GRN No.','GRN Date','PO No.','PO Item Ref.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Pending Before Receipt','Quantity Received','GRN Slip','GRN PDF','Slip Number']],
         'invoice'=>['Invoice',['po_invoice_master'],['Invoice No.','Invoice Date','PO No.','PO Item Ref.','Item Name','Supplier Name','Quantity Invoiced','Invoice Rate','Allocated Amount','Invoice Copy','Pending for Invoice']],
@@ -3095,7 +3095,7 @@ HTML;
                     $date = $data['selection_date'] ?? substr($data['compared_at'] ?? '',0,10);
                     $add('choose',$boq,array_merge([$number,self::indentDisplayDate($date),$boqs[$boq]['name'],
                         $past ? self::supplierDisplay($past,$rows) : '',$past['rate'] ?? ''],$pairs,
-                        [$quote['supplier'],$quote['rate'],$data['comparison_name'] ?? '',$data['reason'] ?? '']),
+                        [$quote['supplier'],$quote['rate'],$data['comparison_name'] ?? '']),
                         $date,$quote['supplier']);
                     break;
                 }
