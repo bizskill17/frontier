@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.181
+ * Version: 1.9.182
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2874,7 +2874,7 @@ HTML;
     }
 
     private static function indentTracker($rows) {
-        $columns = ['Indent Number / Site Name','Indent Date','Item Name','PO NO','PO Date',
+        $columns = ['Indent No.','Site Name','Indent Date','Item Name','PO NO','PO Date',
             'Quantity as per BOQ','Quantity Required Now','Order Quantity','Quantity Received',
             'Pending to Receive GRN','Quantity Canceled','Quantity Invoiced','Pending for Invoice',
             'Item Category','Item Type'];
@@ -2908,14 +2908,13 @@ HTML;
             $item = $rows[$boq['item_id'] ?? 0]['data'] ?? [];
             $category = $rows[$item['category'] ?? 0]['data']['name'] ?? ($boq['item_category'] ?? '');
             $type = $rows[$item['item_type'] ?? 0]['data']['name'] ?? '';
-            $reference = trim($indent['indent_number'].($indent['site_name'] !== '' ? ' · '.$indent['site_name'] : ''));
             foreach ($orders[$id] ?? [null] as $po) {
                 $order = $po['data'] ?? [];
                 $summary = $totals[$po['id'] ?? 0] ?? [];
                 $ordered = (float)($order['qty'] ?? 0);
                 $cancelled = ($po['status'] ?? '') === 'cancelled' ? $ordered : round($summary['cancel'] ?? 0,3);
                 $invoiced = round($summary['match'] ?? 0,3);
-                $records[] = [$reference,$indent['indent_date'],$indent['item_name'],
+                $records[] = [$indent['indent_number'],$indent['site_name'],$indent['indent_date'],$indent['item_name'],
                     $order['ref'] ?? '',self::indentDisplayDate($order['po_date'] ?? ''),
                     $boq['qty'] ?? '',$indent['qty'],$ordered,round($summary['approved'] ?? 0,3),
                     max(0,round($ordered-$cancelled-($summary['grn'] ?? 0),3)),$cancelled,
