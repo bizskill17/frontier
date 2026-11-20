@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.98
+ * Version: 1.9.99
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1821,7 +1821,7 @@ final class Frontier {
                     }
                     echo '</select></label>';
                 }
-                echo '<button class="button" type="submit">Apply filter</button></div></div>';
+                echo '</div></div>';
             }
             echo '</form>';
         echo <<<'HTML'
@@ -1830,6 +1830,8 @@ final class Frontier {
     const form = document.currentScript.previousElementSibling;
     const search = form.elements.frontier_search;
     const initial = search.value;
+    const filters = Array.from(form.querySelectorAll('#frontier-table-filters input, #frontier-table-filters select'));
+    const initialFilters = filters.map(field => field.value);
     const toggle = form.querySelector('[data-table-filter-toggle]');
     if (toggle) {
         const panel = document.getElementById(toggle.getAttribute('aria-controls'));
@@ -1843,10 +1845,12 @@ final class Frontier {
     const schedule = event => {
         if (event.isComposing) return;
         clearTimeout(timer);
-        if (search.value !== initial) timer = setTimeout(() => form.requestSubmit(),650);
+        const filtersChanged = filters.some((field,index) => field.value !== initialFilters[index]);
+        if (search.value !== initial || filtersChanged) timer = setTimeout(() => form.requestSubmit(),650);
     };
     search.addEventListener('input',schedule);
     search.addEventListener('compositionend',schedule);
+    filters.forEach(field => field.addEventListener('change',schedule));
     form.addEventListener('submit',() => clearTimeout(timer));
 })();
 </script>
