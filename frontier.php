@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.191
+ * Version: 1.9.192
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2878,6 +2878,8 @@ HTML;
             'Quantity as per BOQ','Quantity Required Now','Order Quantity','Quantity Received',
             'Pending to Receive GRN','Quantity Canceled','Quantity Invoiced','Pending for Invoice',
             'Item Category','Item Type'];
+        $columnGroups = ['indent','item','indent','item','order','order','boq','indent',
+            'order','receipt','receipt','cancel','invoice','invoice','item','item'];
         $orders = $totals = [];
         $invoiceAccess = self::canView('po_invoice_master');
         foreach ($rows as $row) {
@@ -2923,15 +2925,15 @@ HTML;
             }
         }
         [$pageRows,$page,$pages,$total] = self::pagedRows($records,$columns,static function ($row) { return $row; });
-        echo '<div class="frontier-table" tabindex="0" role="region" aria-label="Indent Tracker"><table class="widefat striped"><thead><tr>';
-        foreach ($columns as $column) {
-            echo '<th scope="col">'.self::tableHeading($column).'</th>';
+        echo '<div class="frontier-table frontier-site-report-table" tabindex="0" role="region" aria-label="Indent Tracker"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $index=>$column) {
+            echo '<th scope="col" data-report-group="'.esc_attr($columnGroups[$index]).'">'.self::tableHeading($column).'</th>';
         }
         echo '</tr></thead><tbody>';
         foreach ($pageRows as $row) {
             echo '<tr>';
-            foreach ($row as $cell) {
-                echo '<td>'.esc_html((string)$cell).'</td>';
+            foreach ($row as $index=>$cell) {
+                echo '<td data-report-group="'.esc_attr($columnGroups[$index]).'">'.esc_html((string)$cell).'</td>';
             }
             echo '</tr>';
         }
