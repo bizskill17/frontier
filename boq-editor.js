@@ -23,6 +23,8 @@ if (boqForm) {
     }
     list.append(options);
 
+    const addDialog = document.getElementById('frontier-boq-add-item');
+    let addTarget;
     let rows = [];
     let uploading = false;
 
@@ -41,7 +43,8 @@ if (boqForm) {
             row.element.classList.toggle('frontier-boq-unmatched', unmatched);
             const ambiguous = unmatched && byName.has(normalize(row.name.value));
             row.status.textContent = item ? '✓ Matched' : (ambiguous ? '⚠ Multiple matches' : (unmatched ? '⚠ Not in Item Master' : ''));
-            row.selectItem.style.display = unmatched && !row.locked ? '' : 'none';
+            row.addItem.style.display = unmatched && !ambiguous && !row.locked && addDialog ? '' : 'none';
+            if (ambiguous && !row.locked) row.status.append(' ', row.selectItem);
             if (row.locked) row.status.textContent = 'Used in indent';
             row.status.classList.toggle('frontier-boq-matched', !!item);
             if (!item) unresolved++;
@@ -81,7 +84,7 @@ if (boqForm) {
         actionCell.append(actions);
         const selectItem = document.createElement('button');
         selectItem.type = 'button';
-        selectItem.textContent = 'Select Item';
+        selectItem.textContent = 'Choose match';
         selectItem.addEventListener('click', () => {
             const entries = byName.get(normalize(inputs.name.value));
             if (!entries) {
@@ -121,7 +124,18 @@ if (boqForm) {
             boqForm.append(dialog);
             dialog.showModal();
         });
-        actions.append(selectItem);
+        const addItem = document.createElement('button');
+        addItem.type = 'button';
+        addItem.className = 'button';
+        addItem.textContent = 'Add Item';
+        addItem.style.display = 'none';
+        addItem.addEventListener('click', () => {
+            addTarget = row;
+            addDialog.querySelector('[name="name"]').value = row.name.value.trim();
+            addDialog.querySelector('[role="alert"]').textContent = '';
+            addDialog.showModal();
+        });
+        actions.append(addItem);
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'button frontier-action-icon frontier-action-delete';
@@ -132,7 +146,7 @@ if (boqForm) {
         } else {
             actions.append(' ', remove);
         }
-        const row = { element, number, status, selectItem, id: values.id || 0,
+        const row = { element, number, status, selectItem, addItem, id: values.id || 0,
             selectedItem: values.item ? { id: values.item } : undefined, locked: !!values.locked, ...inputs };
         remove.addEventListener('click', () => {
             element.remove();
@@ -144,6 +158,38 @@ if (boqForm) {
             sync();
         });
         rows.push(row);
+    }
+
+    if (addDialog) {
+        const form = addDialog.querySelector('form');
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const submit = form.querySelector('[type="submit"]');
+            if (submit.disabled) return;
+            const target = addTarget;
+            const alert = form.querySelector('[role="alert"]');
+            alert.textContent = '';
+            submit.disabled = true;
+            try {
+                const response = await fetch(form.action, { method: 'POST', body: new FormData(form), credentials: 'same-origin' });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.data?.message || 'Could not save the item.');
+                const item = result.data.item;
+                const key = normalize(item.name);
+                byName.set(key, [item]);
+                byId.set(item.id, item);
+                list.append(new Option(item.name, item.name));
+                target.selectedItem = item;
+                target.name.value = item.name;
+                addDialog.close();
+                sync();
+                target.name.focus();
+            } catch (error) {
+                alert.textContent = error.message || 'Could not save the item.';
+            } finally {
+                submit.disabled = false;
+            }
+        });
     }
 
     boqForm.querySelector('.frontier-boq-add').addEventListener('click', () => {

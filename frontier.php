@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.128
+ * Version: 1.9.129
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -130,6 +130,7 @@ final class Frontier {
         add_action('admin_post_frontier_boq_print', [self::class, 'printBoq']);
         add_action('admin_post_frontier_po_pdf', [self::class, 'downloadPurchaseOrderPdf']);
         add_action('admin_post_frontier_grn_pdf', [self::class, 'downloadGoodsReceiptPdf']);
+        add_action('admin_post_frontier_boq_add_item', [self::class, 'boqAddItem']);
         add_action('admin_post_frontier_boq_excel', [self::class, 'boqExcel']);
         add_action('admin_post_frontier_save', [self::class, 'save']);
         add_action('admin_post_frontier_table_excel', [self::class, 'downloadTableExcel']);
@@ -564,7 +565,7 @@ CSS
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.121',true);
+        wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.129',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.93');
         }
@@ -3875,7 +3876,7 @@ HTML;
         echo '<label class="button frontier-upload">Upload<input class="frontier-boq-file" type="file" accept=".xlsx" data-endpoint="'.esc_url($upload).'"></label></div>';
         echo '<p class="frontier-boq-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
-        foreach (['Sl. No.','Item Name','Quantity','Unit','Item Master Check','Action'] as $label) {
+        foreach (['Sl. No.','Item Name','Quantity','Unit','Item Check','Action'] as $label) {
             echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody></tbody></table></div>';
@@ -3885,6 +3886,48 @@ HTML;
         echo '<p><button type="submit" class="button button-primary frontier-boq-save" disabled>Save BOQ</button> ';
         echo '<a class="button" href="'.esc_url(self::url('boq')).'">Cancel</a></p>';
         echo '<noscript><p>Enable JavaScript to add or upload BOQ items.</p></noscript></form>';
+        if (self::can('item') && self::canView('item')) {
+            echo '<dialog class="frontier-indent-dialog" id="frontier-boq-add-item" aria-labelledby="frontier-boq-add-item-title">';
+            echo '<h2 id="frontier-boq-add-item-title">Add Item</h2>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            wp_nonce_field('frontier_boq_add_item');
+            echo '<input type="hidden" name="action" value="frontier_boq_add_item">';
+            foreach (self::FIELDS['item'] as $field=>$label) {
+                self::field($rows,'item',$field,$label,'');
+            }
+            echo '<p role="alert"></p><div class="frontier-indent-dialog-actions">';
+            self::submitButton('Save Item',true);
+            echo '<button type="button" class="button" onclick="this.closest(\'dialog\').close()">Cancel</button></div></form></dialog>';
+        }
+    }
+
+    public static function boqAddItem() {
+        global $wpdb;
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !self::can('boq') || !self::can('item')
+            || !self::canView('item') || (!self::canView('boq_form') && !self::canView('boq'))) {
+            wp_send_json_error(['message'=>'Access denied.'],403);
+        }
+        check_admin_referer('frontier_boq_add_item');
+        $lock = 'frontier_'.md5(DB_NAME.'|'.self::table());
+        if ((int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)',$lock)) !== 1) {
+            wp_send_json_error(['message'=>'Frontier is busy. Please retry.'],503);
+        }
+        $error = '';
+        try {
+            $rows = self::rows();
+            $data = self::readFields($rows,'item');
+            self::validateMaster($rows,'item',$data);
+            self::insertImportedRecord('item',$data);
+            $item = ['id'=>(int)$wpdb->insert_id,'name'=>$data['name']];
+        } catch (Throwable $exception) {
+            $error = $exception instanceof DomainException ? $exception->getMessage() : 'Could not save the item.';
+        } finally {
+            $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)',$lock));
+        }
+        if ($error !== '') {
+            wp_send_json_error(['message'=>$error],400);
+        }
+        wp_send_json_success(['item'=>$item]);
     }
 
     public static function boqExcel() {
