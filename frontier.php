@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.194
+ * Version: 1.9.195
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1389,8 +1389,11 @@ JS
     }
 
     private static function numberingPreview($kind,$number,$year) {
-        if ($kind === 'po' || $kind === 'grn') {
-            return ($kind === 'po' ? self::poPrefix($year) : 'GRN - ').str_pad((string)$number,4,'0',STR_PAD_LEFT);
+        if ($kind === 'grn') {
+            return 'GRN - '.(int)$number;
+        }
+        if ($kind === 'po') {
+            return self::poPrefix($year).str_pad((string)$number,4,'0',STR_PAD_LEFT);
         }
         return in_array($kind,['supplier','site'],true) ? self::formatMasterCode($number) : (string)$number;
     }
@@ -5877,7 +5880,7 @@ HTML;
             $pending = max(0,self::balance($earlier,$po));
         }
         return [
-            'grn_no'=>'GRN - '.str_pad((string)($data['grn_number'] ?? self::goodsReceiptNumberId($row)),4,'0',STR_PAD_LEFT),
+            'grn_no'=>self::numberingPreview('grn',$data['grn_number'] ?? self::goodsReceiptNumberId($row),0),
             'grn_date'=>self::indentDisplayDate($data['due'] ?? ''),
             'timestamp'=>empty($data['grn_timestamp']) ? '' : mysql2date('d/m/Y H:i:s',$data['grn_timestamp'],false),
             'slip_no'=>$data['ref'] ?? '', 'supplier'=>$order['supplier'] ?? '',
