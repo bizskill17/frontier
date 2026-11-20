@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.95
+ * Version: 1.9.96
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -361,7 +361,8 @@ final class Frontier {
             return 'Frontier';
         });
         add_filter('login_message',static function ($message) {
-            return '<h2 class="frontier-login-title">Log in</h2>'.$message;
+            $orgName = trim((string)get_option('frontier_org_name',''));
+            return '<h2 class="frontier-login-title">'.esc_html($orgName === '' ? 'Frontier' : $orgName).'</h2>'.$message;
         });
         add_filter('gettext',static function ($translation,$original,$domain) {
             return $domain === 'default' && $original === 'Username or Email Address' ? 'User ID' : $translation;
