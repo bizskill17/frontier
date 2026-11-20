@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.185
+ * Version: 1.9.186
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,7 +445,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.173');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.186');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -921,7 +921,7 @@ JS
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.173');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.186');
         }
     }
 
@@ -3207,23 +3207,44 @@ HTML;
         $tab = self::tableQuery('report_tab');
         $tab = isset($tabs[$tab]) ? $tab : array_key_first($tabs);
         $line = absint(self::tableQuery('report_line'));
+        $viewFilters = [
+            'summary'=>['boq_number'=>'BOQ Number','unit'=>'Unit'],
+            'boq'=>['boq_number'=>'BOQ No.','unit'=>'Unit'],
+            'indent'=>['indent_number'=>'Indent No.','requester'=>'Requested By','status'=>'Status'],
+            'quote'=>['indent_number'=>'Indent No.','supplier'=>'Supplier Name','status'=>'Status'],
+            'choose'=>['indent_number'=>'Indent No.','supplier'=>'Supplier Finalized','compared_by'=>'Compared By'],
+            'po'=>['po_number'=>'PO No.','indent_number'=>'Indent No.','supplier'=>'Supplier Name','status'=>'Status'],
+            'grn'=>['grn_number'=>'GRN No.','po_number'=>'PO No.','slip'=>'Slip Number','supplier'=>'Supplier Name','status'=>'Status'],
+            'invoice'=>['invoice_number'=>'Invoice No.','po_number'=>'PO No.','supplier'=>'Supplier Name'],
+        ];
+        $filterLabels = ['item'=>'Item','type'=>'Item Type'] + $viewFilters[$tab];
+        $columns = $tabs[$tab][2];
+        $columnFilters = [];
+        foreach (array_diff_key($filterLabels,array_flip(['item','type','supplier','status'])) as $field=>$label) {
+            $columnFilters[$field] = array_search($label,$columns,true);
+        }
         $filters = [];
-        foreach (['item','type','supplier','status','from','to'] as $field) {
+        $dateDefaults = ['from'=>'','to'=>''];
+        foreach (array_keys($filterLabels + ($tab === 'summary' ? [] : $dateDefaults)) as $field) {
             $filters[$field] = self::tableQuery('report_'.$field);
         }
+        $filters += $dateDefaults;
         $exportAll = self::$exportBuffer !== null && self::tableQuery('report_export') === 'site';
         [$data,$boqs] = isset($sites[$site]) ? self::siteReportRows($rows,$site,$exportAll ? $tabs : [$tab=>$tabs[$tab]]) : [[$tab=>[]],[]];
         $line = isset($boqs[$line]) ? $line : 0;
 
-        $options = ['item'=>[],'type'=>[],'supplier'=>[],'status'=>[]];
+        $options = array_fill_keys(array_keys($filterLabels),[]);
         $filtered = [];
         foreach ($data[$tab] as $record) {
             $boq = $boqs[$record['boq']];
             $item = $rows[$boq['item_id'] ?? 0]['data'] ?? [];
             $values = ['item'=>$boq['name'],'type'=>$rows[$item['item_type'] ?? 0]['data']['name'] ?? '',
                 'supplier'=>$record['supplier'],'status'=>$record['status']];
+            foreach ($columnFilters as $field=>$column) {
+                $values[$field] = (string)($record['cells'][$column] ?? '');
+            }
             $matches = !$line || $line === $record['boq'];
-            foreach ($values as $field=>$value) {
+            foreach (array_intersect_key($values,$filterLabels) as $field=>$value) {
                 if ($value !== '') {
                     $options[$field][$value] = $value;
                 }
@@ -3262,7 +3283,6 @@ HTML;
                 $filtered[] = $record;
             }
         }
-        $columns = $tabs[$tab][2];
         $displayRows = array_column($filtered,'cells');
 
         if (self::$exportBuffer !== null) {
@@ -3295,10 +3315,7 @@ HTML;
             echo '<option value="'.esc_attr($id).'"'.selected($site,(int)$id,false).'>'.esc_html($row['data']['name']).'</option>';
         }
         echo '</select></label></p>';
-        foreach (['item'=>'Item','type'=>'Item Type','supplier'=>'Supplier Name','status'=>'Status'] as $field=>$label) {
-            if (!$options[$field]) {
-                continue;
-            }
+        foreach (isset($sites[$site]) ? $filterLabels : [] as $field=>$label) {
             natcasesort($options[$field]);
             echo '<p><label>'.esc_html($label).'<select name="report_'.esc_attr($field).'"><option value="">All</option>';
             foreach ($options[$field] as $value) {
@@ -3344,7 +3361,7 @@ HTML;
         $pages = max(1,(int)ceil($total/25));
         $page = max(1,min($pages,absint(self::tableQuery('report_page'))));
         $offset = ($page-1)*25;
-        echo '<div class="frontier-table" tabindex="0" role="region" aria-label="'.esc_attr($tabs[$tab][0]).'"><table class="widefat striped"><thead><tr>';
+        echo '<div class="frontier-table frontier-site-report-table" data-report-tab="'.esc_attr($tab).'" tabindex="0" role="region" aria-label="'.esc_attr($tabs[$tab][0]).'"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $column) {
             echo '<th scope="col">'.self::tableHeading($column).'</th>';
         }
