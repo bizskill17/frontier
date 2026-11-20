@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.175
+ * Version: 1.9.176
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2866,7 +2866,7 @@ HTML;
     }
 
     private const REPORT_TABS = [
-        'summary'=>['Site Final Summary',['boq_items','grn_items'],['BOQ Item Ref.','Item Name','Unit','BOQ Quantity','Quantity Received','Excess Received','Yet to Receive','Item Type']],
+        'summary'=>['Site Final Summary',['boq_items','grn_items'],['BOQ Number','Item Name','Unit','BOQ Quantity','Quantity Received','Excess Received','Yet to Receive','Item Type']],
         'boq'=>['BOQ',['boq_items'],['BOQ No.','BOQ Date','BOQ Item Ref.','Item Name','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent','BOQ PDF']],
         'indent'=>['Indent',['indent_items'],['Indent No.','Indent Date','BOQ Item Ref.','Item Name','Unit','Requested By','Status','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive','Indent PDF']],
         'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier Name','Quoted Rate','Status','Quotation File']],
@@ -2962,7 +2962,7 @@ HTML;
             $received = round($boqReceived[$id] ?? 0,3);
             $item = $rows[$data['item_id'] ?? 0]['data'] ?? [];
             $type = $rows[$item['item_type'] ?? 0]['data']['name'] ?? '';
-            $add('summary',$id,[$ref,$data['name'],$data['unit'],$qty,$received,
+            $add('summary',$id,[$number,$data['name'],$data['unit'],$qty,$received,
                 max(0,round($received-$qty,3)),max(0,round($qty-$received,3)),$type]);
             $add('boq',$id,[$number,self::indentDisplayDate($date),$ref,$data['name'],$data['unit'],$qty,
                 $used,max(0,round($qty-$used,3)),$pdf('boq','frontier_boq_print',$id)],$date,'','',self::boqGroup($rows[$id]));
