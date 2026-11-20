@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.165
+ * Version: 1.9.166
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -4853,9 +4853,7 @@ HTML;
             if ($row['kind'] !== 'indent' || self::indentGroup($row) !== $group) {
                 continue;
             }
-            $line = $row['data'];
-            $item = $rows[$line['boq']]['data'] ?? [];
-            $lines[] = [$line['line_number'] ?? 1,$item['name'] ?? '',$line['qty'],$line['unit'] ?? ($item['unit'] ?? '')];
+            $lines[] = self::indentPdfItem($rows,$row);
         }
         $number = $data['indent_number'] ?? $id;
         $pdf = Frontier_Boq_Pdf::buildIndent($number,$site,self::indentDisplayDate($data['indent_date'] ?? ''),
@@ -4917,6 +4915,16 @@ HTML;
         echo '<noscript><p>Enable JavaScript to add indent items.</p></noscript></form>';
     }
 
+    private static function indentPdfItem($rows,$row) {
+        $data = $row['data'];
+        $values = self::indentItemValues($row,$rows);
+        $boq = $rows[$data['boq']]['data'] ?? [];
+        $reference = isset($boq['boq_number'],$boq['line_number']) ?
+            $boq['boq_number'].'('.$boq['line_number'].') - ' : '';
+        return [$values['sl'],$reference.$values['item'],$values['unit'],$values['boq_qty'],
+            $data['already_indented'] ?? $values['already'],$values['qty'],$values['excess'],$values['type']];
+    }
+
     private static function saveIndent($rows) {
         $site = $rows[absint(self::input('site'))] ?? null;
         $employee = $rows[absint(self::input('employee'))] ?? null;
@@ -4955,10 +4963,9 @@ HTML;
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0,
                 'Enter a valid quantity on row '.$number.'.');
             $selected[$id] = true;
-            $item = $rows[$id]['data'];
-            $items[] = [$number,$item['name'] ?? '',(float)$qty,$item['unit'] ?? ''];
             $data = $header + ['boq'=>$id,'qty'=>(float)$qty,'line_number'=>$number];
             self::validateIndent($rows,$data,0);
+            $items[] = self::indentPdfItem($rows,['id'=>PHP_INT_MAX,'kind'=>'indent','status'=>'pending','data'=>$data]);
             if ($wpdb->insert(self::table(),['kind'=>'indent','status'=>'pending','details'=>wp_json_encode($data)]) !== 1) {
                 throw new RuntimeException('Indent could not be saved.');
             }
@@ -5216,13 +5223,18 @@ HTML;
     private static function buildGoodsReceiptPdf($rows,$receipt) {
         $data = self::goodsReceiptValues($rows,$receipt);
         $items = [];
-        foreach (self::goodsReceiptGroup($rows,$receipt) as $line) {
+        foreach (array_values(self::goodsReceiptGroup($rows,$receipt)) as $index=>$line) {
             $item = self::goodsReceiptValues($rows,$line);
-            $items[] = [$item['sl'],$item['item_name'],$item['received'],$item['unit']];
+            $poItem = $item['po_no'] !== '' && $item['sl'] !== '' ? $item['po_no'].'('.$item['sl'].')' : '';
+            $items[] = [$index+1,$poItem,$item['item_name'],$item['ordered'],$item['pending'],$item['received']];
         }
-        return Frontier_Boq_Pdf::build($data['grn_no'],$data['site_name'],$data['grn_date'],$data['prepared'],
-            $items,'Goods Receipt Note','Prepared By',['Supplier: '.$data['supplier'],'PO No.: '.$data['po_no'],
-                'Slip No.: '.$data['slip_no']]);
+        $number = $receipt['data']['grn_number'] ?? self::goodsReceiptNumberId($receipt);
+        return Frontier_Boq_Pdf::buildGrn($number,[
+            ['Date:',$data['grn_date'],'PO Date:',$data['po_date']],
+            ['Supplier:',$data['supplier'],'PO Number:',$data['po_no']],
+            ['Site Name',$data['site_name'],'Prepared By',$data['prepared']],
+            ['GRN Slip No',$data['slip_no'],'',''],
+        ],$items);
     }
 
     private static function goodsReceiptForm($rows) {

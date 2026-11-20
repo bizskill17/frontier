@@ -80,150 +80,94 @@ final class Frontier_Boq_Pdf {
     }
 
     public static function buildBoq($number,$site,$date,$prepared,$rows) {
-        $start = static function () use ($number,$site,$date,$prepared) {
+        return self::landscapeRegister('BOQ # '.$number,[
+            ['Date:',$date,'Site Name',$site],['BOQ Prepared By',$prepared,'',''],
+        ],['Sl No.','Item Name','Quantity','Unit'],[40,100,561,661,752],$rows);
+    }
+
+    public static function buildIndent($number,$site,$date,$requested,$rows) {
+        return self::landscapeRegister('Indent # '.$number,[
+            ['Date:',$date,'Site Name',$site],['Requested By',$requested,'',''],
+        ],['Sl No.','Item','Units','Quantity as per BOQ','Quantity Already Indented',
+            'Quantity Required Now','Whether Excess Indented','Item Type'],
+            [40,83,299,348,429,514,596,680,752],$rows);
+    }
+
+    public static function buildGrn($number,$details,$rows) {
+        return self::landscapeRegister('GRN # '.$number,$details,
+            ['Sl No.','PO Item No.','Item Name','Quantity Ordered','Quantity Pending to Receive','Quantity Received'],
+            [40,90,179,473,556,671,752],$rows);
+    }
+
+    private static function landscapeRegister($reference,$details,$headings,$edges,$rows) {
+        $header = static function ($first) use ($reference,$details) {
             $stream = "0 g 0 G 0.5 w\n";
-            $header = [
+            $letterhead = [
                 'Frontier Sales Corporation',
                 '( A unit of FRONTIER CORPORATION LLP )',
                 '3rd Floor, Temple Tower, opp News Live,',
                 'Christian Basti, G S Road, Guwahati-781005',
             ];
-            foreach ($header as $index=>$text) {
+            foreach ($letterhead as $index=>$text) {
                 $stream .= self::poAligned($text,396,565-$index*17,14,'center',true);
             }
             $stream .= "40 503 m 752 503 l S\n";
-            $stream .= self::poAligned('BOQ # '.$number,396,471,23,'center',true);
-
-            $siteLines = explode("\n",wordwrap(self::text($site),37,"\n",true));
-            $preparedLines = explode("\n",wordwrap(self::text($prepared),34,"\n",true));
-            $top = 438;
-            foreach ([[['Date:'],[self::text($date)],['Site Name'],$siteLines],
-                [['BOQ Prepared By'],$preparedLines,[''],['']]] as $cells) {
-                $height = max(array_map('count',$cells))*13+9;
-                $stream .= self::boqCellBorders($top,$height,[40,154,396,503,752]);
-                foreach ($cells as $column=>$lines) {
-                    foreach ($lines as $index=>$line) {
-                        $stream .= self::line($line,[47,161,403,510][$column],$top-14-$index*13,10,
-                            $column % 2 === 0 ? 'F2' : 'F1');
-                    }
+            $top = 487;
+            if ($first) {
+                $stream .= self::poAligned($reference,396,471,23,'center',true);
+                $top = 448;
+                foreach ($details as $detail) {
+                    [$block,$height] = self::registerRow($detail,[40,154,396,503,752],$top,[0,2]);
+                    $stream .= $block;
+                    $top -= $height;
                 }
-                $top -= $height;
+                $stream .= self::poAligned('ITEM TABLE',396,$top-20,11,'center',true);
+                $top -= 30;
             }
-            $top -= 14;
-            $stream .= self::boqCellBorders($top,24,[40,100,561,661,752]);
-            foreach (['Sl No.','Item Name','Quantity','Unit'] as $column=>$text) {
-                $stream .= self::line($text,[47,107,568,668][$column],$top-16,10,'F2');
-            }
-            return [$stream,$top-24];
+            return [$stream,$top];
         };
-
         $pages = [];
-        [$stream,$top] = $start();
-        foreach ($rows as [$line,$name,$qty,$unit]) {
-            $names = explode("\n",wordwrap(self::text($name),45,"\n",true));
-            $units = explode("\n",wordwrap(self::text($unit),8,"\n",true));
-            $height = max(count($names),count($units))*13+9;
-            if ($top-$height < 41) {
+        [$stream,$top] = $header(true);
+        [$heading,$headingHeight] = self::registerRow($headings,$edges,$top,array_keys($headings));
+        $stream .= $heading;
+        $top -= $headingHeight;
+        foreach ($rows as $row) {
+            [$block,$height] = self::registerRow($row,$edges,$top);
+            if ($top-$height < 40) {
                 $pages[] = $stream;
-                [$stream,$top] = $start();
+                [$stream,$top] = $header(false);
+                [$heading,$headingHeight] = self::registerRow($headings,$edges,$top,array_keys($headings));
+                $stream .= $heading;
+                $top -= $headingHeight;
+                [$block,$height] = self::registerRow($row,$edges,$top);
             }
-            $stream .= self::boqCellBorders($top,$height,[40,100,561,661,752]);
-            $stream .= self::poAligned($line,47,$top-14,10,'left')
-                .self::poAligned($qty,654,$top-14,10,'right');
-            foreach ($names as $index=>$text) {
-                $stream .= self::line($text,107,$top-14-$index*13);
-            }
-            foreach ($units as $index=>$text) {
-                $stream .= self::line($text,668,$top-14-$index*13);
-            }
+            $stream .= $block;
             $top -= $height;
         }
         $pages[] = $stream;
         return self::document($pages,[],792,612);
     }
 
-    private static function boqCellBorders($top,$height,$edges) {
+    private static function registerRow($values,$edges,$top,$bold=[]) {
+        $height = 0;
+        $stream = '';
+        foreach ($values as $column=>$value) {
+            $max = max(1,(int)floor(($edges[$column+1]-$edges[$column]-12)/7));
+            $lines = explode("\n",wordwrap(self::text($value),$max,"\n",true));
+            $height = max($height,count($lines)*12+8);
+            foreach ($lines as $index=>$line) {
+                $stream .= self::line($line,$edges[$column]+6,$top-13-$index*12,9,
+                    in_array($column,$bold,true) ? 'F2' : 'F1');
+            }
+        }
         $left = $edges[0];
         $width = end($edges)-$left;
         $bottom = $top-$height;
-        $stream = "$left $bottom $width $height re S\n";
+        $stream .= "$left $bottom $width $height re S\n";
         foreach (array_slice($edges,1,-1) as $x) {
             $stream .= "$x $bottom m $x $top l S\n";
         }
-        return $stream;
-    }
-
-    public static function buildIndent($number,$site,$date,$requested,$rows) {
-        return self::buildItemTable('Indent '.$number,'MATERIAL INDENT',
-            ['Site'=>$site,'Indent Date'=>$date,'Requested By'=>$requested],$rows);
-    }
-
-    private static function buildItemTable($reference,$title,$details,$rows) {
-        $navy = '0.07 0.20 0.36';
-        $grid = static function ($top,$height,$color) {
-            $bottom = $top-$height;
-            $stream = "$color RG 0.5 w 32 $bottom 531 $height re S\n";
-            foreach ([82,385,453] as $x) {
-                $stream .= "$x $bottom m $x $top l S\n";
-            }
-            return $stream;
-        };
-        $start = static function () use ($navy,$reference,$title,$details,$grid) {
-            $stream = "$navy rg 32 740 531 70 re f\n1 g\n"
-                .self::poAligned($reference,297.5,787,11,'center',true)
-                .self::poAligned($title,297.5,758,22,'center',true);
-            $y = 721;
-            $stream .= "$navy rg\n";
-            foreach ($details as $label=>$value) {
-                $stream .= self::poAligned($label,46,$y,10,'left',true);
-                foreach (explode("\n",wordwrap(self::text($value),53,"\n",true)) as $part) {
-                    $stream .= self::line($part,131,$y,10);
-                    $y -= 14;
-                }
-                $y -= 4;
-            }
-            $y -= 5;
-            $stream .= "$navy rg 32 ".($y-24)." 531 24 re f\n1 g\n"
-                .self::poAligned('Sl No.',44,$y-16,10,'left',true)
-                .self::poAligned('Item Name',94,$y-16,10,'left',true)
-                .self::poAligned('Quantity',445,$y-16,10,'right',true)
-                .self::poAligned('Unit',461,$y-16,10,'left',true)
-                .$grid($y,24,'0.43 0.54 0.66');
-            return [$stream,$y-24];
-        };
-
-        [$stream,$y] = $start();
-        $pages = [];
-        foreach (array_values($rows) as $index=>[$line,$name,$qty,$unit]) {
-            $names = explode("\n",wordwrap(self::text($name),29,"\n",true));
-            $units = explode("\n",wordwrap(self::text($unit),10,"\n",true));
-            $height = max(count($names),count($units))*13+10;
-            if ($y-$height < 54) {
-                $pages[] = $stream;
-                [$stream,$y] = $start();
-            }
-            if ($index % 2 === 0) {
-                $stream .= "0.94 0.96 0.98 rg 32 ".($y-$height)." 531 $height re f\n";
-            }
-            $stream .= $grid($y,$height,'0.73 0.79 0.85')."$navy rg\n".self::poAligned($line,44,$y-15,10,'left')
-                .self::poAligned($qty,445,$y-15,10,'right');
-            foreach ($names as $offset=>$part) {
-                $stream .= self::line($part,94,$y-15-$offset*13);
-            }
-            foreach ($units as $offset=>$part) {
-                $stream .= self::line($part,461,$y-15-$offset*13);
-            }
-            $y -= $height;
-        }
-        $pages[] = $stream;
-        $total = count($pages);
-        foreach ($pages as $index=>&$page) {
-            $page .= "0.75 0.81 0.88 RG 32 47 m 563 47 l S\n$navy rg\n"
-                .self::poAligned($reference,32,32,9,'left')
-                .self::poAligned('Page '.($index+1).' of '.$total,563,32,9,'right');
-        }
-        unset($page);
-        return self::document($pages);
+        return [$stream,$height];
     }
 
     public static function buildPurchaseOrder($reference,$details,$rows,$total,$terms,$logo=[]) {
