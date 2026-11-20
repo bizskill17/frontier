@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.163
+ * Version: 1.9.164
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1215,7 +1215,7 @@ CSS
         $message = strtr($settings['message'],['{indent_number}'=>(string)$number,'{site_name}'=>$siteName,
             '{indent_date}'=>$date,'{requested_by}'=>$header['requested_name']]);
         $message = wp_html_excerpt($message,1000);
-        $pdf = Frontier_Boq_Pdf::build($number,self::siteNumberWithName($site),$date,$header['requested_name'],$items,'Indent','Requested By');
+        $pdf = Frontier_Boq_Pdf::buildIndent($number,self::siteNumberWithName($site),$date,$header['requested_name'],$items);
         $boundary = 'frontier-'.wp_generate_uuid4();
         $body = "--$boundary\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n$chat\r\n";
         $body .= "--$boundary\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n$message\r\n";
@@ -4858,8 +4858,8 @@ HTML;
             $lines[] = [$line['line_number'] ?? 1,$item['name'] ?? '',$line['qty'],$line['unit'] ?? ($item['unit'] ?? '')];
         }
         $number = $data['indent_number'] ?? $id;
-        $pdf = Frontier_Boq_Pdf::build($number,$site,self::indentDisplayDate($data['indent_date'] ?? ''),
-            $data['requested_name'] ?? '',$lines,'Indent','Requested By');
+        $pdf = Frontier_Boq_Pdf::buildIndent($number,$site,self::indentDisplayDate($data['indent_date'] ?? ''),
+            $data['requested_name'] ?? '',$lines);
         nocache_headers();
         header('Content-Type: application/pdf');
         header('Content-Disposition: attachment; filename="indent-'.absint($number).'.pdf"');

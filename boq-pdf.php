@@ -80,8 +80,17 @@ final class Frontier_Boq_Pdf {
     }
 
     public static function buildBoq($number,$site,$date,$prepared,$rows) {
+        return self::buildItemTable('BOQ '.$number,'BILL OF QUANTITIES',
+            ['Site'=>$site,'BOQ Date'=>$date,'Prepared By'=>$prepared],$rows);
+    }
+
+    public static function buildIndent($number,$site,$date,$requested,$rows) {
+        return self::buildItemTable('Indent '.$number,'MATERIAL INDENT',
+            ['Site'=>$site,'Indent Date'=>$date,'Requested By'=>$requested],$rows);
+    }
+
+    private static function buildItemTable($reference,$title,$details,$rows) {
         $navy = '0.07 0.20 0.36';
-        $reference = 'BOQ '.$number;
         $grid = static function ($top,$height,$color) {
             $bottom = $top-$height;
             $stream = "$color RG 0.5 w 32 $bottom 531 $height re S\n";
@@ -90,13 +99,13 @@ final class Frontier_Boq_Pdf {
             }
             return $stream;
         };
-        $start = static function () use ($navy,$reference,$site,$date,$prepared,$grid) {
+        $start = static function () use ($navy,$reference,$title,$details,$grid) {
             $stream = "$navy rg 32 740 531 70 re f\n1 g\n"
                 .self::poAligned($reference,297.5,787,11,'center',true)
-                .self::poAligned('BILL OF QUANTITIES',297.5,758,22,'center',true);
+                .self::poAligned($title,297.5,758,22,'center',true);
             $y = 721;
             $stream .= "$navy rg\n";
-            foreach (['Site'=>$site,'BOQ Date'=>$date,'Prepared By'=>$prepared] as $label=>$value) {
+            foreach ($details as $label=>$value) {
                 $stream .= self::poAligned($label,46,$y,10,'left',true);
                 foreach (explode("\n",wordwrap(self::text($value),53,"\n",true)) as $part) {
                     $stream .= self::line($part,131,$y,10);
