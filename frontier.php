@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.115
+ * Version: 1.9.116
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -136,6 +136,7 @@ final class Frontier {
         add_action('admin_post_frontier_save_indent_telegram', [self::class, 'saveIndentTelegramSettings']);
         add_action('admin_post_frontier_save_org_name', [self::class, 'saveOrgName']);
         add_action('admin_post_frontier_save_logo', [self::class, 'saveLogo']);
+        add_action('admin_post_frontier_clear_transactions', [self::class, 'clearTransactions']);
         add_action('admin_post_frontier_save_numbering', [self::class, 'saveNumbering']);
         add_action('admin_post_frontier_file', [self::class, 'download']);
     }
@@ -1087,6 +1088,53 @@ CSS
         exit;
     }
 
+    private static function clearDataSettings() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        echo '<section class="frontier-entry"><h2>Clear Transaction Data</h2>';
+        echo '<p>Permanently clears BOQs, indents, supplier quotations and selections, purchase orders, follow-ups, cancellations, goods receipts, invoices, and invoice links. Master records and settings are retained.</p>';
+        echo '<details><summary class="button" style="color:#b42318">Clear</summary>';
+        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+        wp_nonce_field('frontier_clear_transactions');
+        echo '<input type="hidden" name="action" value="frontier_clear_transactions">';
+        echo '<input type="hidden" name="surface" value="'.(self::$front ? 'front' : 'admin').'">';
+        echo '<p><label>Type CLEAR to confirm <input name="confirmation" type="text" required autocomplete="off"></label></p>';
+        echo '<button type="submit" class="button button-primary" style="background:#b42318;border-color:#b42318">Clear Transaction Data</button>';
+        echo '</form></details></section>';
+    }
+
+    public static function clearTransactions() {
+        global $wpdb;
+        if (!current_user_can('manage_options')) {
+            wp_die('Access denied.','Frontier',['response'=>403]);
+        }
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+            wp_die('Use the Clear button in Settings.','Frontier',['response'=>405]);
+        }
+        check_admin_referer('frontier_clear_transactions');
+        if (self::input('confirmation') !== 'CLEAR') {
+            wp_die('Type CLEAR to confirm.','Frontier',['response'=>400,'back_link'=>true]);
+        }
+        $lock = 'frontier_'.md5(DB_NAME.'|'.self::table());
+        if ((int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)',$lock)) !== 1) {
+            wp_die('Frontier is busy. Please retry.','Frontier',['response'=>503]);
+        }
+        try {
+            $deleted = $wpdb->query(
+                'DELETE FROM '.self::table()." WHERE kind IN ('boq','indent','quote','po','follow','cancel','grn','invoice','match')"
+            );
+        } finally {
+            $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)',$lock));
+        }
+        if ($deleted === false) {
+            wp_die('Transaction data could not be cleared.','Frontier',['response'=>500,'back_link'=>true]);
+        }
+        self::$front = self::input('surface') === 'front';
+        wp_safe_redirect(add_query_arg('transactions_cleared',1,self::url('settings')));
+        exit;
+    }
+
     public static function saveLogo() {
         if (!current_user_can('manage_options') || !current_user_can('upload_files')) {
             wp_die('Access denied.','Frontier',['response'=>403]);
@@ -1394,6 +1442,9 @@ CSS
         if (!self::$front) {
             echo '<p><a href="'.esc_url(self::url('home')).'">Back to Dashboard</a></p>';
         }
+        if ($kind === 'settings' && isset($_GET['transactions_cleared']) && current_user_can('manage_options')) {
+            echo '<div class="notice notice-success" role="status"><p>Transaction data cleared.</p></div>';
+        }
         if (isset($_GET['saved']) || isset($_GET['deleted'])) {
             $message = isset($_GET['deleted']) ? 'Record deleted.' : 'Saved.';
             echo '<div class="notice notice-success" role="status"><p>'.esc_html($message).'</p></div>';
@@ -1420,6 +1471,7 @@ CSS
                 self::orgNameSettings();
                 self::logoSettings();
                 self::numberingSettings();
+                self::clearDataSettings();
             }
             echo '</div>';
             return;
