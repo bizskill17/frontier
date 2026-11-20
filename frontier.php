@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.204
+ * Version: 1.9.205
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3887,6 +3887,15 @@ HTML;
             echo '</details>';
         }
         if ($kind === 'po' && self::can('po')) {
+            if (self::$screen === 'po') {
+                foreach (self::purchaseOrderGroup($rows,$row) as $line) {
+                    if ($line['status'] !== 'draft' || self::linked($rows,$line['id'])) {
+                        return;
+                    }
+                }
+                self::deleteAction($row,'delete','Delete draft','Delete this draft?');
+                return;
+            }
             if ($status === 'draft') {
                 self::button($row,'issue','Issue PO');
                 self::deleteAction($row,'delete','Delete draft','Delete this draft?');
@@ -3907,11 +3916,7 @@ HTML;
                 } elseif ($openLine !== null && self::canView('cancel') && self::can('cancel')) {
                     $url = add_query_arg(['add'=>1,'source'=>$openLine],self::url('cancel'));
                     echo '<a'.self::actionIconAttributes('Cancel PO Items').' href="'.esc_url($url).'">'.self::actionIcon('⊘').'</a>';
-                } elseif (self::$screen === 'po') {
-                    echo '<small>No cancellable balance</small>';
                 }
-            } elseif (self::$screen === 'po' && $status === 'cancelled') {
-                echo '<small>Cancelled</small>';
             }
         }
         if ($kind === 'grn' && $mode === 'slip' && self::can('grn')) {
