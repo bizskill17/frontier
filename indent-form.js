@@ -7,7 +7,7 @@
     const tbody = form.querySelector('tbody');
     const detailLabels = Array.from(form.querySelectorAll('thead th'))
         .slice(2, 7).map((heading) => heading.dataset.label);
-    const add = form.querySelector('.frontier-indent-add');
+    const add = form.querySelectorAll('.frontier-indent-add');
     const submit = form.querySelector('.frontier-indent-submit');
     const message = form.querySelector('.frontier-indent-message');
     const payload = form.querySelector('[name="indent_lines"]');
@@ -36,6 +36,7 @@
             row.insert.disabled = !items.size || rows.length >= 100;
             row.element.classList.toggle('frontier-indent-selected', Boolean(item));
             row.number.textContent = index + 1;
+            row.itemLabel.textContent = item?.unit ? 'Item Name (' + item.unit + ')' : 'Item Name';
             const available = item ? Math.max(0, round(item.qty - item.used)) : 0;
             const details = item ? [item.unit, item.qty, item.pending ?? 0, item.used, available] : ['', '', '', '', ''];
             row.details.forEach((cell, position) => { cell.textContent = details[position]; });
@@ -49,7 +50,7 @@
             if (excess > 0) excessRows++;
             if (item && !duplicate && row.qty.validity.valid && qty > 0) valid++;
         });
-        add.disabled = !items.size || rows.length >= 100;
+        add.forEach((button) => { button.disabled = !items.size || rows.length >= 100; });
         submit.disabled = !rows.length || valid !== rows.length;
         message.textContent = !site.value ? '' :
             !items.size ? 'No BOQ items are available for this site.' :
@@ -68,11 +69,12 @@
         for (const entry of items.values()) {
             item.add(new Option(entry.name + ' · BOQ ' + entry.number + '/' + entry.line, entry.id));
         }
-        element.insertCell().append(mobileLabel('Item Name'), item);
-        const details = detailLabels.map((label) => {
+        const itemLabel = mobileLabel('Item Name');
+        element.insertCell().append(itemLabel, item);
+        const details = detailLabels.map((label, position) => {
             const cell = element.insertCell();
             const value = document.createElement('span');
-            cell.className = 'frontier-indent-detail';
+            cell.className = position === 0 ? 'frontier-indent-detail frontier-indent-unit' : 'frontier-indent-detail';
             cell.append(mobileLabel(label), value);
             return value;
         });
@@ -94,14 +96,14 @@
         actions.className = 'frontier-row-actions';
         const insert = document.createElement('button');
         insert.type = 'button';
-        insert.className = 'button frontier-action-icon';
+        insert.className = 'button frontier-action-icon frontier-indent-insert';
         insert.textContent = '+';
         insert.title = 'Add row below';
         insert.setAttribute('aria-label', 'Add row below');
         insert.addEventListener('click', () => addRow(rows.indexOf(row) + 1));
         actions.append(remove, insert);
         element.insertCell().append(actions);
-        const row = { element, number, item, details, qty, warning, insert };
+        const row = { element, number, item, itemLabel, details, qty, warning, insert };
         rows.splice(index, 0, row);
         remove.addEventListener('click', () => {
             rows.splice(rows.indexOf(row), 1);
@@ -123,7 +125,7 @@
     }
 
     site.addEventListener('change', loadSite);
-    add.addEventListener('click', () => addRow());
+    add.forEach((button) => button.addEventListener('click', () => addRow()));
     form.addEventListener('submit', (event) => {
         if (submit.disabled) {
             event.preventDefault();

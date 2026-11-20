@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.147
+ * Version: 1.9.148
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -444,7 +444,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.147');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.148');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -503,7 +503,8 @@ body.frontier-workspace {
         min-height: 230px;
     }
 }
-.frontier-indent-mobile-label { display: none; }
+.frontier-indent-mobile-label, .frontier-main .frontier-indent-form .frontier-indent-mobile-add { display: none; }
+.frontier-main .frontier-indent-form .frontier-indent-date input { background: #eef2f6; }
 @media (max-width: 760px) {
     .frontier-shell .frontier-sidebar:not([hidden]) {
         position: fixed;
@@ -542,8 +543,8 @@ body.frontier-workspace {
     .frontier-indent-form thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     .frontier-indent-form tbody > tr {
         display: grid;
-        grid-template-columns: minmax(0,1fr);
-        gap: 8px;
+        grid-template-columns: repeat(2,minmax(0,1fr));
+        gap: 8px 12px;
         margin-bottom: 12px;
         padding: 14px;
         border: 1px solid #cbd6e4;
@@ -558,16 +559,27 @@ body.frontier-workspace {
         overflow-wrap: anywhere;
     }
     .frontier-indent-form .frontier-indent-mobile-label { display: block; font-weight: 650; }
-    .frontier-indent-form .frontier-indent-number { font-weight: 650; }
-    .frontier-indent-form .frontier-indent-number::before { content: 'Item '; }
-    .frontier-main .frontier-indent-form .frontier-indent-detail {
-        display: grid;
-        grid-template-columns: minmax(0,1fr) minmax(0,auto);
-        align-items: baseline;
-        gap: 8px;
-    }
+    .frontier-main .frontier-indent-form .frontier-indent-date,
+    .frontier-main .frontier-indent-form .frontier-indent-toolbar,
+    .frontier-main .frontier-indent-form tbody td.frontier-indent-number,
+    .frontier-main .frontier-indent-form tbody td.frontier-indent-unit,
+    .frontier-main .frontier-indent-form .frontier-indent-insert,
     .frontier-main .frontier-indent-form tr:not(.frontier-indent-selected) .frontier-indent-detail { display: none; }
-    .frontier-indent-form .frontier-indent-detail > :last-child { text-align: right; }
+    .frontier-indent-form tbody td:nth-child(2),
+    .frontier-indent-form tbody td:nth-child(n+8) { grid-column: 1 / -1; }
+    .frontier-main .frontier-indent-form .frontier-indent-detail { line-height: 1.25; }
+    .frontier-indent-form .frontier-indent-detail .frontier-indent-mobile-label { font-size: .8rem; font-weight: 500; }
+    .frontier-indent-form .frontier-indent-detail > :last-child { font-size: 1rem; font-weight: 700; }
+    .frontier-main .frontier-indent-form .frontier-table td:nth-child(2) .frontier-combobox input,
+    .frontier-main .frontier-indent-form .frontier-table td:nth-child(2) select { min-height: 48px; }
+    .frontier-main .frontier-indent-form .frontier-indent-mobile-add {
+        display: inline-block;
+        margin-top: 4px;
+        border: 0;
+        padding-inline: 0;
+        background: transparent;
+        font-weight: 650;
+    }
     .frontier-main .frontier-indent-form input:not([type="hidden"]),
     .frontier-main .frontier-indent-form select {
         box-sizing: border-box;
@@ -701,10 +713,10 @@ CSS
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.70',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.146',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.148',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.133',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.147');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.148');
         }
     }
 
@@ -4758,17 +4770,19 @@ HTML;
         self::formStart('indent','create_indent');
         echo '<input type="hidden" name="indent_lines"><input type="hidden" name="indent_token" value="'.esc_attr(wp_generate_uuid4()).'">';
         echo '<div class="frontier-fields">';
-        self::field($rows,'indent','due','Indent Date',current_time('Y-m-d'));
         self::field($rows,'indent','employee','Requested By','');
         self::field($sites,'indent','site','Site Number with Name','');
+        echo '<p class="frontier-indent-date"><label>Indent Date<input type="text" readonly value="'.
+            esc_attr(current_time('d/m/Y')).'"></label></p>';
         echo '<p><label>'.self::requiredLabel('Indent Target Date').'<input type="date" name="target_date" required></label></p>';
-        echo '</div><div class="frontier-master-toolbar"><h2>Indent Items</h2><button type="button" class="button frontier-indent-add" disabled>＋ Add More</button></div>';
+        echo '</div><div class="frontier-master-toolbar frontier-indent-toolbar"><h2>Indent Items</h2><button type="button" class="button frontier-indent-add" disabled>＋ Add More</button></div>';
         echo '<p class="frontier-indent-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
         foreach (['Sl No.','Item Name','Unit','BOQ Quantity','Pending Approval Qty','Approved Qty','Pending to Indent','Indent Now','Action'] as $label) {
             echo '<th scope="col" data-label="'.esc_attr($label).'">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody></tbody></table></div>';
+        echo '<button type="button" class="frontier-indent-add frontier-indent-mobile-add" disabled>Add item</button>';
         echo '<script type="application/json" class="frontier-indent-data">'.wp_json_encode($catalog,
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
         echo '<p><a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a> ';
@@ -4779,11 +4793,9 @@ HTML;
     private static function saveIndent($rows) {
         $site = $rows[absint(self::input('site'))] ?? null;
         $employee = $rows[absint(self::input('employee'))] ?? null;
-        $dateText = self::input('due');
-        $date = DateTimeImmutable::createFromFormat('!Y-m-d',$dateText);
+        $dateText = current_time('Y-m-d');
         self::requireRule($site && $site['kind'] === 'site','Select a site.');
         self::requireRule($employee && $employee['kind'] === 'employee','Select Requested By.');
-        self::requireRule($date && $date->format('Y-m-d') === $dateText,'Enter a valid indent date.');
         $raw = $_POST['indent_lines'] ?? '';
         $lines = is_string($raw) && strlen($raw) <= 100000 ? json_decode(wp_unslash($raw),true) : null;
         self::requireRule(is_array($lines) && count($lines) > 0 && count($lines) <= 100,'Add between 1 and 100 indent items.');
