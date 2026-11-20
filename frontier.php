@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.143
+ * Version: 1.9.144
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3327,7 +3327,7 @@ HTML;
                 self::requireRule((int)($row['data']['indent_number'] ?? 0) !== (int)$data['indent_number'],
                     'This BOQ item is already on the same indent.');
             }
-            if (in_array($row['status'],['pending','approved'],true)) {
+            if ($row['status'] === 'approved') {
                 $used += $row['data']['qty'];
             }
         }
@@ -3839,7 +3839,7 @@ HTML;
         $approvedOrders = [];
         foreach ($rows as $row) {
             $data = $row['data'];
-            if ($row['kind'] === 'indent' && in_array($row['status'],['pending','approved'],true)) {
+            if ($row['kind'] === 'indent' && $row['status'] === 'approved') {
                 $id = (int)$data['boq'];
                 $indents[$id] = ($indents[$id] ?? 0) + $data['qty'];
             } elseif ($row['kind'] === 'po' && $row['status'] === 'issued') {
@@ -4340,7 +4340,7 @@ HTML;
                     $orders[$recordId] = $recordData['qty'];
                 }
             } elseif ($record['kind'] === 'indent' && $recordId < $id && (int)$recordData['boq'] === $boqId
-                && in_array($record['status'],['pending','approved'],true)) {
+                && $record['status'] === 'approved') {
                 $already += $recordData['qty'];
             }
         }
@@ -4358,7 +4358,7 @@ HTML;
             }
         }
         $ordered = round(array_sum($orders),3);
-        $already = $data['already_indented'] ?? round($already,3);
+        $already = round($already,3);
         $excess = $data['excess'] ?? round($data['qty'] - max(0,($boq['qty'] ?? 0)-$already),3);
         $values += [
             'already'=>$already,'excess'=>$excess > 0 ? 'Yes' : 'No',
@@ -4718,7 +4718,7 @@ HTML;
     private static function indentForm($rows) {
         $used = [];
         foreach ($rows as $row) {
-            if ($row['kind'] === 'indent' && in_array($row['status'],['pending','approved'],true)) {
+            if ($row['kind'] === 'indent' && $row['status'] === 'approved') {
                 $id = $row['data']['boq'];
                 $used[$id] = ($used[$id] ?? 0) + $row['data']['qty'];
             }
