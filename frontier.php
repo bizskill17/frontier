@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.150
+ * Version: 1.9.151
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -444,7 +444,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.150');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.151');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -503,7 +503,7 @@ body.frontier-workspace {
         min-height: 230px;
     }
 }
-.frontier-indent-mobile-label { display: none; }
+.frontier-indent-mobile-label, .frontier-combobox-selection { display: none; }
 .frontier-main .frontier-indent-form .frontier-indent-date input { background: #eef2f6; }
 @media (max-width: 760px) {
     .frontier-shell .frontier-sidebar:not([hidden]) {
@@ -550,13 +550,13 @@ body.frontier-workspace {
         display: grid;
         grid-template-columns: repeat(2,minmax(0,1fr));
         gap: 6px 10px;
-        margin-bottom: 0;
+        margin-bottom: 8px;
         padding: 8px;
         border: 1px solid #cbd6e4;
         border-radius: 10px;
         background: #f3f7fc;
     }
-    .frontier-pages .frontier-main form.frontier-indent-form .frontier-table tbody td {
+    .frontier-pages .frontier-main form.frontier-indent-form :where(.frontier-table) tbody td {
         display: block;
         min-width: 0;
         border: 0;
@@ -568,9 +568,7 @@ body.frontier-workspace {
     .frontier-main .frontier-indent-form .frontier-indent-toolbar,
     .frontier-pages .frontier-main form.frontier-indent-form tbody td.frontier-indent-number,
     .frontier-pages .frontier-main form.frontier-indent-form tbody td.frontier-indent-unit,
-    .frontier-main .frontier-indent-form .frontier-row-actions .frontier-indent-insert,
-    .frontier-pages .frontier-main form.frontier-indent-form tbody tr:only-child td:last-child,
-    .frontier-pages .frontier-main form.frontier-indent-form tr:not(.frontier-indent-selected) td.frontier-indent-detail { display: none; }
+    .frontier-pages .frontier-main form.frontier-indent-form tr:not(.frontier-indent-selected) td:is(.frontier-indent-detail,.frontier-indent-qty,:last-child):not(:nth-child(2)) { display: none; }
     .frontier-indent-form tbody td:nth-child(2),
     .frontier-indent-form tbody td:nth-child(n+8) { grid-column: 1 / -1; }
     .frontier-main .frontier-indent-form .frontier-indent-detail { line-height: 1.25; }
@@ -596,6 +594,18 @@ body.frontier-workspace {
     }
     .frontier-indent-form .frontier-indent-mobile-label:first-child:not(:only-child) { margin-bottom: 4px; }
     .frontier-indent-form .frontier-indent-detail .frontier-indent-mobile-label { margin-bottom: 0; }
+    .frontier-indent-form .frontier-combobox-wrap { display: grid; }
+    .frontier-indent-form .frontier-combobox-wrap > :is(input,.frontier-combobox-selection) { grid-area: 1 / 1; min-width: 0; }
+    .frontier-indent-form .frontier-combobox-selection {
+        display: block;
+        pointer-events: none;
+        align-self: center;
+        padding: 10px 34px;
+        overflow-wrap: anywhere;
+        font-size: 16px;
+    }
+    .frontier-indent-form .frontier-combobox-wrap input:not(:focus) { color: transparent; }
+    .frontier-indent-form .frontier-combobox-wrap input:focus + .frontier-combobox-selection { visibility: hidden; }
     .frontier-main .frontier-indent-form .frontier-row-actions { justify-content: flex-end; }
     .frontier-main .frontier-indent-form .frontier-row-actions button,
     .frontier-main .frontier-indent-form .frontier-indent-footer > .button {
@@ -727,13 +737,13 @@ CSS
     }
 
     private static function enqueueDropdownSearch() {
-        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.70',true);
+        wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.151',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.150',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.151',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.133',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.150');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.151');
         }
     }
 

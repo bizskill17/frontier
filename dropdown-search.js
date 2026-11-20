@@ -36,6 +36,16 @@ function enhanceDropdown(select) {
     arrow.className = 'frontier-combobox-arrow';
     arrow.setAttribute('aria-hidden', 'true');
     root.append(input, searchIcon, arrow, list);
+    const wrap = select.hasAttribute('data-dropdown-wrap');
+    const selection = document.createElement('span');
+    if (wrap) {
+        root.classList.add('frontier-combobox-wrap');
+        selection.className = 'frontier-combobox-selection';
+        selection.setAttribute('aria-hidden', 'true');
+        input.after(selection);
+    }
+    const placeholder = select.dataset.dropdownPlaceholder || '';
+    input.placeholder = placeholder;
     select.before(root);
     select.hidden = true;
     select.required = false;
@@ -47,6 +57,7 @@ function enhanceDropdown(select) {
 
     function syncSelection() {
         input.value = select.value ? select.selectedOptions[0].textContent : '';
+        if (wrap) selection.textContent = input.value || placeholder;
         input.setCustomValidity(input.required && !select.value ? 'Select ' + name + '.' : '');
     }
 
@@ -115,7 +126,12 @@ function enhanceDropdown(select) {
         highlight(matches.findIndex((option) => option.selected));
     }
 
+    function closeOutside(event) {
+        if (!root.contains(event.target) && !list.contains(event.target)) close();
+    }
+
     function close() {
+        document.removeEventListener('pointerdown', closeOutside, true);
         list.hidden = true;
         if (overlay) {
             window.removeEventListener('scroll', closeOnScroll, true);
@@ -151,8 +167,13 @@ function enhanceDropdown(select) {
     arrow.addEventListener('click', (event) => {
         event.preventDefault();
         if (list.hidden) {
-            input.focus();
-            open();
+            if (select.closest('.frontier-indent-form') && window.matchMedia('(max-width: 760px)').matches) {
+                show('');
+                document.addEventListener('pointerdown', closeOutside, true);
+            } else {
+                input.focus();
+                open();
+            }
         } else {
             close();
         }

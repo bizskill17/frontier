@@ -8,7 +8,6 @@
     const detailLabels = Array.from(form.querySelectorAll('thead th'))
         .slice(2, 7).map((heading) => heading.dataset.label);
     const add = form.querySelector('.frontier-indent-add');
-    const mobile = window.matchMedia('(max-width: 760px)');
     const submit = form.querySelector('.frontier-indent-submit');
     const message = form.querySelector('.frontier-indent-message');
     const payload = form.querySelector('[name="indent_lines"]');
@@ -34,7 +33,7 @@
         let excessRows = 0;
         rows.forEach((row, index) => {
             const item = items.get(row.item.value);
-            row.insert.disabled = !items.size || rows.length >= 100;
+            row.insert.disabled = !item || !items.size || rows.length >= 100;
             row.element.classList.toggle('frontier-indent-selected', Boolean(item));
             row.number.textContent = index + 1;
             row.unit.textContent = item?.unit || '';
@@ -59,13 +58,15 @@
     }
 
     function addRow(index = rows.length) {
-        if (!items.size || rows.length >= 100 || (mobile.matches && rows.length > 0)) return;
+        if (!items.size || rows.length >= 100) return;
         const element = tbody.insertRow(index);
         const number = element.insertCell();
         number.className = 'frontier-indent-number';
         const item = document.createElement('select');
         item.setAttribute('aria-label', 'Item Name');
         item.required = true;
+        item.dataset.dropdownWrap = '';
+        item.dataset.dropdownPlaceholder = 'Select item';
         item.add(new Option('Select Item', ''));
         for (const entry of items.values()) {
             item.add(new Option(entry.name + ' · BOQ ' + entry.number + '/' + entry.line, entry.id));
