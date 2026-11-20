@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.137
+ * Version: 1.9.138
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -487,6 +487,92 @@ body.frontier-workspace {
 .frontier-boq-name.is-empty span {
     display: none;
 }
+.frontier-drawer-close, .frontier-drawer-backdrop { display: none; }
+.frontier-main .frontier-indent-form > .frontier-fields {
+    grid-template-columns: repeat(4,minmax(0,1fr));
+}
+@media (max-width: 1100px) {
+    .frontier-main .frontier-indent-form > .frontier-fields {
+        grid-template-columns: repeat(2,minmax(0,1fr));
+    }
+    .frontier-main .frontier-indent-form .frontier-table {
+        overflow-x: auto;
+        padding-bottom: 0;
+    }
+    .frontier-main .frontier-indent-form .frontier-table:focus-within {
+        min-height: 230px;
+    }
+}
+@media (max-width: 760px) {
+    .frontier-shell .frontier-sidebar:not([hidden]) {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 102;
+        width: min(290px,85vw);
+        max-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        box-shadow: 0 0 24px #17243b44;
+    }
+    .frontier-shell .frontier-sidebar > * { flex-shrink: 0; }
+    .frontier-shell .frontier-drawer-close {
+        display: block;
+        align-self: flex-end;
+        min-width: 44px;
+        min-height: 44px;
+    }
+    .frontier-shell:not(.frontier-menu-hidden) .frontier-drawer-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 101;
+        background: #17243b88;
+    }
+    .frontier-main .frontier-indent-form > .frontier-fields { grid-template-columns: minmax(0,1fr); }
+    .frontier-main .frontier-indent-form .frontier-table,
+    .frontier-main .frontier-indent-form .frontier-table:focus-within {
+        overflow: visible;
+        min-height: 0;
+        border: 0;
+        background: transparent;
+    }
+    .frontier-indent-form table, .frontier-indent-form tbody { display: block; }
+    .frontier-indent-form thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .frontier-indent-form tbody > tr {
+        display: grid;
+        grid-template-columns: repeat(2,minmax(0,1fr));
+        gap: 8px;
+        margin-bottom: 12px;
+        padding: 12px;
+        border: 1px solid #cbd6e4;
+        border-radius: 10px;
+        background: #f3f7fc;
+    }
+    .frontier-main .frontier-indent-form tbody td {
+        display: block;
+        min-width: 0;
+        border: 0;
+        padding: 3px;
+        overflow-wrap: anywhere;
+    }
+    .frontier-indent-form td:nth-child(1),
+    .frontier-indent-form td:nth-child(2) { grid-column: 1 / -1; }
+    .frontier-indent-form td:nth-child(8) { align-self: end; }
+    .frontier-indent-form td:nth-child(3)::before { content: 'Unit'; }
+    .frontier-indent-form td:nth-child(4)::before { content: 'BOQ Quantity'; }
+    .frontier-indent-form td:nth-child(5)::before { content: 'Already Indented'; }
+    .frontier-indent-form td:nth-child(6)::before { content: 'Pending to Indent'; }
+    .frontier-indent-form td:nth-child(7)::before { content: 'Indent Now'; }
+    .frontier-indent-form td:nth-child(n+3):nth-child(-n+7)::before {
+        display: block;
+        font-weight: 650;
+    }
+    .frontier-main .frontier-indent-form .frontier-row-actions button {
+        min-width: 44px;
+        min-height: 44px;
+    }
+}
 .frontier-topbar {
     position: sticky;
     top: 0;
@@ -626,6 +712,7 @@ CSS
         <a class="frontier-skip" href="#frontier-main">Skip to content</a>
         <div class="frontier-shell">
             <?php self::workspaceNavigation($kind,$counts); ?>
+            <div class="frontier-drawer-backdrop" aria-hidden="true"></div>
             <div class="frontier-main-column">
                 <header class="frontier-topbar">
                     <div class="frontier-topbar-start">
@@ -662,14 +749,30 @@ CSS
         toggle.setAttribute('aria-label', label);
         toggle.title = label;
     };
-    setHidden(preference === null ? window.matchMedia('(max-width: 760px)').matches : preference === 'true');
+    const mobile = window.matchMedia('(max-width: 760px)');
+    const close = menu.querySelector('.frontier-drawer-close');
+    const backdrop = shell.querySelector('.frontier-drawer-backdrop');
+    const reset = () => setHidden(mobile.matches || preference === 'true');
+    const closeDrawer = () => {
+        setHidden(true);
+        toggle.focus();
+    };
+    reset();
+    mobile.addEventListener('change', reset);
     toggle.hidden = false;
     toggle.addEventListener('click', () => {
         setHidden(!menu.hidden);
-        if (!menu.hidden && window.matchMedia('(max-width: 760px)').matches) {
-            menu.scrollIntoView({block: 'start'});
+        if (mobile.matches) {
+            if (!menu.hidden) close.focus();
+            return;
         }
-        try { localStorage.setItem(key, String(menu.hidden)); } catch {}
+        preference = String(menu.hidden);
+        try { localStorage.setItem(key, preference); } catch {}
+    });
+    close.addEventListener('click', closeDrawer);
+    backdrop.addEventListener('click', closeDrawer);
+    shell.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && mobile.matches && !menu.hidden) closeDrawer();
     });
 })();
         </script>
@@ -1209,6 +1312,7 @@ CSS
 
     private static function workspaceNavigation($current,$counts) {
         echo '<nav id="frontier-sidebar" class="frontier-sidebar" aria-label="Frontier navigation">';
+        echo '<button type="button" class="button frontier-drawer-close" aria-label="Close menu">×</button>';
         $orgName = trim((string)get_option('frontier_org_name',''));
         $brand = $orgName === '' ? 'Frontier' : $orgName;
         echo '<a class="frontier-sidebar-brand" href="'.esc_url(self::url('home')).'">'.esc_html($brand).'</a>';
