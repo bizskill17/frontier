@@ -119,7 +119,7 @@ if (boqForm) {
             }
             if (key !== 'unit') {
                 input.value = key === 'name' ? initialName : (values[key] ?? '');
-                input.readOnly = !!values.locked;
+                input.readOnly = key === 'name' && !!values.locked;
             }
             const cell = element.insertCell();
             if (key === 'name') {
@@ -197,7 +197,12 @@ if (boqForm) {
         remove.setAttribute('aria-label', 'Remove BOQ item');
         remove.title = 'Remove BOQ item';
         if (values.locked) {
-            actions.textContent = 'Locked';
+            const lock = document.createElement('span');
+            lock.setAttribute('role', 'img');
+            lock.setAttribute('aria-label', 'Item and unit locked because the row is used in an indent');
+            lock.title = 'Used in indent. Quantity can be edited.';
+            lock.textContent = '🔒';
+            actions.append(lock);
         } else {
             actions.append(' ', remove);
         }

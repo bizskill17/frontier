@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.156
+ * Version: 1.9.157
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -742,7 +742,7 @@ CSS
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.9.155');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.151',true);
-        wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.133',true);
+        wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.151');
         }
@@ -4268,8 +4268,8 @@ HTML;
             self::requireRule(!isset($itemNames[$nameKey]),'Duplicate item on BOQ row '.$number.'.');
             $itemNames[$nameKey] = true;
             if (isset($used[$lineId])) {
-                self::requireRule($sameSavedItem && (float)$qty === (float)$old['qty'] && $unit === $old['unit'],
-                    'An item already used in an indent cannot be changed.');
+                self::requireRule($sameSavedItem && $unit === $old['unit'],
+                    'The item and unit cannot change once the BOQ row is used in an indent.');
             }
             $data = $header + [
                 'item_id'=>$itemId,'name'=>$sameSavedItem ? $old['name'] : $item['data']['name'],
