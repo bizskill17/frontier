@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.205
+ * Version: 1.9.206
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1782,8 +1782,8 @@ JS
                 case 'indent': return $row['status'] === 'approved';
                 case 'quote': return $row['status'] === 'selected' && self::available($rows,$rows[$row['data']['indent']]) > 0;
                 case 'po':
-                    return $kind === 'grn' ? self::canReceivePurchaseOrder($rows,$row)
-                        : $row['status'] === 'issued' && ($kind === 'follow' || self::balance($rows,$row) > 0);
+                    return $kind === 'follow' ? $row['status'] === 'issued'
+                        : self::canReceivePurchaseOrder($rows,$row);
                 case 'grn': return $row['status'] === 'received' && $row['data']['qty'] > self::sum($rows,'match','grn',$row['id']);
                 default: return true;
             }
@@ -5649,13 +5649,10 @@ HTML;
     }
 
     private static function purchaseOrderItemCancelAction($row,$rows,$values) {
-        if ($row['status'] !== 'issued' || !self::can('cancel') || !self::canView('cancel')) {
+        if (!self::can('cancel') || !self::canView('cancel') || !self::canReceivePurchaseOrder($rows,$row)) {
             return;
         }
         $balance = self::balance($rows,$row);
-        if ($balance <= 0) {
-            return;
-        }
         $title = 'frontier-po-cancel-title-'.(int)$row['id'];
         $limit = esc_attr($balance);
         echo '<button type="button"'.self::actionIconAttributes('Cancel PO Item')
