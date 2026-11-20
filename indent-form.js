@@ -5,6 +5,8 @@
     const catalog = JSON.parse(form.querySelector('.frontier-indent-data').textContent);
     const site = form.querySelector('select[name="site"]');
     const tbody = form.querySelector('tbody');
+    const detailLabels = Array.from(form.querySelectorAll('thead th'))
+        .slice(2, 7).map((heading) => heading.dataset.label);
     const add = form.querySelector('.frontier-indent-add');
     const submit = form.querySelector('.frontier-indent-submit');
     const message = form.querySelector('.frontier-indent-message');
@@ -13,6 +15,14 @@
     let items = new Map();
 
     const round = (value) => Math.round(value * 1000) / 1000;
+    function mobileLabel(text) {
+        const label = document.createElement('span');
+        label.className = 'frontier-indent-mobile-label';
+        label.textContent = text;
+        label.setAttribute('aria-hidden', 'true');
+        return label;
+    }
+
     function refresh() {
         const counts = new Map();
         for (const row of rows) {
@@ -24,6 +34,7 @@
         rows.forEach((row, index) => {
             const item = items.get(row.item.value);
             row.insert.disabled = !items.size || rows.length >= 100;
+            row.element.classList.toggle('frontier-indent-selected', Boolean(item));
             row.number.textContent = index + 1;
             const available = item ? Math.max(0, round(item.qty - item.used)) : 0;
             const details = item ? [item.unit, item.qty, item.pending ?? 0, item.used, available] : ['', '', '', '', ''];
@@ -49,6 +60,7 @@
         if (!items.size || rows.length >= 100) return;
         const element = tbody.insertRow(index);
         const number = element.insertCell();
+        number.className = 'frontier-indent-number';
         const item = document.createElement('select');
         item.setAttribute('aria-label', 'Item Name');
         item.required = true;
@@ -56,8 +68,14 @@
         for (const entry of items.values()) {
             item.add(new Option(entry.name + ' · BOQ ' + entry.number + '/' + entry.line, entry.id));
         }
-        element.insertCell().append(item);
-        const details = Array.from({ length: 5 }, () => element.insertCell());
+        element.insertCell().append(mobileLabel('Item Name'), item);
+        const details = detailLabels.map((label) => {
+            const cell = element.insertCell();
+            const value = document.createElement('span');
+            cell.className = 'frontier-indent-detail';
+            cell.append(mobileLabel(label), value);
+            return value;
+        });
         const qty = document.createElement('input');
         qty.type = 'number';
         qty.required = true;
@@ -66,7 +84,7 @@
         qty.setAttribute('aria-label', 'Indent Now');
         const warning = document.createElement('small');
         warning.className = 'frontier-indent-excess';
-        element.insertCell().append(qty, warning);
+        element.insertCell().append(mobileLabel('Indent Now'), qty, warning);
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'button frontier-action-icon frontier-action-delete';

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.145
+ * Version: 1.9.146
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -503,6 +503,7 @@ body.frontier-workspace {
         min-height: 230px;
     }
 }
+.frontier-indent-mobile-label { display: none; }
 @media (max-width: 760px) {
     .frontier-shell .frontier-sidebar:not([hidden]) {
         position: fixed;
@@ -541,10 +542,10 @@ body.frontier-workspace {
     .frontier-indent-form thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     .frontier-indent-form tbody > tr {
         display: grid;
-        grid-template-columns: repeat(2,minmax(0,1fr));
+        grid-template-columns: minmax(0,1fr);
         gap: 8px;
         margin-bottom: 12px;
-        padding: 12px;
+        padding: 14px;
         border: 1px solid #cbd6e4;
         border-radius: 10px;
         background: #f3f7fc;
@@ -553,27 +554,37 @@ body.frontier-workspace {
         display: block;
         min-width: 0;
         border: 0;
-        padding: 3px;
+        padding: 0;
         overflow-wrap: anywhere;
     }
-    .frontier-main .frontier-indent-form tbody td:nth-child(1) { display: none; }
-    .frontier-indent-form td:nth-child(2) { grid-column: 1 / -1; }
-    .frontier-indent-form td:nth-child(7) { grid-column: 1 / -1; }
-    .frontier-indent-form td:nth-child(9) { align-self: end; }
-    .frontier-indent-form td:nth-child(3)::before { content: 'Unit'; }
-    .frontier-indent-form td:nth-child(4)::before { content: 'BOQ Quantity'; }
-    .frontier-indent-form td:nth-child(5)::before { content: 'Pending Approval Qty'; }
-    .frontier-indent-form td:nth-child(6)::before { content: 'Approved Qty'; }
-    .frontier-indent-form td:nth-child(7)::before { content: 'Pending to Indent'; }
-    .frontier-indent-form td:nth-child(8)::before { content: 'Indent Now'; }
-    .frontier-indent-form td:nth-child(n+3):nth-child(-n+8)::before {
-        display: block;
-        font-weight: 650;
+    .frontier-indent-form .frontier-indent-mobile-label { display: block; font-weight: 650; }
+    .frontier-indent-form .frontier-indent-number { font-weight: 650; }
+    .frontier-indent-form .frontier-indent-number::before { content: 'Item '; }
+    .frontier-main .frontier-indent-form .frontier-indent-detail {
+        display: grid;
+        grid-template-columns: minmax(0,1fr) minmax(0,auto);
+        align-items: baseline;
+        gap: 8px;
     }
-    .frontier-main .frontier-indent-form .frontier-row-actions button {
+    .frontier-main .frontier-indent-form tr:not(.frontier-indent-selected) .frontier-indent-detail { display: none; }
+    .frontier-indent-form .frontier-indent-detail > :last-child { text-align: right; }
+    .frontier-main .frontier-indent-form input:not([type="hidden"]),
+    .frontier-main .frontier-indent-form select {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 44px;
+        font-size: 16px;
+    }
+    .frontier-indent-form .frontier-indent-mobile-label:first-child:not(:only-child) { margin-bottom: 4px; }
+    .frontier-indent-form .frontier-indent-detail .frontier-indent-mobile-label { margin-bottom: 0; }
+    .frontier-main .frontier-indent-form .frontier-row-actions { justify-content: flex-end; }
+    .frontier-main .frontier-indent-form .frontier-row-actions button,
+    .frontier-main .frontier-indent-form .frontier-indent-add,
+    .frontier-main .frontier-indent-form .frontier-indent-submit {
         min-width: 44px;
         min-height: 44px;
     }
+    .frontier-main .frontier-indent-form .frontier-indent-submit { width: 100%; margin-top: 8px; }
 }
 .frontier-topbar {
     position: sticky;
@@ -690,7 +701,7 @@ CSS
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.70',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.145',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.146',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.133',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.93');
@@ -4755,7 +4766,7 @@ HTML;
         echo '<p class="frontier-indent-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
         foreach (['Sl No.','Item Name','Unit','BOQ Quantity','Pending Approval Qty','Approved Qty','Pending to Indent','Indent Now','Action'] as $label) {
-            echo '<th scope="col">'.self::tableHeading($label).'</th>';
+            echo '<th scope="col" data-label="'.esc_attr($label).'">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody></tbody></table></div>';
         echo '<script type="application/json" class="frontier-indent-data">'.wp_json_encode($catalog,
