@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.157
+ * Version: 1.9.158
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1371,6 +1371,7 @@ CSS
         echo '<a class="frontier-sidebar-brand" href="'.esc_url(self::url('home')).'">'.esc_html($brand).'</a>';
         self::workspaceNavigationLink('home','Dashboard',$current);
         $groups = self::GROUPS;
+        unset($groups['Indent']['indent_items']);
         unset($groups['Master']);
         $groups['Master'] = self::GROUPS['Master'];
         foreach ($groups as $group=>$views) {
