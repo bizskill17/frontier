@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.106
+ * Version: 1.9.107
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -501,6 +501,32 @@ final class Frontier {
 .frontier-sidebar .frontier-dashboard-count-pending {
     background: #ffd78a;
     color: #432b00;
+}
+
+.frontier-main .frontier-indent-items-table th,
+.frontier-main .frontier-indent-items-table td {
+    padding: 4px 7px;
+    font-size: 13px;
+    line-height: 1.3;
+}
+.frontier-main .frontier-indent-items-table th {
+    white-space: normal;
+}
+.frontier-indent-items-table .frontier-indent-column-item,
+.frontier-indent-items-table .frontier-indent-column-site {
+    min-width: 9rem;
+}
+.frontier-indent-items-table .frontier-indent-column-last_supplier,
+.frontier-indent-items-table .frontier-indent-column-supplier_1,
+.frontier-indent-items-table .frontier-indent-column-supplier_2,
+.frontier-indent-items-table .frontier-indent-column-supplier_3,
+.frontier-indent-items-table .frontier-indent-column-final_supplier {
+    min-width: 10rem;
+}
+.frontier-indent-items-table .frontier-indent-column-entered,
+.frontier-indent-items-table .frontier-indent-column-quote_at,
+.frontier-indent-items-table .frontier-indent-column-date {
+    white-space: nowrap;
 }
 CSS
         );
@@ -2203,11 +2229,12 @@ HTML;
             foreach ($fields as $field=>$label) {
                 $stage = $columnStages[$field] ?? 'indent';
                 $class = 'frontier-stage-'.$stage.($previousStage !== null && $previousStage !== $stage ? ' frontier-stage-start' : '');
-                $stageClasses[$field] = ' class="'.esc_attr($class).'"';
+                $stageClasses[$field] = ' class="'.esc_attr($class.' frontier-indent-column-'.$field).'"';
                 $previousStage = $stage;
             }
         }
-        echo '<div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
+        $tableClass = $indentItems ? ' frontier-indent-items-table' : '';
+        echo '<div class="frontier-table frontier-master-table'.$tableClass.'" tabindex="0" role="region" aria-label="Records"><table class="widefat striped"><thead><tr>';
         foreach ($fields as $field=>$label) {
             echo '<th scope="col"'.($stageClasses[$field] ?? '').'>'.esc_html($label).'</th>';
         }
