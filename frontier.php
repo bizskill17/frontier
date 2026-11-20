@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.101
+ * Version: 1.9.102
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -411,17 +411,53 @@ final class Frontier {
 }
 .frontier-sidebar .frontier-dashboard-count {
     margin-inline-start: auto;
-    background: #48617e;
-    color: #fff;
     white-space: nowrap;
-}
-.frontier-sidebar .frontier-dashboard-count-pending {
-    background: #ffd78a;
-    color: #432b00;
 }
 .frontier-sidebar [aria-current="page"] .frontier-dashboard-count {
     background: #d4e9ff;
     color: #173756;
+}
+
+.frontier-sidebar {
+    background: #e4edf8;
+    color: #142840;
+}
+.frontier-sidebar a,
+.frontier-sidebar .frontier-sidebar-brand {
+    color: #142840;
+}
+.frontier-sidebar .frontier-sidebar-brand,
+.frontier-sidebar .frontier-sidebar-signout {
+    border-color: #a9bacf;
+}
+.frontier-sidebar details {
+    background: var(--frontier-section-bg, #edf3fa);
+    border-radius: 6px;
+    margin-block: 6px;
+}
+.frontier-sidebar .frontier-section-boq { --frontier-section-bg: #ccedec; }
+.frontier-sidebar .frontier-section-indent { --frontier-section-bg: #e6dafa; }
+.frontier-sidebar .frontier-section-supplier-quotation { --frontier-section-bg: #ffedcc; }
+.frontier-sidebar .frontier-section-choose-supplier { --frontier-section-bg: #d4e0ee; }
+.frontier-sidebar .frontier-section-purchase-order { --frontier-section-bg: #d2eaff; }
+.frontier-sidebar .frontier-section-goods-receipt { --frontier-section-bg: #d7efd9; }
+.frontier-sidebar .frontier-section-invoice { --frontier-section-bg: #f6dbe9; }
+.frontier-sidebar .frontier-section-master { --frontier-section-bg: #dce1ff; }
+.frontier-sidebar ul {
+    margin-inline-end: 4px;
+    border-left-color: #91a4ba;
+}
+.frontier-sidebar a:not([aria-current="page"]):hover,
+.frontier-sidebar summary:hover {
+    background: rgb(20 40 64 / 9%);
+}
+.frontier-sidebar .frontier-dashboard-count {
+    background: #f9fbff;
+    color: #173756;
+}
+.frontier-sidebar .frontier-dashboard-count-pending {
+    background: #ffd78a;
+    color: #432b00;
 }
 CSS
         );
@@ -1008,7 +1044,8 @@ CSS
             if (!$visible) {
                 continue;
             }
-            echo '<details'.(isset($visible[$current]) ? ' open' : '').'><summary>'.esc_html($group).'</summary><ul>';
+            $groupClass = 'frontier-section-'.sanitize_key(str_replace(' ', '-', $group));
+            echo '<details class="'.esc_attr($groupClass).'"'.(isset($visible[$current]) ? ' open' : '').'><summary>'.esc_html($group).'</summary><ul>';
             foreach ($visible as $view=>$label) {
                 echo '<li>';
                 self::workspaceNavigationLink($view,$label,$current,$counts[$view] ?? null);
