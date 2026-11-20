@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.133
+ * Version: 1.9.134
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -454,6 +454,17 @@ final class Frontier {
 .frontier-pages .frontier-boq-form .frontier-boq-invalid select,
 .frontier-pages .frontier-boq-form .frontier-boq-invalid .frontier-boq-name span {
     background: #ffe3e3;
+}
+body.frontier-workspace {
+    overflow-x: clip;
+}
+.frontier-main .frontier-boq-form,
+.frontier-main .frontier-boq-form .frontier-table {
+    min-width: 0;
+    max-width: 100%;
+}
+.frontier-main .frontier-boq-form .frontier-table {
+    overflow-x: auto;
 }
 .frontier-boq-name {
     position: relative;
