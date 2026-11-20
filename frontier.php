@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.96
+ * Version: 1.9.97
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1509,7 +1509,7 @@ final class Frontier {
         foreach ($columns as $label) {
             echo '<th scope="col">'.esc_html($label).'</th>';
         }
-        echo '</tr></thead><tbody>';
+        echo '<th scope="col">Actions</th></tr></thead><tbody>';
         foreach ($pageRows as $quotes) {
             [$values,$siteName] = $quoteValues($quotes);
             echo '<tr>';
@@ -1526,10 +1526,13 @@ final class Frontier {
                 }
                 echo '</td><td>'.esc_html((string)($data['rate'] ?? '')).'</td>';
             }
-            echo '<td>'.esc_html($siteName).'</td></tr>';
+            echo '<td>'.esc_html($siteName).'</td><td>';
+            $firstQuote = reset($quotes);
+            self::supplierRegisterActions($rows,(int)($firstQuote['data']['indent'] ?? 0),false);
+            echo '</td></tr>';
         }
         if (!$total) {
-            echo '<tr><td colspan="'.count($columns).'">No supplier quotations found.</td></tr>';
+            echo '<tr><td colspan="'.(count($columns)+1).'">No supplier quotations found.</td></tr>';
         }
         echo '</tbody></table></div>';
         self::pagination($page,$pages,$total);
@@ -1992,7 +1995,7 @@ HTML;
         }
         $masterRecordStatus = isset(self::GROUPS['Master'][self::$screen]) && $kind !== 'employee';
         $showStatus = !$masterRecordStatus && !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems && !$isGrnView;
-        $showActions = $grnScreen !== 'grn' && !in_array($mode,['items','selected'],true);
+        $showActions = $chooseMaster || $grnScreen !== 'grn' && !in_array($mode,['items','selected'],true);
         $rowValues = static function ($row) use ($rows,$kind,$indentItems,$choosePending,$chooseMaster,$choiceItems,$pendingQuote) {
             [$values,$status] = $indentItems ? [self::indentItemValues($row,$rows),$row['status']] : self::recordValues($row,$rows,$kind);
             if ($choosePending || $chooseMaster) {
@@ -2137,7 +2140,11 @@ HTML;
             if ($showActions) {
                 echo '<td'.$actionClass.'>';
                 echo '<div class="frontier-row-actions">';
-                self::actions($row,$rows);
+                if ($chooseMaster) {
+                    self::supplierRegisterActions($rows,(int)($row['data']['indent'] ?? 0),true);
+                } else {
+                    self::actions($row,$rows);
+                }
                 if (in_array($kind,['employee','item','units'],true) && self::can($kind)) {
                     self::deleteAction($row,'delete_master','Delete record','Delete this record?');
                 }
@@ -4944,6 +4951,64 @@ HTML;
         ];
     }
 
+    private static function supplierRegisterRows($rows,$indentId) {
+        return array_filter($rows,static function ($row) use ($indentId) {
+            return $row['kind'] === 'quote' && (int)($row['data']['indent'] ?? 0) === $indentId;
+        });
+    }
+
+    private static function canChangeSupplierRegister($rows,$indentId,$selection) {
+        if (($rows[$indentId]['kind'] ?? '') !== 'indent' || ($rows[$indentId]['status'] ?? '') !== 'approved') {
+            return false;
+        }
+        $quotes = self::supplierRegisterRows($rows,$indentId);
+        $selected = array_filter($quotes,static function ($quote) { return $quote['status'] === 'selected'; });
+        if (!$quotes || ($selection ? count($selected) !== 1 : (bool)$selected)) {
+            return false;
+        }
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'po' && ((int)($row['data']['indent'] ?? 0) === $indentId || isset($quotes[$row['data']['quote'] ?? 0]))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static function supplierRegisterActions($rows,$indentId,$selection) {
+        if (!self::can('quote') || !self::canChangeSupplierRegister($rows,$indentId,$selection)) {
+            return;
+        }
+        $form = $selection ? 'choose_form' : 'quote_form';
+        $operation = $selection ? 'undo_supplier_selection' : 'delete_quotation_comparison';
+        $item = self::supplierIndentDetails($rows[$indentId],$rows);
+        echo '<div class="frontier-row-actions">';
+        if (self::canView($form)) {
+            $url = add_query_arg('edit_item',$indentId,self::url($form));
+            echo '<a'.self::actionIconAttributes('Edit').' href="'.esc_url($url).'">'.self::actionIcon('✎').'</a>';
+        }
+        self::deleteAction(['kind'=>'quote','id'=>$indentId],$operation,
+            $selection ? 'Undo supplier selection' : 'Delete quotation comparison',
+            ($selection ? 'Undo supplier selection' : 'Delete quotation comparison').' for indent '.$item['indent_number'].' · '.$item['item_name'].'?');
+        echo '</div>';
+    }
+
+    private static function clearSupplierSelection($rows,$indentId) {
+        global $wpdb;
+        foreach (self::supplierRegisterRows($rows,$indentId) as $id=>$row) {
+            if ($row['status'] !== 'selected') {
+                continue;
+            }
+            $data = $row['data'];
+            unset($data['selection_date'],$data['compared_at'],$data['compared_by'],$data['compared_employee']);
+            if ($wpdb->update(self::table(),['status'=>'received','details'=>wp_json_encode($data)],['id'=>$id]) !== 1) {
+                throw new RuntimeException('Supplier selection could not be cleared.');
+            }
+            $rows[$id]['status'] = 'received';
+            $rows[$id]['data'] = $data;
+        }
+        return $rows;
+    }
+
     private static function supplierChoices($rows,$includeFinalized=false) {
         $choices = [];
         $finalized = [];
@@ -4965,21 +5030,38 @@ HTML;
     }
 
     private static function chooseSupplierForm($rows) {
+        $editId = absint($_GET['edit_item'] ?? 0);
+        if ($editId && (!self::can('quote') || !self::canChangeSupplierRegister($rows,$editId,true))) {
+            echo '<p>This item can no longer be edited.</p>';
+            return;
+        }
+        $existing = $editId ? self::supplierRegisterRows($rows,$editId) : [];
+        $firstQuote = $existing ? reset($existing) : [];
         $groups = [];
-        foreach (self::supplierChoices($rows) as $indentId=>$choices) {
+        foreach (self::supplierChoices($rows,(bool)$editId) as $indentId=>$choices) {
+            if ($editId && $indentId !== $editId) {
+                continue;
+            }
             $indent = $rows[$indentId];
             $groups[self::indentGroup($indent)][$indentId] = array_slice($choices,0,3);
         }
+        $selectedId = 0;
+        foreach ($existing as $quote) {
+            if ($quote['status'] === 'selected') {
+                $selectedId = (int)$quote['id'];
+                $firstQuote = $quote;
+            }
+        }
         $source = $rows[absint($_GET['source'] ?? 0)] ?? [];
-        $indent = $rows[$source['data']['indent'] ?? 0] ?? null;
+        $indent = $rows[$editId ?: ($source['data']['indent'] ?? 0)] ?? null;
         $prefill = $indent ? self::indentGroup($indent) : '';
         if (!$groups) {
             echo '<p>No items are awaiting supplier selection.</p>';
             return;
         }
-        self::formStart('quote','save_supplier_selection');
+        self::formStart('quote','save_supplier_selection',$editId);
         echo '<div class="frontier-fields">';
-        self::field($rows,'quote','due','Date',current_time('Y-m-d'));
+        self::field($rows,'quote','due','Date',$firstQuote['data']['selection_date'] ?? current_time('Y-m-d'));
         echo '<p><label>'.self::requiredLabel('Indent No. with Site Name').'<select name="selection_group" required><option value="">Select</option>';
         foreach ($groups as $group=>$items) {
             $first = $rows[array_key_first($items)];
@@ -4990,7 +5072,7 @@ HTML;
             echo '<option value="'.esc_attr($group).'" '.selected($prefill,$group,false).'>'.esc_html($label).'</option>';
         }
         echo '</select></label></p>';
-        self::field($rows,'quote','employee','Compared By','');
+        self::field($rows,'quote','employee','Compared By',$firstQuote['data']['compared_employee'] ?? '');
         echo '</div><h2>Indent Items</h2><div class="frontier-table frontier-master-table" tabindex="0" role="region" aria-label="Supplier selection items" style="overflow-x:auto">';
         echo '<table class="widefat striped" style="min-width:1240px"><thead><tr>';
         $columns = ['Sl No.','Item','Qty','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Supplier Finalized','Rate Finalized'];
@@ -5018,7 +5100,7 @@ HTML;
                 }
                 echo '<td><select data-supplier-choice data-dropdown-overlay aria-label="'.esc_attr('Supplier finalized for '.$name).'" name="supplier_choices['.esc_attr($indentId).']" disabled><option value="">Select supplier</option>';
                 foreach ($choices as $quote) {
-                    echo '<option value="'.esc_attr($quote['id']).'" data-rate="'.esc_attr($quote['data']['rate']).'">'.esc_html(self::supplierDisplay($quote['data'],$rows)).'</option>';
+                    echo '<option value="'.esc_attr($quote['id']).'" data-rate="'.esc_attr($quote['data']['rate']).'" '.selected($selectedId,(int)$quote['id'],false).'>'.esc_html(self::supplierDisplay($quote['data'],$rows)).'</option>';
                 }
                 echo '</select></td><td><output aria-label="Rate finalized"></output></td></tr>';
             }
@@ -5065,6 +5147,12 @@ HTML;
         self::requireRule($date && $date->format('Y-m-d') === $dateText,'Enter a valid selection date.');
         $submitted = $_POST['supplier_choices'] ?? [];
         self::requireRule(is_array($submitted),'Check the supplier selections.');
+        $editId = absint(self::input('id'));
+        if ($editId) {
+            self::requireRule(count($submitted) === 1 && isset($submitted[$editId])
+                && self::canChangeSupplierRegister($rows,$editId,true),'This supplier selection can no longer be edited.');
+            $rows = self::clearSupplierSelection($rows,$editId);
+        }
         $choices = self::supplierChoices($rows);
         $saved = false;
         foreach ($submitted as $indentId=>$quoteId) {
@@ -5090,6 +5178,13 @@ HTML;
     }
 
     private static function quotationForm($rows) {
+        $editId = absint($_GET['edit_item'] ?? 0);
+        if ($editId && (!self::can('quote') || !self::canChangeSupplierRegister($rows,$editId,false))) {
+            echo '<p>This item can no longer be edited.</p>';
+            return;
+        }
+        $existing = $editId ? self::supplierRegisterRows($rows,$editId) : [];
+        $firstQuote = $existing ? reset($existing) : [];
         $groups = [];
         $quoted = [];
         $suppliers = [];
@@ -5107,7 +5202,7 @@ HTML;
             }
             $data = $row['data'];
             $id = (int)$row['id'];
-            if (isset($quoted[$id])) {
+            if ($editId ? $id !== $editId : isset($quoted[$id])) {
                 continue;
             }
             $group = self::indentGroup($row);
@@ -5122,19 +5217,21 @@ HTML;
             $groups[$group]['items'][] = ['id'=>$id,'line'=>$line,'number'=>$number.'/'.$line,
                 'name'=>$boq['name'] ?? '', 'qty'=>$data['qty'],'locked'=>false,
                 'lastSupplier'=>$past ? self::supplierDisplay($past,$rows) : '', 'lastRate'=>$past['rate'] ?? '',
-                'quotes'=>[]];
+                'quotes'=>array_values(array_map(static function ($quote) {
+                    return ['supplier'=>(int)$quote['data']['supplier'],'rate'=>$quote['data']['rate']];
+                },$existing))];
         }
-        $source = $rows[absint($_GET['source'] ?? 0)] ?? null;
+        $source = $rows[($editId ?: absint($_GET['source'] ?? 0))] ?? null;
         $prefill = $source && $source['kind'] === 'indent' ? self::indentGroup($source) : '';
-        self::formStart('quote','save_quotations');
+        self::formStart('quote','save_quotations',$editId);
         echo '<input type="hidden" name="quotation_lines"><div class="frontier-fields">';
-        self::field($rows,'quote','due','Date',current_time('Y-m-d'));
+        self::field($rows,'quote','due','Date',$firstQuote['data']['quote_date'] ?? current_time('Y-m-d'));
         echo '<p><label>'.self::requiredLabel('Indent No. with Site Name').'<select name="quotation_group" required><option value="">Select</option>';
         foreach (array_reverse($groups,true) as $key=>$group) {
             echo '<option value="'.esc_attr($key).'" '.selected($prefill,$key,false).'>'.esc_html($group['label']).'</option>';
         }
         echo '</select></label></p>';
-        self::field($rows,'quote','employee','Compared By','');
+        self::field($rows,'quote','employee','Compared By',$firstQuote['data']['comparison_employee'] ?? '');
         echo '</div><h2>Indent Items</h2><p class="frontier-quotation-message" role="status"></p>';
         echo '<div class="frontier-table" tabindex="0" role="region" aria-label="Supplier quotation items"><table class="widefat striped"><thead><tr>';
         foreach (['Sl No.','Item','Qty','Last Supplier','Last Supplier Rate','Supplier 1','Rate 1',
@@ -5151,6 +5248,13 @@ HTML;
 
     private static function saveQuotations($rows) {
         global $wpdb;
+        $editId = absint(self::input('id'));
+        self::requireRule(!$editId || self::canChangeSupplierRegister($rows,$editId,false),'This quotation can no longer be edited.');
+        $existing = $editId ? self::supplierRegisterRows($rows,$editId) : [];
+        $bySupplier = [];
+        foreach ($existing as $id=>$quote) {
+            $bySupplier[$quote['data']['supplier']] = $id;
+        }
         $group = self::input('quotation_group');
         $employee = $rows[absint(self::input('employee'))] ?? null;
         $dateText = self::input('due');
@@ -5166,6 +5270,7 @@ HTML;
             $indentId = $line['indent'];
             $counts[$indentId] = ($counts[$indentId] ?? 0) + 1;
         }
+        self::requireRule(!$editId || (count($counts) === 1 && isset($counts[$editId])),'Edit only the selected indent item.');
         foreach ($counts as $count) {
             self::requireRule($count === 3,'Every item being quoted must include three suppliers and three rates.');
         }
@@ -5185,7 +5290,7 @@ HTML;
             $indent = $rows[$indentId] ?? null;
             $supplier = $rows[$supplierId] ?? null;
             self::requireRule($indent && $indent['kind'] === 'indent' && $indent['status'] === 'approved'
-                && self::indentGroup($indent) === $group && !isset($quoted[$indentId]),
+                && self::indentGroup($indent) === $group && (!isset($quoted[$indentId]) || $indentId === $editId),
                 'Only approved items from this indent that have not been quoted can be submitted.');
             self::requireRule($supplier && $supplier['kind'] === 'supplier','Choose a supplier from Supplier Master.');
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$rate) && (float)$rate >= 0,'Enter a valid supplier rate.');
@@ -5198,9 +5303,20 @@ HTML;
                 'comparison_name'=>$employee['data']['name'],
             ];
             $data['quote_timestamp'] = $now;
-            $result = $wpdb->insert(self::table(),['kind'=>'quote','status'=>'received','details'=>wp_json_encode($data)]);
+            $existingId = $bySupplier[$supplierId] ?? 0;
+            if ($existingId) {
+                $result = $wpdb->update(self::table(),['details'=>wp_json_encode($data + $existing[$existingId]['data'])],['id'=>$existingId]);
+                unset($existing[$existingId]);
+            } else {
+                $result = $wpdb->insert(self::table(),['kind'=>'quote','status'=>'received','details'=>wp_json_encode($data)]);
+            }
             if ($result === false) {
                 throw new RuntimeException('Supplier quotations could not be saved.');
+            }
+        }
+        foreach ($existing as $id=>$quote) {
+            if ($wpdb->delete(self::table(),['id'=>$id]) !== 1) {
+                throw new RuntimeException('The replaced quotation could not be removed.');
             }
         }
     }
@@ -5265,7 +5381,7 @@ HTML;
                 || ($kind === 'match' && $action === 'link_po_invoice')
                 || ($kind === 'grn' && in_array($action,['create','create_goods_receipt','approve_grn'],true))
                 || ($kind === 'po' && in_array($action,['create_purchase_orders','issue','delete','cancel_po'],true))
-                || ($kind === 'quote' && in_array($action,['save_quotations','save_supplier_selection'],true))
+                || ($kind === 'quote' && in_array($action,['save_quotations','save_supplier_selection','delete_quotation_comparison','undo_supplier_selection'],true))
                 || ($kind === 'supplier' && $action === 'import_suppliers')
                 || ($kind === 'indent' && in_array($action,['create_indent','update_indent_group'],true))
                 || ($kind === 'boq' && in_array($action,['create_boq','edit_boq','delete_boq'],true))) {
@@ -5274,7 +5390,21 @@ HTML;
                 }
                 $transaction = true;
             }
-            if ($kind === 'quote' && $action === 'save_quotations') {
+            if ($kind === 'quote' && in_array($action,['delete_quotation_comparison','undo_supplier_selection'],true)) {
+                $indentId = absint(self::input('id'));
+                $selection = $action === 'undo_supplier_selection';
+                self::requireRule(self::canChangeSupplierRegister($rows,$indentId,$selection),'This item can no longer be changed.');
+                if ($selection) {
+                    self::clearSupplierSelection($rows,$indentId);
+                } else {
+                    foreach (self::supplierRegisterRows($rows,$indentId) as $id=>$quote) {
+                        if ($wpdb->delete(self::table(),['id'=>$id]) !== 1) {
+                            throw new RuntimeException('The quotation comparison could not be deleted.');
+                        }
+                    }
+                }
+                $result = true;
+            } elseif ($kind === 'quote' && $action === 'save_quotations') {
                 self::saveQuotations($rows);
                 $result = true;
             } elseif ($kind === 'match' && $action === 'link_po_invoice') {
@@ -5419,7 +5549,12 @@ HTML;
         } elseif ($action === 'create_goods_receipt') {
             $destination = 'grn';
         }
-        $query = $imported === null ? [in_array($action,['delete_master','delete_boq'],true) ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
+        if ($kind === 'quote' && in_array($action,['undo_supplier_selection','delete_quotation_comparison'],true)) {
+            $destination = $action === 'undo_supplier_selection' ? 'choose_master' : 'quote';
+        } elseif ($kind === 'quote' && $action === 'save_supplier_selection' && absint(self::input('id'))) {
+            $destination = 'choose_master';
+        }
+        $query = $imported === null ? [in_array($action,['delete_master','delete_boq','delete_quotation_comparison'],true) ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
         if ($kind === 'indent' && isset($row) && ($screen === 'indent_items' || $action === 'edit')) {
             $destination = 'indent_items';
             $query['indent_group'] = self::indentGroup($row);
