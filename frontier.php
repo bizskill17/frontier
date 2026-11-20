@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.182
+ * Version: 1.9.183
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2946,7 +2946,7 @@ HTML;
         'summary'=>['Site Final Summary',['boq_items','grn_items'],['BOQ Number','Item Name','Unit','BOQ Quantity','Quantity Received','Excess Received','Yet to Receive','Item Type']],
         'boq'=>['BOQ',['boq_items'],['BOQ No.','BOQ Date','Item Name','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent','BOQ PDF']],
         'indent'=>['Indent',['indent_items'],['Indent No.','Indent Date','Item Name','Unit','Requested By','Status','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive','Indent PDF']],
-        'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Status 1','Status 2','Status 3','Quotation File 1','Quotation File 2','Quotation File 3']],
+        'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3']],
         'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Supplier Finalized','Rate Finalized','Compared By','Selection Reason']],
         'po'=>['Purchase Order',['po_items'],['PO No.','PO Date','Indent No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice','PO PDF']],
         'grn'=>['GRN',['grn_items'],['GRN No.','GRN Date','PO No.','PO Item Ref.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Pending Before Receipt','Quantity Received','GRN Slip','GRN PDF','Slip Number']],
@@ -3073,19 +3073,15 @@ HTML;
             foreach ($comparisons as $indent=>$quotes) {
                 $boq = $indents[$indent];
                 $number = $rows[$indent]['data']['indent_number'] ?? '#'.$indent;
-                $pairs = $statuses = $files = [];
-                $canDownload = isset($tabs['quote']) && self::canFile('quote');
+                $pairs = [];
                 foreach (array_pad(array_slice($quotes,0,3),3,[]) as $quote) {
                     $pairs[] = $quote['supplier'] ?? '';
                     $pairs[] = $quote['rate'] ?? '';
-                    $statuses[] = $quote['status'] ?? '';
-                    $files[] = $canDownload && !empty($quote['row']['filename'])
-                        ? self::exportLink('Quotation','frontier_file',$quote['row']['id']) : '';
                 }
                 if (isset($tabs['quote'])) {
                     $dates = array_unique(array_filter(array_column($quotes,'date')));
                     $add('quote',$boq,array_merge([$number,implode(' / ',array_map([self::class,'indentDisplayDate'],$dates)),
-                        $boqs[$boq]['name']],$pairs,$statuses,$files),'','','','',$quotes);
+                        $boqs[$boq]['name']],$pairs),'','','','',$quotes);
                 }
                 if (!isset($tabs['choose'])) {
                     continue;
