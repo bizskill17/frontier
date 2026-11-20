@@ -23,6 +23,7 @@
         let excessRows = 0;
         rows.forEach((row, index) => {
             const item = items.get(row.item.value);
+            row.insert.disabled = !items.size || rows.length >= 100;
             row.number.textContent = index + 1;
             const available = item ? Math.max(0, round(item.qty - item.used)) : 0;
             const details = item ? [item.unit, item.qty, item.used, available] : ['', '', '', ''];
@@ -44,9 +45,9 @@
             excessRows ? excessRows + ' item row(s) exceed the pending quantity and will be flagged for approval.' : '';
     }
 
-    function addRow() {
+    function addRow(index = rows.length) {
         if (!items.size || rows.length >= 100) return;
-        const element = tbody.insertRow();
+        const element = tbody.insertRow(index);
         const number = element.insertCell();
         const item = document.createElement('select');
         item.setAttribute('aria-label', 'Item Name');
@@ -73,10 +74,17 @@
         remove.title = 'Remove indent item';
         const actions = document.createElement('div');
         actions.className = 'frontier-row-actions';
-        actions.append(remove);
+        const insert = document.createElement('button');
+        insert.type = 'button';
+        insert.className = 'button frontier-action-icon';
+        insert.textContent = '+';
+        insert.title = 'Add row below';
+        insert.setAttribute('aria-label', 'Add row below');
+        insert.addEventListener('click', () => addRow(rows.indexOf(row) + 1));
+        actions.append(remove, insert);
         element.insertCell().append(actions);
-        const row = { element, number, item, details, qty, warning };
-        rows.push(row);
+        const row = { element, number, item, details, qty, warning, insert };
+        rows.splice(index, 0, row);
         remove.addEventListener('click', () => {
             rows.splice(rows.indexOf(row), 1);
             element.remove();
@@ -97,7 +105,7 @@
     }
 
     site.addEventListener('change', loadSite);
-    add.addEventListener('click', addRow);
+    add.addEventListener('click', () => addRow());
     form.addEventListener('submit', (event) => {
         if (submit.disabled) {
             event.preventDefault();

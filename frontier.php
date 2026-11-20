@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.134
+ * Version: 1.9.135
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -602,7 +602,7 @@ CSS
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.70',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.135',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.133',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.93');
@@ -4604,7 +4604,7 @@ HTML;
         echo '</div><div class="frontier-master-toolbar"><h2>Indent Items</h2><button type="button" class="button frontier-indent-add" disabled>＋ Add More</button></div>';
         echo '<p class="frontier-indent-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
-        foreach (['Sl No.','Item Name','Unit','Quantity Required','Already Indented','Pending to Indent','Indent Now','Action'] as $label) {
+        foreach (['Sl No.','Item Name','Unit','BOQ Quantity','Already Indented','Pending to Indent','Indent Now','Action'] as $label) {
             echo '<th scope="col">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody></tbody></table></div>';
