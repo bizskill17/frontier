@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.190
+ * Version: 1.9.191
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,7 +445,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.188');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.191');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -921,7 +921,7 @@ JS
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.188');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.191');
         }
     }
 
@@ -3307,6 +3307,12 @@ HTML;
         $url = self::url('site_report');
         $formAction = strtok($url,'?');
         parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$route);
+        $context = ['report_site'=>$site,'report_line'=>$line];
+        $query = $context + ['report_tab'=>$tab];
+        foreach ($filters as $field=>$value) {
+            $query['report_'.$field] = $value;
+        }
+        $filtersOpen = (bool)array_filter($filters,static function ($value) { return $value !== ''; });
         echo '<form method="get" action="'.esc_url($formAction).'" class="frontier-report-site">';
         foreach ($route + ['report_tab'=>$tab] as $key=>$value) {
             echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
@@ -3317,19 +3323,27 @@ HTML;
         }
         echo '</select></label></p>';
         self::submitButton('View Report',true);
+        if (isset($sites[$site])) {
+            echo '<button type="button" class="button frontier-report-filter-toggle" aria-label="Filters" title="Filters" aria-controls="frontier-site-report-filters" aria-expanded="'.($filtersOpen ? 'true' : 'false').'">';
+            echo '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 4h18l-7 8v6l-4 2v-8z"/></svg></button>';
+            $endpoint = add_query_arg($query + ['action'=>'frontier_table_excel','view'=>'site_report'],admin_url('admin-post.php'));
+            foreach (['view'=>'Download Current View','site'=>'Download Full Site Report'] as $mode=>$label) {
+                echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url(add_query_arg('report_export',$mode,$endpoint),
+                    'frontier_table_excel_site_report')).'">'.esc_html($label).'</a> ';
+            }
+        }
         echo '</form>';
         if (!isset($sites[$site])) {
             return;
         }
 
-        $context = ['report_site'=>$site,'report_line'=>$line];
         echo '<nav class="frontier-settings-nav" aria-label="Site report views">';
         foreach ($tabs as $key=>$spec) {
             echo '<a class="button" '.($key === $tab ? 'aria-current="page" ' : '').'href="'
                 .esc_url(add_query_arg($context + ['report_tab'=>$key,'report_item'=>$filters['item'],'report_type'=>$filters['type']],$url)).'">'.esc_html($spec[0]).'</a>';
         }
         echo '</nav>';
-        echo '<form method="get" action="'.esc_url($formAction).'" class="frontier-report-filters">';
+        echo '<form method="get" action="'.esc_url($formAction).'" id="frontier-site-report-filters" class="frontier-report-filters"'.($filtersOpen ? '' : ' hidden').'>';
         foreach ($route + $context + ['report_tab'=>$tab] as $key=>$value) {
             echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
         }
@@ -3349,20 +3363,22 @@ HTML;
         }
         self::submitButton('Apply Filters');
         echo '</form>';
-        $query = $context + ['report_tab'=>$tab];
-        foreach ($filters as $field=>$value) {
-            $query['report_'.$field] = $value;
-        }
+        echo <<<'HTML'
+<script>
+(() => {
+    const panel = document.getElementById('frontier-site-report-filters');
+    const toggle = document.querySelector('.frontier-report-filter-toggle');
+    toggle.addEventListener('click', () => {
+        panel.hidden = !panel.hidden;
+        toggle.setAttribute('aria-expanded', String(!panel.hidden));
+    });
+})();
+</script>
+HTML;
         if ($line) {
             echo '<p>BOQ item '.esc_html($boqs[$line]['name']).' · <a href="'
                 .esc_url(add_query_arg(array_replace($query,['report_line'=>0]),$url)).'">Show all items</a></p>';
         }
-        $endpoint = add_query_arg($query + ['action'=>'frontier_table_excel','view'=>'site_report'],admin_url('admin-post.php'));
-        foreach (['view'=>'Download Current View','site'=>'Download Full Site Report'] as $mode=>$label) {
-            echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url(add_query_arg('report_export',$mode,$endpoint),
-                'frontier_table_excel_site_report')).'">'.esc_html($label).'</a> ';
-        }
-
         $total = count($displayRows);
         $pages = max(1,(int)ceil($total/25));
         $page = max(1,min($pages,absint(self::tableQuery('report_page'))));

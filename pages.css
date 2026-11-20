@@ -531,7 +531,9 @@ body.frontier-workspace {
     margin: 0 0 12px;
 }
 .frontier-report-site > p { flex: 0 1 320px; min-width: 0; }
-.frontier-report-filters { flex-wrap: wrap; }
+.frontier-report-site, .frontier-report-filters { flex-wrap: wrap; }
+.frontier-report-filters[hidden] { display: none; }
+.frontier-report-filter-toggle svg { display: block; }
 .frontier-report-filters > p { flex: 1 1 145px; min-width: 0; }
 .frontier-report-site > p,
 .frontier-report-filters > p { margin: 0; }
@@ -540,5 +542,6 @@ body.frontier-workspace {
 .frontier-report-site select,
 .frontier-report-filters select,
 .frontier-report-filters input[type="date"] { width: 100%; }
+.frontier-report-site > a,
 .frontier-report-site > button,
 .frontier-report-filters > button { flex: 0 0 auto; white-space: nowrap; }
