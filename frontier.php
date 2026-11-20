@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.207
+ * Version: 1.9.208
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -979,21 +979,45 @@ JS
         toggle.setAttribute('aria-label', label);
         toggle.title = label;
     };
+    const positionKey = 'frontier-sidebar-position';
+    const groups = Array.from(menu.querySelectorAll('details'));
+    let position = null;
+    try { position = JSON.parse(sessionStorage.getItem(positionKey)); } catch {}
+    if (Array.isArray(position?.openGroups)) {
+        groups.forEach(group => {
+            group.open = position.openGroups.includes(group.className) || group.querySelector('[aria-current="page"]') !== null;
+        });
+    }
+    const restorePosition = () => {
+        if (!menu.hidden && Number.isFinite(position?.scrollTop)) menu.scrollTop = position.scrollTop;
+    };
+    menu.addEventListener('click', event => {
+        if (!event.target.closest('a:not(.frontier-sidebar-signout)')) return;
+        position = {
+            scrollTop: menu.scrollTop,
+            openGroups: groups.filter(group => group.open).map(group => group.className),
+        };
+        try { sessionStorage.setItem(positionKey, JSON.stringify(position)); } catch {}
+    });
     const mobile = window.matchMedia('(max-width: 760px)');
     const close = menu.querySelector('.frontier-drawer-close');
     const backdrop = shell.querySelector('.frontier-drawer-backdrop');
     const reset = () => setHidden(mobile.matches || preference === 'true');
     const closeDrawer = () => {
+        position = {scrollTop: menu.scrollTop};
         setHidden(true);
         toggle.focus();
     };
     reset();
+    restorePosition();
     mobile.addEventListener('change', reset);
     toggle.hidden = false;
     toggle.addEventListener('click', () => {
+        if (!menu.hidden) position = {scrollTop: menu.scrollTop};
         setHidden(!menu.hidden);
+        restorePosition();
         if (mobile.matches) {
-            if (!menu.hidden) close.focus();
+            if (!menu.hidden) close.focus({preventScroll: true});
             return;
         }
         preference = String(menu.hidden);
