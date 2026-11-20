@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.94
+ * Version: 1.9.95
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -341,8 +341,12 @@ final class Frontier {
         $home = wp_parse_url($dashboard);
         $path = rtrim($home['path'] ?? '','/');
         $targetPath = rtrim($destination['path'] ?? '','/');
+        $siteHome = wp_parse_url(home_url('/'));
+        $sitePath = rtrim($siteHome['path'] ?? '','/');
+        $isSiteHome = ($destination['host'] ?? '') === ($siteHome['host'] ?? '') && $targetPath === $sitePath;
+        $isFrontierPath = $targetPath === $path || ($path !== '' && strpos($targetPath,$path.'/') === 0);
         if (empty($home['host']) || ($destination['host'] ?? '') !== $home['host']
-            || ($targetPath !== $path && ($path === '' || strpos($targetPath,$path.'/') !== 0))) {
+            || (!$isSiteHome && !$isFrontierPath)) {
             return;
         }
         wp_enqueue_style('frontier-login',plugins_url('login.css',__FILE__),['login'],'1.9.75');
