@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.138
+ * Version: 1.9.139
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -556,7 +556,7 @@ body.frontier-workspace {
         padding: 3px;
         overflow-wrap: anywhere;
     }
-    .frontier-indent-form td:nth-child(1),
+    .frontier-main .frontier-indent-form tbody td:nth-child(1) { display: none; }
     .frontier-indent-form td:nth-child(2) { grid-column: 1 / -1; }
     .frontier-indent-form td:nth-child(8) { align-self: end; }
     .frontier-indent-form td:nth-child(3)::before { content: 'Unit'; }
