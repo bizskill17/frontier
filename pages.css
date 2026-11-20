@@ -522,3 +522,23 @@ body.frontier-workspace {
 .frontier-pages .frontier-site-report-table tbody tr:nth-child(even) td {
     background: hsl(var(--report-hue), 60%, 93%);
 }
+
+.frontier-report-site,
+.frontier-report-filters {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px 12px;
+    margin: 0 0 12px;
+}
+.frontier-report-site > p { flex: 0 1 320px; min-width: 0; }
+.frontier-report-filters { flex-wrap: wrap; }
+.frontier-report-filters > p { flex: 1 1 145px; min-width: 0; }
+.frontier-report-site > p,
+.frontier-report-filters > p { margin: 0; }
+.frontier-report-site label,
+.frontier-report-filters label { display: grid; gap: 5px; min-width: 0; }
+.frontier-report-site select,
+.frontier-report-filters select,
+.frontier-report-filters input[type="date"] { width: 100%; }
+.frontier-report-site > button,
+.frontier-report-filters > button { flex: 0 0 auto; white-space: nowrap; }

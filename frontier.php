@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.187
+ * Version: 1.9.188
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,7 +445,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.187');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.188');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -921,7 +921,7 @@ JS
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.187');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.188');
         }
     }
 
@@ -3306,8 +3306,8 @@ HTML;
         $url = self::url('site_report');
         $formAction = strtok($url,'?');
         parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$route);
-        echo '<form method="get" action="'.esc_url($formAction).'"><div class="frontier-fields">';
-        foreach ($route + ['report_tab'=>$tab,'report_line'=>$line] as $key=>$value) {
+        echo '<form method="get" action="'.esc_url($formAction).'" class="frontier-report-site">';
+        foreach ($route + ['report_tab'=>$tab] as $key=>$value) {
             echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
         }
         echo '<p><label>Site Name<select name="report_site" required><option value="">Select Site</option>';
@@ -3315,21 +3315,6 @@ HTML;
             echo '<option value="'.esc_attr($id).'"'.selected($site,(int)$id,false).'>'.esc_html($row['data']['name']).'</option>';
         }
         echo '</select></label></p>';
-        foreach (isset($sites[$site]) ? $filterLabels : [] as $field=>$label) {
-            natcasesort($options[$field]);
-            echo '<p><label>'.esc_html($label).'<select name="report_'.esc_attr($field).'"><option value="">All</option>';
-            foreach ($options[$field] as $value) {
-                echo '<option value="'.esc_attr($value).'"'.selected($filters[$field],$value,false).'>'.esc_html($value).'</option>';
-            }
-            echo '</select></label></p>';
-        }
-        if ($tab !== 'summary' && isset($sites[$site])) {
-            foreach (['from'=>'From','to'=>'To'] as $field=>$label) {
-                echo '<p><label>'.esc_html($tabs[$tab][2][1].' '.$label).'<input type="date" name="report_'.esc_attr($field)
-                    .'" value="'.esc_attr($filters[$field]).'"></label></p>';
-            }
-        }
-        echo '</div>';
         self::submitButton('View Report',true);
         echo '</form>';
         if (!isset($sites[$site])) {
@@ -3343,6 +3328,26 @@ HTML;
                 .esc_url(add_query_arg($context + ['report_tab'=>$key,'report_item'=>$filters['item'],'report_type'=>$filters['type']],$url)).'">'.esc_html($spec[0]).'</a>';
         }
         echo '</nav>';
+        echo '<form method="get" action="'.esc_url($formAction).'" class="frontier-report-filters">';
+        foreach ($route + $context + ['report_tab'=>$tab] as $key=>$value) {
+            echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
+        }
+        foreach ($filterLabels as $field=>$label) {
+            natcasesort($options[$field]);
+            echo '<p><label>'.esc_html($label).'<select name="report_'.esc_attr($field).'"><option value="">All</option>';
+            foreach ($options[$field] as $value) {
+                echo '<option value="'.esc_attr($value).'"'.selected($filters[$field],$value,false).'>'.esc_html($value).'</option>';
+            }
+            echo '</select></label></p>';
+        }
+        if ($tab !== 'summary') {
+            foreach (['from'=>'From','to'=>'To'] as $field=>$label) {
+                echo '<p><label>'.esc_html($tabs[$tab][2][1].' '.$label).'<input type="date" name="report_'.esc_attr($field)
+                    .'" value="'.esc_attr($filters[$field]).'"></label></p>';
+            }
+        }
+        self::submitButton('Apply Filters');
+        echo '</form>';
         $query = $context + ['report_tab'=>$tab];
         foreach ($filters as $field=>$value) {
             $query['report_'.$field] = $value;
