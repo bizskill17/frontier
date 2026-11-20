@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.200
+ * Version: 1.9.201
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1978,7 +1978,7 @@ JS
         }
         $canAdd = in_array($mode,['form','combined','register'],true) && self::can($kind === 'site' ? 'sites' : $kind);
         $showForm = $canAdd && $mode !== 'register' && ($editing || isset($_GET['add']));
-        if ($canAdd && !$showForm && !in_array(self::$screen,['quote','cancel'],true)) {
+        if ($canAdd && !$showForm && !in_array(self::$screen,['quote','cancel','site'],true)) {
             $formScreen = $mode === 'register' ? ([
                 'boq'=>'boq_form','indent'=>'indent','quote'=>'quote_form','po'=>'po_form','grn'=>'grn_form',
             ][$kind] ?? self::$screen) : self::$screen;
@@ -2461,6 +2461,9 @@ JS
             }
             $exportUrl = wp_nonce_url(add_query_arg($exportArgs,admin_url('admin-post.php')),'frontier_table_excel_'.self::$screen);
             echo '<a class="button frontier-download" href="'.esc_url($exportUrl).'">Download Excel</a>';
+            if (self::$screen === 'site' && self::can('sites')) {
+                echo '<a class="button frontier-add" href="'.esc_url(add_query_arg('add',1,self::url('site'))).'">Add</a>';
+            }
             echo '</div>';
             if ($dimensions) {
                 echo '<div id="frontier-table-filters"'.($hasFacets ? '' : ' hidden').'><div style="display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin-top:8px">';
