@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.111
+ * Version: 1.9.112
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2150,7 +2150,8 @@ HTML;
                 'due'=>'Target Supply Date','line_number'=>'Sl No.','item_name'=>'Item Name','unit'=>'Units',
                 'supplier'=>'Supplier Finalized','rate'=>'Rate Finalized','qty'=>'Order Quantity','amount'=>'Total Amount',
                 'po_supplier'=>'PO No. with Supplier Name','received'=>'Quantity Received','open'=>'Pending to Receive GRN',
-                'brand'=>'Brand','remarks'=>'Remark'];
+                'brand'=>'Brand','remarks'=>'Remark','cancelled'=>'Quantity Cancelled',
+                'cancel_date'=>'Cancel Date','cancel_reason'=>'Cancel Reason','cancel_by'=>'Cancel By'];
         }
         $grnScreen = self::$screen;
         $grnFields = [
@@ -2614,7 +2615,26 @@ HTML;
             return [$values,$row['status']];
         }
         if ($kind === 'po' && in_array(self::$screen,['po','po_items'],true)) {
-            return [self::purchaseOrderValues($rows,$row,self::$screen === 'po'),$row['status']];
+            $values = self::purchaseOrderValues($rows,$row,self::$screen === 'po');
+            if (self::$screen === 'po_items') {
+                $cancelled = 0;
+                $latest = [];
+                foreach ($rows as $entry) {
+                    if ($entry['kind'] === 'cancel' && (int)($entry['data']['po'] ?? 0) === (int)$row['id']) {
+                        $cancelled += (float)$entry['data']['qty'];
+                        if ((int)$entry['id'] > (int)($latest['id'] ?? 0)) {
+                            $latest = $entry;
+                        }
+                    }
+                }
+                if ($latest) {
+                    $values['cancelled'] = round($cancelled,3);
+                    $values['cancel_date'] = self::indentDisplayDate($latest['data']['cancel_date'] ?? '');
+                    $values['cancel_reason'] = $latest['data']['note'] ?? '';
+                    $values['cancel_by'] = $latest['data']['cancel_by'] ?? '';
+                }
+            }
+            return [$values,$row['status']];
         }
         $values = [];
         foreach (self::FIELDS[$kind] as $field=>$label) {
@@ -4122,7 +4142,8 @@ HTML;
         echo '<input type="hidden" name="po" value="'.esc_attr($row['id']).'">';
         echo '<input type="hidden" name="expected_balance" value="'.$limit.'">';
         foreach (['PO No.'=>$values['ref'],'Item'=>$values['item_name'],
-            'Available to Cancel'=>trim($balance.' '.$values['unit'])] as $label=>$value) {
+            'Available to Cancel'=>trim($balance.' '.$values['unit']),
+            'Cancel By'=>wp_get_current_user()->display_name] as $label=>$value) {
             echo '<p><label>'.esc_html($label).' <input readonly style="background:#e9edf2" value="'.esc_attr($value).'"></label></p>';
         }
         echo '<p><label>'.self::requiredLabel('Quantity to Cancel')
