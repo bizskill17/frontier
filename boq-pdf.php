@@ -79,6 +79,66 @@ final class Frontier_Boq_Pdf {
         return self::document($pages);
     }
 
+    public static function buildBoq($number,$site,$date,$prepared,$rows) {
+        $navy = '0.07 0.20 0.36';
+        $reference = 'BOQ '.$number;
+        $start = static function () use ($navy,$reference,$site,$date,$prepared) {
+            $stream = "$navy rg 32 740 531 70 re f\n1 g\n"
+                .self::poAligned('BILL OF QUANTITIES',46,778,22,'left',true)
+                .self::poAligned($reference,549,753,11,'right',true);
+            $y = 721;
+            $stream .= "$navy rg\n";
+            foreach (['Site'=>$site,'BOQ Date'=>$date,'Prepared By'=>$prepared] as $label=>$value) {
+                $stream .= self::poAligned($label,46,$y,10,'left',true);
+                foreach (explode("\n",wordwrap(self::text($value),53,"\n",true)) as $part) {
+                    $stream .= self::line($part,131,$y,10);
+                    $y -= 14;
+                }
+                $y -= 4;
+            }
+            $y -= 5;
+            $stream .= "$navy rg 32 ".($y-24)." 531 24 re f\n1 g\n"
+                .self::poAligned('Sl No.',44,$y-16,10,'left',true)
+                .self::poAligned('Item Name',94,$y-16,10,'left',true)
+                .self::poAligned('Quantity',445,$y-16,10,'right',true)
+                .self::poAligned('Unit',461,$y-16,10,'left',true);
+            return [$stream,$y-24];
+        };
+
+        [$stream,$y] = $start();
+        $pages = [];
+        foreach (array_values($rows) as $index=>[$line,$name,$qty,$unit]) {
+            $names = explode("\n",wordwrap(self::text($name),36,"\n",true));
+            $units = explode("\n",wordwrap(self::text($unit),10,"\n",true));
+            $height = max(count($names),count($units))*13+10;
+            if ($y-$height < 54) {
+                $pages[] = $stream;
+                [$stream,$y] = $start();
+            }
+            if ($index % 2 === 0) {
+                $stream .= "0.94 0.96 0.98 rg 32 ".($y-$height)." 531 $height re f\n";
+            }
+            $stream .= "$navy rg\n".self::poAligned($line,44,$y-15,10,'left')
+                .self::poAligned($qty,445,$y-15,10,'right');
+            foreach ($names as $offset=>$part) {
+                $stream .= self::line($part,94,$y-15-$offset*13);
+            }
+            foreach ($units as $offset=>$part) {
+                $stream .= self::line($part,461,$y-15-$offset*13);
+            }
+            $y -= $height;
+        }
+        $pages[] = $stream;
+        $total = count($pages);
+        foreach ($pages as $index=>&$page) {
+            $page .= "0.75 0.81 0.88 RG 32 47 m 563 47 l S\n$navy rg\n"
+                .self::poAligned($reference,32,32,9,'left')
+                .self::poAligned('Page '.($index+1).' of '.$total,563,32,9,'right');
+        }
+        unset($page);
+        return self::document($pages);
+    }
+
     public static function buildPurchaseOrder($reference,$details,$rows,$total,$terms,$logo=[]) {
         $navy = '0.04 0.15 0.27';
         $rule = "$navy RG 32 75 m 563 75 l S\n";

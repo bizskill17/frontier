@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.160
+ * Version: 1.9.161
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -4062,10 +4062,10 @@ HTML;
             'pending_indent'=>'Quantity Pending to be Indented','ordered'=>'Quantity Ordered','pending_order'=>'Pending to Order',
             'category'=>'Item Category','received'=>'Quantity Received','pending_receive'=>'Pending to Receive',
         ] : [
-            'date'=>'BOQ Date','number'=>'BOQ No.','site'=>'Site Number with Name','prepared'=>'Prepared By','pdf'=>'Pdf',
+            'date'=>'BOQ Date','number'=>'BOQ No.','site'=>'Site Number with Name','prepared'=>'Prepared By',
             'timestamp'=>'Timestamp','qty'=>'Total Quantity','indented'=>'Quantity Indented','pending_indent'=>'Pending to Indent',
         ];
-        if (!$itemsOnly && self::can('boq')) {
+        if (!$itemsOnly) {
             $columns['actions'] = 'Actions';
         }
         if ($itemsOnly) {
@@ -4078,7 +4078,8 @@ HTML;
         } else {
             $listing = $groups;
         }
-        [$pageRows,$page,$pages,$total] = self::pagedRows($listing,array_diff_key($columns,['actions'=>true]),static function ($row) {
+        $exportColumns = $itemsOnly ? $columns : array_diff_key($columns,['actions'=>true]) + ['pdf'=>'PDF'];
+        [$pageRows,$page,$pages,$total] = self::pagedRows($listing,$exportColumns,static function ($row) {
             if (isset($row['pdf'])) {
                 $row['pdf'] = self::exportLink('PDF','frontier_boq_print',$row['pdf']);
             }
@@ -4093,16 +4094,17 @@ HTML;
             echo '<tr>';
             foreach ($columns as $key=>$label) {
                 echo '<td>';
-                if ($key === 'pdf') {
+                if ($key === 'actions') {
                     $id = $record['pdf'];
                     $url = add_query_arg(['action'=>'frontier_boq_print','id'=>$id],admin_url('admin-post.php'));
-                    echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url($url,'frontier_boq_print_'.$id)).'">PDF</a>';
-                } elseif ($key === 'actions') {
-                    $id = $record['pdf'];
                     echo '<div class="frontier-row-actions">';
-                    self::editAction('boq',$id,'Edit BOQ');
-                    if (!$record['used']) {
-                        self::deleteAction($rows[$id],'delete_boq','Delete BOQ','Delete this BOQ?');
+                    echo '<a class="button frontier-download frontier-action-icon" aria-label="Download BOQ PDF" title="Download BOQ PDF" href="'.
+                        esc_url(wp_nonce_url($url,'frontier_boq_print_'.$id)).'"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M5 2h7l3 3v13H5zM12 2v4h3M10 8v6m-2-2 2 2 2-2"/></svg></a>';
+                    if (self::can('boq')) {
+                        self::editAction('boq',$id,'Edit BOQ');
+                        if (!$record['used']) {
+                            self::deleteAction($rows[$id],'delete_boq','Delete BOQ','Delete this BOQ?');
+                        }
                     }
                     echo '</div>';
                 } else {
@@ -4140,7 +4142,7 @@ HTML;
             $data = $row['data'];
             $lines[] = [$data['line_number'] ?? 1,$data['name'] ?? '',$data['qty'] ?? '',$data['unit'] ?? ''];
         }
-        $pdf = Frontier_Boq_Pdf::build($number,$site,$date,$header['prepared_name'] ?? '',$lines);
+        $pdf = Frontier_Boq_Pdf::buildBoq($number,$site,$date,$header['prepared_name'] ?? '',$lines);
         $fileNumber = absint($header['boq_number'] ?? $id);
         nocache_headers();
         header('Content-Type: application/pdf');
