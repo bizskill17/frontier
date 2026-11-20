@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.141
+ * Version: 1.9.142
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1604,7 +1604,7 @@ CSS
                 .esc_html(sprintf('%d duplicate item records removed.',absint($_GET['duplicates_removed']))).'</p></div>';
         }
         if (isset($_GET['saved']) || isset($_GET['deleted'])) {
-            $message = isset($_GET['deleted']) ? 'Record deleted.' : 'Saved.';
+            $message = isset($_GET['deleted']) ? 'Record deleted.' : ($kind === 'indent' ? 'Indent submitted successfully.' : 'Saved.');
             echo '<div class="notice notice-success" role="status"><p>'.esc_html($message).'</p></div>';
         }
         if (isset($_GET['document_telegram_failed'])) {
@@ -6296,7 +6296,7 @@ HTML;
         if ($rowPoCancellation) {
             $destination = 'po_items';
         } elseif ($action === 'create_indent') {
-            $destination = 'indent_master';
+            $destination = 'indent';
         } elseif ($action === 'save_quotations') {
             $destination = 'quote';
         } elseif ($action === 'save_supplier_selection') {
