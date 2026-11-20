@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.162
+ * Version: 1.9.163
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;

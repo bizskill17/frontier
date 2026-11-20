@@ -82,10 +82,18 @@ final class Frontier_Boq_Pdf {
     public static function buildBoq($number,$site,$date,$prepared,$rows) {
         $navy = '0.07 0.20 0.36';
         $reference = 'BOQ '.$number;
-        $start = static function () use ($navy,$reference,$site,$date,$prepared) {
+        $grid = static function ($top,$height,$color) {
+            $bottom = $top-$height;
+            $stream = "$color RG 0.5 w 32 $bottom 531 $height re S\n";
+            foreach ([82,385,453] as $x) {
+                $stream .= "$x $bottom m $x $top l S\n";
+            }
+            return $stream;
+        };
+        $start = static function () use ($navy,$reference,$site,$date,$prepared,$grid) {
             $stream = "$navy rg 32 740 531 70 re f\n1 g\n"
-                .self::poAligned('BILL OF QUANTITIES',46,778,22,'left',true)
-                .self::poAligned($reference,549,753,11,'right',true);
+                .self::poAligned($reference,297.5,787,11,'center',true)
+                .self::poAligned('BILL OF QUANTITIES',297.5,758,22,'center',true);
             $y = 721;
             $stream .= "$navy rg\n";
             foreach (['Site'=>$site,'BOQ Date'=>$date,'Prepared By'=>$prepared] as $label=>$value) {
@@ -101,14 +109,15 @@ final class Frontier_Boq_Pdf {
                 .self::poAligned('Sl No.',44,$y-16,10,'left',true)
                 .self::poAligned('Item Name',94,$y-16,10,'left',true)
                 .self::poAligned('Quantity',445,$y-16,10,'right',true)
-                .self::poAligned('Unit',461,$y-16,10,'left',true);
+                .self::poAligned('Unit',461,$y-16,10,'left',true)
+                .$grid($y,24,'0.43 0.54 0.66');
             return [$stream,$y-24];
         };
 
         [$stream,$y] = $start();
         $pages = [];
         foreach (array_values($rows) as $index=>[$line,$name,$qty,$unit]) {
-            $names = explode("\n",wordwrap(self::text($name),36,"\n",true));
+            $names = explode("\n",wordwrap(self::text($name),29,"\n",true));
             $units = explode("\n",wordwrap(self::text($unit),10,"\n",true));
             $height = max(count($names),count($units))*13+10;
             if ($y-$height < 54) {
@@ -118,7 +127,7 @@ final class Frontier_Boq_Pdf {
             if ($index % 2 === 0) {
                 $stream .= "0.94 0.96 0.98 rg 32 ".($y-$height)." 531 $height re f\n";
             }
-            $stream .= "$navy rg\n".self::poAligned($line,44,$y-15,10,'left')
+            $stream .= $grid($y,$height,'0.73 0.79 0.85')."$navy rg\n".self::poAligned($line,44,$y-15,10,'left')
                 .self::poAligned($qty,445,$y-15,10,'right');
             foreach ($names as $offset=>$part) {
                 $stream .= self::line($part,94,$y-15-$offset*13);
