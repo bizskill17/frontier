@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.124
+ * Version: 1.9.125
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2573,7 +2573,8 @@ HTML;
         } elseif (isset(self::FIELDS[$field])) {
             echo '<select name="'.esc_attr($field).'"'.(self::optionalField($kind,$field) ? '' : ' required').'><option value="">Select</option>';
             foreach (self::eligible($rows,$kind,$field) as $row) {
-                $optionLabel = self::label($row,$rows);
+                $optionLabel = in_array($field,['category','item_type'],true)
+                    ? $row['data']['name'] : self::label($row,$rows);
                 if ($field === 'employee') {
                     $optionLabel = $row['data']['name'];
                 }
