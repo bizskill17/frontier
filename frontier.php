@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.215
+ * Version: 1.9.216
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1907,6 +1907,7 @@ JS
                 'Receive 20 boxes against the first PO. Five boxes remain pending on that PO, and 25 remain pending on the second.',
                 ['grn_form'=>'Goods Receipt Form','grn_slip'=>'Upload GRN Slip']],
         ];
+        echo '<img src="'.esc_url(plugins_url('learn-procurement.webp',__FILE__)).'" alt="Site staff checking a materials list and inspecting a delivery" width="820" height="420" style="display:block;width:100%;max-width:840px;height:auto;border-radius:8px;margin-bottom:14px" decoding="async">';
         echo '<nav class="frontier-learn-index" aria-label="SOP contents"><h2>Procurement SOP</h2><ol>';
         foreach ($steps as $index=>[$title]) {
             echo '<li><a href="#frontier-sop-'.($index+1).'">'.esc_html($title).'</a></li>';
