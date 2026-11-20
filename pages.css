@@ -547,19 +547,43 @@ body.frontier-workspace {
 .frontier-report-site > button,
 .frontier-report-filters > button { flex: 0 0 auto; white-space: nowrap; }
 
-.frontier-pages .frontier-dashboard-steps th:last-child,
-.frontier-pages .frontier-dashboard-steps td:last-child {
-    width: 7rem;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
+.frontier-dashboard-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
 }
 .frontier-pages .frontier-dashboard-steps .frontier-dashboard-step {
-    width: min(100%, 17rem);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+    min-height: 44px;
     height: auto;
+    padding: 8px 12px;
     white-space: normal;
+    overflow-wrap: anywhere;
     text-align: left;
-    background: #e4effc;
-    border-color: #9cb9db;
+    background: var(--frontier-step-bg);
+    border-color: #a8bed5;
+    color: #172f50;
     font-weight: 600;
 }
-.frontier-pages .frontier-dashboard-steps .frontier-dashboard-step:hover { background: #d6e8fc; }
+.frontier-pages .frontier-dashboard-step:hover { filter: brightness(.96); }
+.frontier-dashboard-step .frontier-dashboard-count { flex-shrink: 0; }
+.frontier-dashboard-step[data-step="boq_form"] { --frontier-step-bg: #ccedec; }
+.frontier-dashboard-step[data-step="site"] { --frontier-step-bg: #e0e4ff; }
+.frontier-dashboard-step[data-step="pending_indent"] { --frontier-step-bg: #e6dafa; }
+.frontier-dashboard-step[data-step="pending_quote"] { --frontier-step-bg: #ffedcc; }
+.frontier-dashboard-step[data-step="pending_choose"] { --frontier-step-bg: #dbe4ee; }
+.frontier-dashboard-step[data-step="pending_po"] { --frontier-step-bg: #d2eaff; }
+.frontier-dashboard-step[data-step="po_form"] { --frontier-step-bg: #f6dbe9; }
+.frontier-dashboard-step[data-step="pending_grn"] { --frontier-step-bg: #d7efd9; }
+.frontier-dashboard-step[data-step="grn_slip"] { --frontier-step-bg: #ffded2; }
+
+@media (max-width: 1000px) {
+    .frontier-dashboard-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+    .frontier-dashboard-steps { grid-template-columns: minmax(0, 1fr); }
+}

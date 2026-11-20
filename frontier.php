@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.199
+ * Version: 1.9.200
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,7 +445,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.199');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.200');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -921,7 +921,7 @@ JS
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.199');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.200');
         }
     }
 
@@ -1812,8 +1812,7 @@ JS
                 'pending_po','po_form','pending_grn','grn_slip'];
             $actions = ['boq_form'=>'boq','site'=>'sites','po_form'=>'po'];
             $counts = $counts ?? self::dashboardCounts($rows ?? self::rows());
-            echo '<div class="frontier-table frontier-dashboard-steps" role="region" aria-label="Dashboard steps">';
-            echo '<table class="widefat striped"><thead><tr><th scope="col">Step</th><th scope="col">Count</th></tr></thead><tbody>';
+            echo '<nav class="frontier-dashboard-steps" aria-label="Dashboard steps">';
             foreach ($steps as $step) {
                 if (!self::canView($step) || (isset($actions[$step]) && !self::can($actions[$step]))) {
                     continue;
@@ -1822,12 +1821,14 @@ JS
                 if ($step === 'site') {
                     $url = add_query_arg('add',1,$url);
                 }
-                echo '<tr><td><a class="button frontier-dashboard-step" href="'.esc_url($url).'">'
-                    .esc_html($step === 'site' ? 'Add Site' : $tabs[$step]).'</a></td>';
-                $count = isset($actions[$step]) || !isset($counts[$step]) ? '—' : number_format_i18n($counts[$step]);
-                echo '<td>'.esc_html($count).'</td></tr>';
+                echo '<a class="button frontier-dashboard-step" data-step="'.esc_attr($step).'" href="'.esc_url($url).'"><span>'
+                    .esc_html($step === 'site' ? 'Add Site' : $tabs[$step]).'</span>';
+                if (!isset($actions[$step]) && isset($counts[$step])) {
+                    echo '<span class="frontier-dashboard-count">'.esc_html(number_format_i18n($counts[$step])).'</span>';
+                }
+                echo '</a>';
             }
-            echo '</tbody></table></div></div>';
+            echo '</nav></div>';
             return;
         }
         if (!self::$front) {
