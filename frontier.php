@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.104
+ * Version: 1.9.105
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1220,15 +1220,24 @@ CSS
             - self::sum($rows,'grn','po',$id),3);
     }
 
+    private static function indentNetQuantity($indent) {
+        return round($indent['data']['qty'] - ($indent['data']['cancelled_qty'] ?? 0),3);
+    }
+
     private static function available($rows,$indent) {
-        $used = 0;
-        foreach ($rows as $po) {
-            if ($po['kind'] === 'po' && $po['status'] !== 'cancelled'
-                && (int)$po['data']['indent'] === (int)$indent['id']) {
-                $used += $po['data']['qty'] - self::sum($rows,'cancel','po',$po['id'],'released');
+        $orders = [];
+        $released = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'po' && $row['status'] !== 'cancelled'
+                && (int)$row['data']['indent'] === (int)$indent['id']) {
+                $orders[(int)$row['id']] = $row['data']['qty'];
+            } elseif ($row['kind'] === 'cancel') {
+                $po = (int)($row['data']['po'] ?? 0);
+                $released[$po] = ($released[$po] ?? 0) + (float)($row['data']['released'] ?? 0);
             }
         }
-        return round($indent['data']['qty'] - $used,3);
+        return round(self::indentNetQuantity($indent) - array_sum($orders)
+            + array_sum(array_intersect_key($released,$orders)),3);
     }
 
     private static function siteNumberWithName($data) {
@@ -1752,7 +1761,7 @@ CSS
             $indent = $rows[$indentId] ?? null;
             switch ($screen) {
                 case 'pending_quote':
-                    $pending = $row['status'] === 'approved' && !isset($quoted[$id]);
+                    $pending = $row['status'] === 'approved' && self::indentNetQuantity($row) > 0 && !isset($quoted[$id]);
                     break;
                 case 'pending_choose':
                     $pending = isset($choiceItems[$indentId]) && !isset($listedIndents[$indentId]);
@@ -2114,7 +2123,7 @@ HTML;
         }
         $masterRecordStatus = isset(self::GROUPS['Master'][self::$screen]) && $kind !== 'employee';
         $showStatus = !$masterRecordStatus && !$indentItems && !$chooseMaster && !$pendingPo && !$poRegister && !$poItems && !$isGrnView;
-        $showActions = $chooseMaster || $grnScreen !== 'grn' && !in_array($mode,['items','selected'],true);
+        $showActions = $indentItems || $chooseMaster || $grnScreen !== 'grn' && !in_array($mode,['items','selected'],true);
         $rowValues = static function ($row) use ($rows,$kind,$indentItems,$choosePending,$chooseMaster,$choiceItems,$pendingQuote) {
             [$values,$status] = $indentItems ? [self::indentItemValues($row,$rows),$row['status']] : self::recordValues($row,$rows,$kind);
             if ($choosePending || $chooseMaster) {
@@ -2259,7 +2268,9 @@ HTML;
             if ($showActions) {
                 echo '<td'.$actionClass.'>';
                 echo '<div class="frontier-row-actions">';
-                if ($chooseMaster) {
+                if ($indentItems) {
+                    self::indentCancelAction($row,$values);
+                } elseif ($chooseMaster) {
                     self::supplierRegisterActions($rows,(int)($row['data']['indent'] ?? 0),true);
                 } else {
                     self::actions($row,$rows);
@@ -2596,7 +2607,7 @@ HTML;
             }
             $values['due'] = self::indentDisplayDate($due);
             $values['pending_quantity'] = self::available($rows,$indent);
-            $values['ordered_quantity'] = round($indent['data']['qty'] - $values['pending_quantity'],3);
+            $values['ordered_quantity'] = round(self::indentNetQuantity($indent) - $values['pending_quantity'],3);
         }
         $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
         if ($kind === 'quote') {
@@ -3820,7 +3831,7 @@ HTML;
         $excess = $data['excess'] ?? round($data['qty'] - max(0,($boq['qty'] ?? 0)-$already),3);
         $values += [
             'already'=>$already,'excess'=>$excess > 0 ? 'Yes' : 'No',
-            'ordered'=>$ordered,'pending_order'=>$row['status'] === 'approved' ? max(0,round($data['qty']-$ordered,3)) : 0,
+            'ordered'=>$ordered,'pending_order'=>$row['status'] === 'approved' ? max(0,self::available($rows,$row)) : 0,
             'received'=>round($received,3),'pending_receive'=>max(0,round($ordered-$received,3)),
             'last_supplier'=>$past ? self::supplierDisplay($past,$rows) : '', 'last_rate'=>$past['rate'] ?? '',
         ];
@@ -3926,7 +3937,7 @@ HTML;
             $entry['received'] += $receivedQty;
             $entry['pending_receive'] += max(0,$ordered-$receivedQty);
             if ($status === 'approved') {
-                $entry['pending_order'] += max(0,$data['qty']-$ordered);
+                $entry['pending_order'] += max(0,self::available($rows,$row));
             }
             if (!empty($data['due']) && (!$entry['target'] || $data['due'] < $entry['target'])) {
                 $entry['target'] = $data['due'];
@@ -4033,6 +4044,56 @@ HTML;
             echo '</tr>';
         }
         echo '</tbody></table></td></tr>';
+    }
+
+    private static function indentCancelAction($row,$values) {
+        if ($values['pending_order'] <= 0 || !self::can('approve')) {
+            return;
+        }
+        $title = 'frontier-indent-cancel-title-'.(int)$row['id'];
+        $pending = esc_attr($values['pending_order']);
+        echo '<button type="button"'.self::actionIconAttributes('Cancel Indent Item')
+            .' style="color:#b42318" onclick="this.nextElementSibling.showModal()">'
+            .self::actionIcon('×').'</button>';
+        echo '<dialog class="frontier-indent-dialog" aria-labelledby="'.esc_attr($title).'">';
+        echo '<div class="frontier-indent-dialog-header"><h2 id="'.esc_attr($title).'">Cancel Indent Item</h2>';
+        echo '<button type="button" class="button frontier-dialog-close" onclick="this.closest(\'dialog\').close()" aria-label="Close">×</button></div>';
+        self::formStart('indent','cancel_indent_item',$row['id']);
+        echo '<input type="hidden" name="previous_cancelled_qty" value="'.esc_attr($row['data']['cancelled_qty'] ?? 0).'">';
+        echo '<p><label>Item <input readonly style="background:#e9edf2" value="'.esc_attr($values['item']).'"></label></p>';
+        echo '<p><label>Pending to Order <input readonly style="background:#e9edf2" value="'.$pending.'"></label></p>';
+        echo '<p><label>'.self::requiredLabel('Quantity to Cancel')
+            .' <input type="number" name="cancel_quantity" min="0.001" max="'.$pending.'" step="0.001" value="'.$pending.'" required></label></p>';
+        echo '<p><label>'.self::requiredLabel('Cancel Reason')
+            .' <textarea name="cancel_reason" rows="3" maxlength="2000" required></textarea></label></p>';
+        echo '<div class="frontier-indent-dialog-actions"><button type="button" class="button" onclick="this.closest(\'dialog\').close()">Back</button>';
+        echo '<button type="submit" class="button button-primary" style="background:#b42318;border-color:#b42318;color:#fff">Confirm cancellation</button>';
+        echo '</div></form></dialog>';
+    }
+
+    private static function cancelIndentItem($rows,$id) {
+        global $wpdb;
+        $row = $rows[$id] ?? null;
+        self::requireRule(($row['kind'] ?? '') === 'indent' && $row['status'] === 'approved',
+            'Only approved indent items can be cancelled.');
+        $data = $row['data'];
+        $previous = (float)($data['cancelled_qty'] ?? 0);
+        $submittedPrevious = self::input('previous_cancelled_qty');
+        $quantity = self::input('cancel_quantity');
+        $reason = sanitize_textarea_field(self::input('cancel_reason'));
+        self::requireRule(is_numeric($submittedPrevious) && (float)$submittedPrevious === $previous,
+            'The cancellation quantity changed. Reload the table and try again.');
+        self::requireRule(preg_match('/^\d{1,14}(?:\.\d{1,3})?$/D',$quantity)
+            && (float)$quantity > 0 && (float)$quantity <= self::available($rows,$row),
+            'Enter a positive quantity within the pending order balance.');
+        self::requireRule($reason !== '' && strlen($reason) <= 8000,'Enter a cancellation reason.');
+        $data['cancelled_qty'] = round($previous + (float)$quantity,3);
+        $data['cancel_date'] = current_time('Y-m-d');
+        $data['cancel_reason'] = $reason;
+        $data['cancel_by'] = wp_get_current_user()->display_name;
+        if ($wpdb->update(self::table(),['details'=>wp_json_encode($data)],['id'=>$id]) !== 1) {
+            throw new RuntimeException('Indent cancellation could not be saved.');
+        }
     }
 
     private static function indentUpdateDialog($entry) {
@@ -5140,7 +5201,8 @@ HTML;
             if ($quote['status'] === 'selected') {
                 $finalized[$indentId] = true;
             }
-            if (($includeFinalized || ($quote['status'] !== 'selected' && ($rows[$indentId]['status'] ?? '') === 'approved'))
+            if (($includeFinalized || ($quote['status'] !== 'selected' && ($rows[$indentId]['status'] ?? '') === 'approved'
+                    && self::indentNetQuantity($rows[$indentId]) > 0))
                 && isset($data['supplier'],$data['rate'])) {
                 $choices[$indentId][$data['supplier']] = $choices[$indentId][$data['supplier']] ?? $quote;
             }
@@ -5321,7 +5383,7 @@ HTML;
             }
             $data = $row['data'];
             $id = (int)$row['id'];
-            if ($editId ? $id !== $editId : isset($quoted[$id])) {
+            if ($editId ? $id !== $editId : (isset($quoted[$id]) || self::indentNetQuantity($row) <= 0)) {
                 continue;
             }
             $group = self::indentGroup($row);
@@ -5409,7 +5471,8 @@ HTML;
             $indent = $rows[$indentId] ?? null;
             $supplier = $rows[$supplierId] ?? null;
             self::requireRule($indent && $indent['kind'] === 'indent' && $indent['status'] === 'approved'
-                && self::indentGroup($indent) === $group && (!isset($quoted[$indentId]) || $indentId === $editId),
+                && self::indentGroup($indent) === $group
+                && ($indentId === $editId || (!isset($quoted[$indentId]) && self::indentNetQuantity($indent) > 0)),
                 'Only approved items from this indent that have not been quoted can be submitted.');
             self::requireRule($supplier && $supplier['kind'] === 'supplier','Choose a supplier from Supplier Master.');
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$rate) && (float)$rate >= 0,'Enter a valid supplier rate.');
@@ -5476,13 +5539,14 @@ HTML;
         check_admin_referer('frontier_save');
         $kind = sanitize_key(self::input('kind'));
         $action = sanitize_key(self::input('operation'));
-        $capability = ['approve'=>'approve','update_indent_group'=>'approve','return'=>'approve','approve_grn'=>'stock'][$action] ?? ($kind === 'site' ? 'sites' : $kind);
+        $capability = ['approve'=>'approve','update_indent_group'=>'approve','cancel_indent_item'=>'approve','return'=>'approve','approve_grn'=>'stock'][$action] ?? ($kind === 'site' ? 'sites' : $kind);
         $screen = sanitize_key(self::input('screen'));
         $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
         $access = self::assignedViewAccess(get_current_user_id());
         $configured = !current_user_can('manage_options') && is_array($access) && isset($access['role']);
         $allowedView = $configured ? ($sameKind && self::canView($screen)) : self::canView($kind);
-        if (!isset(self::FIELDS[$kind]) || !$allowedView || !self::can($capability)) {
+        if (!isset(self::FIELDS[$kind]) || !$allowedView || !self::can($capability)
+            || ($action === 'cancel_indent_item' && ($kind !== 'indent' || !self::canView('indent_items')))) {
             wp_die('Access denied.', '', ['response'=>403]);
         }
         $lock = 'frontier_'.md5(DB_NAME.'|'.self::table());
@@ -5553,6 +5617,9 @@ HTML;
                 $result = true;
             } elseif ($kind === 'quote' && $action === 'save_supplier_selection') {
                 self::saveSupplierSelection($rows);
+                $result = true;
+            } elseif ($kind === 'indent' && $action === 'cancel_indent_item') {
+                self::cancelIndentItem($rows,absint(self::input('id')));
                 $result = true;
             } elseif ($kind === 'indent' && $action === 'update_indent_group') {
                 $approvedIndentTelegram = self::updateIndentGroup($rows,absint(self::input('id')));
