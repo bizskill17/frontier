@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.174
+ * Version: 1.9.175
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -6537,7 +6537,9 @@ HTML;
                 }
                 for ($index = 0; $index < 3; $index++) {
                     $quoteData = $choices[$index]['data'] ?? [];
-                    echo '<td>'.esc_html(self::supplierDisplay($quoteData,$rows)).'</td><td>'.esc_html((string)($quoteData['rate'] ?? '')).'</td>';
+                    $style = ' style="background:'.$colors[3+$index*2].'"';
+                    echo '<td'.$style.'>'.esc_html(self::supplierDisplay($quoteData,$rows)).'</td>';
+                    echo '<td'.$style.'>'.esc_html((string)($quoteData['rate'] ?? '')).'</td>';
                 }
                 echo '<td><select data-supplier-choice data-dropdown-overlay aria-label="'.esc_attr('Supplier finalized for '.$name).'" name="supplier_choices['.esc_attr($indentId).']" disabled><option value="">Select supplier</option>';
                 foreach ($choices as $quote) {
