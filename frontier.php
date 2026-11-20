@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.161
+ * Version: 1.9.162
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -702,7 +702,8 @@ body.frontier-workspace {
     .frontier-shell .frontier-sidebar:not([hidden]) {
         width: min(390px, 88vw);
         padding: 10px 12px;
-        gap: 0;
+        gap: 5px;
+        align-items: stretch;
         background: #f9fbff;
         color: #17243b;
     }
@@ -734,9 +735,8 @@ body.frontier-workspace {
     }
     .frontier-sidebar details {
         margin: 0;
-        border-bottom: 1px solid #dce4ee;
-        border-radius: 0;
-        background: transparent;
+        border-radius: 8px;
+        background: var(--frontier-section-bg, #edf3fa);
     }
     .frontier-sidebar details > summary,
     .frontier-sidebar .frontier-sidebar-dashboard,
@@ -745,11 +745,11 @@ body.frontier-workspace {
         align-items: center;
         gap: 9px;
         min-height: 44px;
-        padding: 4px 6px;
+        padding: 4px 9px;
         color: #17243b;
         font-weight: 650;
     }
-    .frontier-sidebar .frontier-sidebar-dashboard:not([aria-current="page"]) { background: transparent; }
+    .frontier-sidebar .frontier-sidebar-dashboard:not([aria-current="page"]) { background: #d9e7fb; }
     .frontier-sidebar .frontier-sidebar-dashboard > span { margin-right: auto; }
     .frontier-sidebar summary::-webkit-details-marker { display: none; }
     .frontier-sidebar details > summary::after {
@@ -771,7 +771,7 @@ body.frontier-workspace {
         flex: 0 0 28px;
         height: 28px;
         border-radius: 7px;
-        background: var(--frontier-section-bg, #d9e7fb);
+        background: rgb(255 255 255 / 42%);
         color: #173756;
         font-size: 17px;
     }
@@ -788,9 +788,10 @@ body.frontier-workspace {
     .frontier-sidebar a[aria-current="page"] { background: #17345c; color: #fff; }
     .frontier-sidebar .frontier-sidebar-signout {
         margin-top: auto;
-        border-top-color: #dce4ee;
+        border: 0;
+        border-radius: 8px;
+        background: #edf1f5;
         --frontier-menu-icon: '↪';
-        --frontier-section-bg: #f6dbe9;
     }
 }
 
