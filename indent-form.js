@@ -37,7 +37,7 @@
             row.insert.disabled = !items.size || rows.length >= 100;
             row.element.classList.toggle('frontier-indent-selected', Boolean(item));
             row.number.textContent = index + 1;
-            row.itemLabel.textContent = item?.unit ? 'Item Name (' + item.unit + ')' : 'Item Name';
+            row.unit.textContent = item?.unit || '';
             const available = item ? Math.max(0, round(item.qty - item.used)) : 0;
             const details = item ? [item.unit, item.qty, item.pending ?? 0, item.used, available] : ['', '', '', '', ''];
             row.details.forEach((cell, position) => { cell.textContent = details[position]; });
@@ -70,8 +70,7 @@
         for (const entry of items.values()) {
             item.add(new Option(entry.name + ' · BOQ ' + entry.number + '/' + entry.line, entry.id));
         }
-        const itemLabel = mobileLabel('Item Name');
-        element.insertCell().append(itemLabel, item);
+        element.insertCell().append(mobileLabel('Item'), item);
         const details = detailLabels.map((label, position) => {
             const cell = element.insertCell();
             const value = document.createElement('span');
@@ -87,7 +86,10 @@
         qty.setAttribute('aria-label', 'Indent Now');
         const warning = document.createElement('small');
         warning.className = 'frontier-indent-excess';
-        element.insertCell().append(mobileLabel('Indent Now'), qty, warning);
+        const unit = mobileLabel('');
+        const qtyCell = element.insertCell();
+        qtyCell.className = 'frontier-indent-qty';
+        qtyCell.append(mobileLabel('Indent Now'), qty, unit, warning);
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'button frontier-action-icon frontier-action-delete';
@@ -104,7 +106,7 @@
         insert.addEventListener('click', () => addRow(rows.indexOf(row) + 1));
         actions.append(remove, insert);
         element.insertCell().append(actions);
-        const row = { element, number, item, itemLabel, details, qty, warning, insert };
+        const row = { element, number, item, unit, details, qty, warning, insert };
         rows.splice(index, 0, row);
         remove.addEventListener('click', () => {
             rows.splice(rows.indexOf(row), 1);
