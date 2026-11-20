@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.119
+ * Version: 1.9.120
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3734,8 +3734,8 @@ HTML;
         echo '</div>';
         echo '<h2>BOQ Items</h2><div class="frontier-master-toolbar">';
         echo '<button type="button" class="button frontier-boq-add">Add Row</button>';
-        echo '<a class="button frontier-download" href="'.esc_url($template).'">Download Excel Template</a>';
-        echo '<label class="button frontier-upload">Upload Excel<input class="frontier-boq-file" type="file" accept=".xlsx" data-endpoint="'.esc_url($upload).'"></label></div>';
+        echo '<a class="button frontier-download" href="'.esc_url($template).'">Template</a>';
+        echo '<label class="button frontier-upload">Upload<input class="frontier-boq-file" type="file" accept=".xlsx" data-endpoint="'.esc_url($upload).'"></label></div>';
         echo '<p class="frontier-boq-message" role="status"></p>';
         echo '<div class="frontier-table"><table class="widefat striped"><thead><tr>';
         foreach (['Sl. No.','Item Name','Quantity','Unit','Item Master Check','Action'] as $label) {
