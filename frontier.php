@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.196
+ * Version: 1.9.197
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2957,8 +2957,8 @@ HTML;
         'indent'=>['Indent',['indent_items'],['Indent No.','Indent Date','Item Name','Unit','Requested By','Status','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive','Indent PDF']],
         'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3']],
         'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Supplier Finalized','Rate Finalized','Compared By']],
-        'po'=>['Purchase Order',['po_items'],['PO No.','PO Date','Indent No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice','PO PDF']],
-        'grn'=>['GRN',['grn_items'],['GRN No.','GRN Date','PO No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Pending Before Receipt','Quantity Received','GRN Slip','GRN PDF','Slip Number']],
+        'po'=>['Purchase Order',['po_items'],['PO No.','PO Date','Indent No.','Item Name','Unit','Supplier Name','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice','PO PDF']],
+        'grn'=>['GRN',['grn_items'],['GRN No.','GRN Date','PO No.','Item Name','Unit','Supplier Name','Ordered Quantity','Pending Before Receipt','Quantity Received','GRN Slip','GRN PDF','Slip Number']],
         'invoice'=>['Invoice',['po_invoice_master'],['Invoice No.','Invoice Date','PO No.','Item Name','Supplier Name','PO Qty','Supplier Rate','Quantity Invoiced','Invoice Rate','Allocated Amount','Invoice Copy','Pending for Invoice']],
     ];
 
@@ -3125,7 +3125,7 @@ HTML;
                 $invoiced = round($totals['invoiced'][$id] ?? 0,3);
                 $add('po',$boq,[$data['ref'] ?? '#'.$id,self::indentDisplayDate($date),
                     $rows[$indent]['data']['indent_number'] ?? '#'.$indent,$boqs[$boq]['name'],$boqs[$boq]['unit'],
-                    $supplier,$status,$qty,$cancelled,$received,max(0,round($qty-$cancelled-$received,3)),
+                    $supplier,$qty,$cancelled,$received,max(0,round($qty-$cancelled-$received,3)),
                     $invoiced,max(0,round($qty-$cancelled-$invoiced,3)),$pdf('po','frontier_po_pdf',$id)],$date,$supplier,$status,
                     $data['po_group_id'] ?? ($data['ref'] ?? $id));
             }
@@ -3146,7 +3146,7 @@ HTML;
                 $status = ucfirst($row['status']);
                 $groupId = self::goodsReceiptNumberId($row);
                 $add('grn',$boq,[$data['grn_no'],$data['grn_date'],$data['po_no'],
-                    $data['item_name'],$data['unit'],$data['supplier'],$status,$data['ordered'],$data['pending'],
+                    $data['item_name'],$data['unit'],$data['supplier'],$data['ordered'],$data['pending'],
                     $data['received'],$slips[$groupId] ?? '',$pdf('grn','frontier_grn_pdf',$id),$data['slip_no']],
                     $row['data']['due'] ?? '',$data['supplier'],$status,$groupId);
             }
@@ -3181,8 +3181,8 @@ HTML;
     private const REPORT_GROUPS = [
         'boq'=>['BOQ Summary',[0,1,3],[4,5,6],['BOQ No.','BOQ Date','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent']],
         'indent'=>['Indent Summary',[0,1,4,3],[6,7,8,9,10],['Indent No.','Indent Date','Requested By','Unit','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive']],
-        'po'=>['PO Summary',[0,1,5,4],[7,8,9,10,11,12],['PO No.','PO Date','Supplier Name','Unit','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice']],
-        'grn'=>['GRN Summary',[0,1,5,12,6,4],[9],['GRN No.','GRN Date','Supplier Name','Slip Number','Status','Unit','Recorded Receipt Quantity']],
+        'po'=>['PO Summary',[0,1,5,4],[6,7,8,9,10,11],['PO No.','PO Date','Supplier Name','Unit','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice']],
+        'grn'=>['GRN Summary',[0,1,5,11,4],[8],['GRN No.','GRN Date','Supplier Name','Slip Number','Unit','Recorded Receipt Quantity']],
     ];
 
     private static function reportGroupRows($records,$definition) {
@@ -3401,8 +3401,8 @@ HTML;
             'quote'=>['indent','quote','item','supplier1','supplier1','supplier2','supplier2','supplier3','supplier3'],
             'choose'=>['indent','selection','item','quote','quote','supplier1','supplier1','supplier2','supplier2',
                 'supplier3','supplier3','selection','selection','selection'],
-            'po'=>['order','order','indent','item','item','selection','order','order','cancel','receipt','receipt','invoice','invoice','document'],
-            'grn'=>['receipt','receipt','order','item','item','selection','receipt','order','receipt','receipt','document','document','document'],
+            'po'=>['order','order','indent','item','item','selection','order','cancel','receipt','receipt','invoice','invoice','document'],
+            'grn'=>['receipt','receipt','order','item','item','selection','order','receipt','receipt','document','document','document'],
             'invoice'=>['invoice','invoice','order','item','selection','order','selection','invoice','invoice','invoice','document','invoice'],
         ][$tab];
         echo '<div class="frontier-table frontier-site-report-table" data-report-tab="'.esc_attr($tab).'" tabindex="0" role="region" aria-label="'.esc_attr($tabs[$tab][0]).'"><table class="widefat striped"><thead><tr>';
