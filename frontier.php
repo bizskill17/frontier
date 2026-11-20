@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.193
+ * Version: 1.9.194
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -74,7 +74,7 @@ final class Frontier {
         'cancel'=>['po'=>'Purchase order', 'qty'=>'Quantity to cancel', 'note'=>'Reason'],
         'grn'=>['po'=>'Purchase order', 'ref'=>'GRN number', 'due'=>'Receipt date', 'qty'=>'Accepted quantity', 'reject'=>'Rejected quantity'],
         'invoice'=>['supplier'=>'Supplier Name', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
-        'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
+        'match'=>['invoice'=>'Supplier invoice', 'grn'=>'GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
     private const PAGE_VERSION = '1.9.179';
     private const PAGE_SLUGS = [
@@ -1667,6 +1667,10 @@ JS
         }
         foreach ($rows as &$row) {
             $row['data'] = json_decode($row['details'],true);
+            // Existing GRNs also represent receipts, regardless of their former approval state.
+            if ($row['kind'] === 'grn' && in_array($row['status'],['pending','approved'],true)) {
+                $row['status'] = 'received';
+            }
         }
         return array_column($rows,null,'id');
     }
@@ -1777,7 +1781,7 @@ JS
                 case 'po':
                     return $kind === 'grn' ? self::canReceivePurchaseOrder($rows,$row)
                         : $row['status'] === 'issued' && ($kind === 'follow' || self::balance($rows,$row) > 0);
-                case 'grn': return $row['status'] === 'approved' && $row['data']['qty'] > self::sum($rows,'match','grn',$row['id']);
+                case 'grn': return $row['status'] === 'received' && $row['data']['qty'] > self::sum($rows,'match','grn',$row['id']);
                 default: return true;
             }
         });
@@ -2596,7 +2600,7 @@ HTML;
             'indent'=>['indent_number'=>'Indent No.','indent_date'=>'Indent Date','site_name'=>'Site Name',
                 'requested_name'=>'Requested By','line_number'=>'Sl No.','unit'=>'Unit','excess'=>'Excess Quantity','reason'=>'Reason'],
             'quote'=>['quote_date'=>'Quotation Date','comparison_name'=>'Compared By','reason'=>'Selection Reason','attachment'=>'Quotation File'],
-            'po'=>['supplier'=>'Supplier Name','reason'=>'Reason','received'=>'Received','waiting'=>'Pending GRN Approval','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
+            'po'=>['supplier'=>'Supplier Name','reason'=>'Reason','received'=>'Received','invoiced'=>'Invoiced','cancelled'=>'Cancelled','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'follow'=>['ordered'=>'Order Quantity','expected'=>'Expected Delivery','open'=>'Open to Receive','overdue'=>'Overdue Days','latest'=>'Latest Follow-up','next'=>'Next Follow-up'],
             'grn'=>['attachment'=>'GRN Slip'],
             'invoice'=>['matched'=>'Matched Amount','attachment'=>'Invoice Copy'],
@@ -2894,7 +2898,7 @@ HTML;
                 $kind = $row['kind'];
                 $qty = (float)($data['qty'] ?? 0);
                 $totals[$po][$kind] = ($totals[$po][$kind] ?? 0) + $qty;
-                if ($kind === 'grn' && $row['status'] === 'approved') {
+                if ($kind === 'grn' && $row['status'] === 'received') {
                     $totals[$po]['approved'] = ($totals[$po]['approved'] ?? 0) + $qty;
                 }
             }
@@ -3008,7 +3012,7 @@ HTML;
                 }
                 if ($kind === 'grn') {
                     $receipts[$id] = $po;
-                    if (!in_array($row['status'],['pending','approved'],true)) {
+                    if ($row['status'] !== 'received') {
                         continue;
                     }
                 }
@@ -3465,7 +3469,7 @@ HTML;
     private static function stock($rows) {
         $received = [];
         foreach ($rows as $row) {
-            if ($row['kind'] !== 'grn' || $row['status'] !== 'approved') {
+            if ($row['kind'] !== 'grn' || $row['status'] !== 'received') {
                 continue;
             }
             $po = $rows[$row['data']['po']];
@@ -3482,7 +3486,7 @@ HTML;
             echo '<tr><td>'.esc_html($item['name']).'</td><td>'.esc_html(self::siteName($rows[$item['site']]['data'] ?? [])).'</td><td>'.esc_html(round($quantity,3)).'</td><td>'.esc_html($item['unit']).'</td></tr>';
         }
         if (!$total) {
-            echo '<tr><td colspan="4">No stock receipts approved yet.</td></tr>';
+            echo '<tr><td colspan="4">No goods receipts recorded yet.</td></tr>';
         }
         echo '</tbody></table></div>';
         self::pagination($page,$pages,$total);
@@ -3845,8 +3849,7 @@ HTML;
         }
         if ($kind === 'po' && ($row['status'] === 'issued' || self::$screen === 'pending_grn')) {
             $id = $row['id'];
-            $values['received'] = self::sum($rows,'grn','po',$id,'qty','approved');
-            $values['waiting'] = self::sum($rows,'grn','po',$id,'qty','pending');
+            $values['received'] = self::sum($rows,'grn','po',$id,'qty','received');
             $values['invoiced'] = self::sum($rows,'match','po',$id);
             $values['cancelled'] = self::sum($rows,'cancel','po',$id);
             $values['open'] = self::balance($rows,$row);
@@ -4259,10 +4262,6 @@ HTML;
             case 'cancel_po':
                 self::requireRule($kind === 'po' && in_array($status,['draft','issued'],true) && !self::linked($rows,$row['id']),'Use line cancellation for an order with procurement activity.');
                 $status = 'cancelled';
-                break;
-            case 'approve_grn':
-                self::requireRule($kind === 'grn' && $status === 'pending','This GRN has already been processed.');
-                $status = 'approved';
                 break;
             case 'attach':
                 self::requireRule($kind === 'grn','Invalid GRN.');
@@ -4688,7 +4687,7 @@ HTML;
             }
             if ($row['kind'] === 'cancel') {
                 $approvedOrders[$po] -= $row['data']['qty'];
-            } elseif ($row['kind'] === 'grn' && $row['status'] === 'approved') {
+            } elseif ($row['kind'] === 'grn' && $row['status'] === 'received') {
                 $receipts[$po] = ($receipts[$po] ?? 0) + $row['data']['qty'];
             }
         }
@@ -5189,7 +5188,7 @@ HTML;
             }
             if ($record['kind'] === 'cancel') {
                 $orders[$po] -= $record['data']['qty'];
-            } elseif ($record['kind'] === 'grn' && in_array($record['status'],['pending','approved'],true)) {
+            } elseif ($record['kind'] === 'grn' && $record['status'] === 'received') {
                 $received += $record['data']['qty'];
             }
         }
@@ -5255,7 +5254,7 @@ HTML;
             }
             if ($row['kind'] === 'cancel') {
                 $pos[$id] -= $row['data']['qty'];
-            } elseif ($row['kind'] === 'grn' && $row['status'] === 'approved') {
+            } elseif ($row['kind'] === 'grn' && $row['status'] === 'received') {
                 $received[$id] = ($received[$id] ?? 0) + $row['data']['qty'];
             }
         }
@@ -6055,7 +6054,7 @@ HTML;
             if ($group) {
                 $data['grn_group_id'] = $group;
             }
-            if ($wpdb->insert(self::table(),['kind'=>'grn','status'=>'pending','details'=>wp_json_encode($data)]) !== 1) {
+            if ($wpdb->insert(self::table(),['kind'=>'grn','status'=>'received','details'=>wp_json_encode($data)]) !== 1) {
                 throw new RuntimeException('Goods receipt could not be saved.');
             }
             if (!$group) {
@@ -6270,7 +6269,7 @@ HTML;
         $qty = $received = $open = 0;
         foreach ($grouped ? self::purchaseOrderGroup($rows,$row) : [$row] as $line) {
             $lineQty = (float)($line['data']['qty'] ?? 0);
-            $lineReceived = self::sum($rows,'grn','po',$line['id'],'qty','approved');
+            $lineReceived = self::sum($rows,'grn','po',$line['id'],'qty','received');
             $qty += $lineQty;
             $received += $lineReceived;
             if ($line['status'] !== 'cancelled') {
@@ -6962,7 +6961,7 @@ HTML;
         check_admin_referer('frontier_save');
         $kind = sanitize_key(self::input('kind'));
         $action = sanitize_key(self::input('operation'));
-        $capability = ['approve'=>'approve','update_indent_group'=>'approve','cancel_indent_item'=>'approve','return'=>'approve','approve_grn'=>'stock'][$action] ?? ($kind === 'site' ? 'sites' : $kind);
+        $capability = ['approve'=>'approve','update_indent_group'=>'approve','cancel_indent_item'=>'approve','return'=>'approve'][$action] ?? ($kind === 'site' ? 'sites' : $kind);
         $screen = sanitize_key(self::input('screen'));
         $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
         $access = self::assignedViewAccess(get_current_user_id());
@@ -6990,7 +6989,7 @@ HTML;
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
                 || ($kind === 'item' && in_array($action,['import_items','clear_item_duplicates'],true))
                 || ($kind === 'match' && $action === 'link_po_invoice')
-                || ($kind === 'grn' && in_array($action,['create','create_goods_receipt','approve_grn'],true))
+                || ($kind === 'grn' && in_array($action,['create','create_goods_receipt'],true))
                 || ($kind === 'po' && in_array($action,['create_purchase_orders','issue','delete','cancel_po'],true))
                 || ($kind === 'quote' && in_array($action,['save_quotations','save_supplier_selection','delete_quotation_comparison','undo_supplier_selection'],true))
                 || ($kind === 'supplier' && $action === 'import_suppliers')
@@ -7032,19 +7031,6 @@ HTML;
             } elseif ($kind === 'match' && $action === 'link_po_invoice') {
                 self::savePurchaseInvoiceLinks($rows);
                 $result = true;
-            } elseif ($kind === 'grn' && $action === 'approve_grn') {
-                $receipt = $rows[absint(self::input('id'))] ?? [];
-                self::requireRule(($receipt['kind'] ?? '') === 'grn','Goods receipt not found.');
-                $result = false;
-                foreach (self::goodsReceiptGroup($rows,$receipt) as $line) {
-                    if ($line['status'] === 'pending') {
-                        if ($wpdb->update(self::table(),self::transition($rows,$line,$action),['id'=>$line['id']]) !== 1) {
-                            throw new RuntimeException('Goods receipt approval could not be saved.');
-                        }
-                        $result = true;
-                    }
-                }
-                self::requireRule($result,'This GRN has already been processed.');
             } elseif ($kind === 'grn' && $action === 'create_goods_receipt') {
                 $createdDocuments = self::saveGoodsReceipt($rows);
                 $result = true;
@@ -7109,7 +7095,7 @@ HTML;
                     $accountId = self::employeeAccount($data);
                     $data['wp_user_id'] = $accountId;
                 }
-                $status = ['indent'=>'draft','po'=>'draft','grn'=>'pending','quote'=>'received','invoice'=>'pending_match'][$kind] ?? 'recorded';
+                $status = ['indent'=>'draft','po'=>'draft','grn'=>'received','quote'=>'received','invoice'=>'pending_match'][$kind] ?? 'recorded';
                 if ($kind === 'grn') {
                     $data['grn_number'] = self::nextNumber('grn',self::lastNumbers($rows,0)['grn']);
                 }
