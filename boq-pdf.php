@@ -80,8 +80,77 @@ final class Frontier_Boq_Pdf {
     }
 
     public static function buildBoq($number,$site,$date,$prepared,$rows) {
-        return self::buildItemTable('BOQ '.$number,'BILL OF QUANTITIES',
-            ['Site'=>$site,'BOQ Date'=>$date,'Prepared By'=>$prepared],$rows);
+        $start = static function () use ($number,$site,$date,$prepared) {
+            $stream = "0 g 0 G 0.5 w\n";
+            $header = [
+                'Frontier Sales Corporation',
+                '( A unit of FRONTIER CORPORATION LLP )',
+                '3rd Floor, Temple Tower, opp News Live,',
+                'Christian Basti, G S Road, Guwahati-781005',
+            ];
+            foreach ($header as $index=>$text) {
+                $stream .= self::poAligned($text,396,565-$index*17,14,'center',true);
+            }
+            $stream .= "40 503 m 752 503 l S\n";
+            $stream .= self::poAligned('BOQ # '.$number,396,471,23,'center',true);
+
+            $siteLines = explode("\n",wordwrap(self::text($site),37,"\n",true));
+            $preparedLines = explode("\n",wordwrap(self::text($prepared),34,"\n",true));
+            $top = 438;
+            foreach ([[['Date:'],[self::text($date)],['Site Name'],$siteLines],
+                [['BOQ Prepared By'],$preparedLines,[''],['']]] as $cells) {
+                $height = max(array_map('count',$cells))*13+9;
+                $stream .= self::boqCellBorders($top,$height,[40,154,396,503,752]);
+                foreach ($cells as $column=>$lines) {
+                    foreach ($lines as $index=>$line) {
+                        $stream .= self::line($line,[47,161,403,510][$column],$top-14-$index*13,10,
+                            $column % 2 === 0 ? 'F2' : 'F1');
+                    }
+                }
+                $top -= $height;
+            }
+            $top -= 14;
+            $stream .= self::boqCellBorders($top,24,[40,100,561,661,752]);
+            foreach (['Sl No.','Item Name','Quantity','Unit'] as $column=>$text) {
+                $stream .= self::line($text,[47,107,568,668][$column],$top-16,10,'F2');
+            }
+            return [$stream,$top-24];
+        };
+
+        $pages = [];
+        [$stream,$top] = $start();
+        foreach ($rows as [$line,$name,$qty,$unit]) {
+            $names = explode("\n",wordwrap(self::text($name),45,"\n",true));
+            $units = explode("\n",wordwrap(self::text($unit),8,"\n",true));
+            $height = max(count($names),count($units))*13+9;
+            if ($top-$height < 41) {
+                $pages[] = $stream;
+                [$stream,$top] = $start();
+            }
+            $stream .= self::boqCellBorders($top,$height,[40,100,561,661,752]);
+            $stream .= self::poAligned($line,47,$top-14,10,'left')
+                .self::poAligned($qty,654,$top-14,10,'right');
+            foreach ($names as $index=>$text) {
+                $stream .= self::line($text,107,$top-14-$index*13);
+            }
+            foreach ($units as $index=>$text) {
+                $stream .= self::line($text,668,$top-14-$index*13);
+            }
+            $top -= $height;
+        }
+        $pages[] = $stream;
+        return self::document($pages,[],792,612);
+    }
+
+    private static function boqCellBorders($top,$height,$edges) {
+        $left = $edges[0];
+        $width = end($edges)-$left;
+        $bottom = $top-$height;
+        $stream = "$left $bottom $width $height re S\n";
+        foreach (array_slice($edges,1,-1) as $x) {
+            $stream .= "$x $bottom m $x $top l S\n";
+        }
+        return $stream;
     }
 
     public static function buildIndent($number,$site,$date,$requested,$rows) {
@@ -311,7 +380,7 @@ final class Frontier_Boq_Pdf {
         return self::line($text,$x,$y,$size,$bold ? 'F2' : 'F1');
     }
 
-    private static function document($pages,$logo=[]) {
+    private static function document($pages,$logo=[],$width=595,$height=842) {
         $objects = [
             1=>'<< /Type /Catalog /Pages 2 0 R >>',
             2=>'',
@@ -331,7 +400,7 @@ final class Frontier_Boq_Pdf {
             $pageId = count($objects)+1;
             $streamId = $pageId+1;
             $kids[] = "$pageId 0 R";
-            $objects[$pageId] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> $imageResource >> /Contents $streamId 0 R >>";
+            $objects[$pageId] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $width $height] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> $imageResource >> /Contents $streamId 0 R >>";
             $objects[$streamId] = '<< /Length '.strlen($stream)." >>\nstream\n".$stream."endstream";
         }
         $objects[2] = '<< /Type /Pages /Kids ['.implode(' ',$kids).'] /Count '.count($kids).' >>';
