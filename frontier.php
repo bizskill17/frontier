@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.132
+ * Version: 1.9.133
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -592,7 +592,7 @@ CSS
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.132',true);
+        wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.133',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.93');
         }
@@ -4038,6 +4038,7 @@ HTML;
             'group_id'=>$site['data']['telegram'] ?? '', 'boq_date'=>$dateText,'boq_number'=>$previous['boq_number'] ?? self::nextNumber('boq',$last),
             'boq_token'=>$previous['boq_token'] ?? $token,'boq_timestamp'=>$id ? ($previous['boq_timestamp'] ?? '') : current_time('mysql')];
         $units = self::boqUnits($rows);
+        $itemNames = [];
         $seen = [];
         foreach (array_values($lines) as $index=>$line) {
             $number = $index+1;
@@ -4055,6 +4056,9 @@ HTML;
             self::requireRule(preg_match('/^\d{1,10}(?:\.\d{1,3})?$/D',$qty) && (float)$qty > 0,'Enter a valid quantity on row '.$number.'.');
             self::requireRule($unit !== '' && (in_array($unit,$units,true)
                 || ($lineId && $unit === ($old['unit'] ?? ''))),'Select a unit from Unit Master on row '.$number.'.');
+            $nameKey = self::itemNameKey($sameSavedItem ? $old['name'] : $item['data']['name']);
+            self::requireRule(!isset($itemNames[$nameKey]),'Duplicate item on BOQ row '.$number.'.');
+            $itemNames[$nameKey] = true;
             if (isset($used[$lineId])) {
                 self::requireRule($sameSavedItem && (float)$qty === (float)$old['qty'] && $unit === $old['unit'],
                     'An item already used in an indent cannot be changed.');

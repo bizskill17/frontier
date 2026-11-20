@@ -26,6 +26,7 @@ if (boqForm) {
     const addDialog = document.getElementById('frontier-boq-add-item');
     let addTarget;
     let rows = [];
+    let draggedRow;
     let uploading = false;
 
     function itemForRow(row) {
@@ -36,8 +37,14 @@ if (boqForm) {
 
     function sync() {
         let unresolved = 0;
+        const counts = new Map();
+        for (const row of rows) {
+            const key = normalize(row.name.value);
+            if (key) counts.set(key, (counts.get(key) || 0) + 1);
+        }
         rows.forEach((row, index) => {
-            row.number.textContent = index + 1;
+            row.orderLabel.textContent = index + 1;
+            const duplicate = (counts.get(normalize(row.name.value)) || 0) > 1;
             row.namePreview.textContent = row.name.value;
             row.namePreview.parentElement.classList.toggle('is-empty', !row.name.value);
             const item = itemForRow(row);
@@ -48,9 +55,10 @@ if (boqForm) {
             row.addItem.style.display = unmatched && !ambiguous && !row.locked && addDialog ? '' : 'none';
             if (ambiguous && !row.locked) row.status.append(' ', row.selectItem);
             if (row.locked) row.status.textContent = 'Used in indent';
-            row.status.classList.toggle('frontier-boq-matched', !!item);
+            if (duplicate) row.status.textContent = '⚠ Duplicate item';
+            row.status.classList.toggle('frontier-boq-matched', !!item && !duplicate);
             const quantityValid = /^\d{1,10}(?:\.\d{1,3})?$/.test(row.qty.value) && Number(row.qty.value) > 0;
-            const fields = [[row.name, !!item], [row.qty, quantityValid], [row.unit, !!row.unit.value]];
+            const fields = [[row.name, !!item && !duplicate], [row.qty, quantityValid], [row.unit, !!row.unit.value]];
             for (const [field, valid] of fields) {
                 field.closest('td').classList.toggle('frontier-boq-invalid', !valid);
                 field.setAttribute('aria-invalid', String(!valid));
@@ -61,9 +69,28 @@ if (boqForm) {
         message.textContent = '';
     }
 
+    function moveRow(row, index) {
+        const current = rows.indexOf(row);
+        if (current < 0 || index < 0 || index >= rows.length || index === current) return;
+        rows.splice(current, 1);
+        rows.splice(index, 0, row);
+        table.insertBefore(row.element, rows[index + 1]?.element || null);
+        sync();
+    }
+
     function addRow(values = {}, index = rows.length) {
         const element = table.insertRow(index);
         const number = element.insertCell();
+        const handle = document.createElement('button');
+        handle.type = 'button';
+        handle.className = 'button frontier-action-icon';
+        handle.textContent = '↕';
+        handle.draggable = true;
+        handle.style.cursor = 'grab';
+        handle.title = 'Drag to reorder, or press Up or Down';
+        handle.setAttribute('aria-label', 'Reorder row with Up or Down');
+        const orderLabel = document.createElement('span');
+        number.append(handle, ' ', orderLabel);
         const inputs = {};
         const namePreview = document.createElement('span');
         namePreview.setAttribute('aria-hidden', 'true');
@@ -182,7 +209,7 @@ if (boqForm) {
         insert.title = 'Add row below';
         insert.addEventListener('click', () => insertRow(rows.indexOf(row) + 1));
         actions.append(insert);
-        const row = { element, number, status, namePreview, selectItem, addItem, id: values.id || 0,
+        const row = { element, orderLabel, status, namePreview, selectItem, addItem, id: values.id || 0,
             selectedItem: values.item ? { id: values.item } : undefined, locked: !!values.locked, ...inputs };
         remove.addEventListener('click', () => {
             element.remove();
@@ -194,6 +221,26 @@ if (boqForm) {
         inputs.name.addEventListener('input', () => {
             row.selectedItem = undefined;
             sync();
+        });
+        handle.addEventListener('keydown', (event) => {
+            if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+            event.preventDefault();
+            moveRow(row, rows.indexOf(row) + (event.key === 'ArrowUp' ? -1 : 1));
+            handle.focus();
+        });
+        handle.addEventListener('dragstart', (event) => {
+            draggedRow = row;
+            event.dataTransfer.setData('text/plain', 'BOQ row');
+            event.dataTransfer.effectAllowed = 'move';
+        });
+        handle.addEventListener('dragend', () => { draggedRow = undefined; });
+        element.addEventListener('dragover', (event) => {
+            if (draggedRow) event.preventDefault();
+        });
+        element.addEventListener('drop', (event) => {
+            if (!draggedRow) return;
+            event.preventDefault();
+            moveRow(draggedRow, rows.indexOf(row));
         });
         rows.splice(index, 0, row);
         return row;
