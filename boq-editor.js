@@ -9,34 +9,27 @@ if (boqForm) {
     const payload = boqForm.querySelector('input[name="boq_lines"]');
     const normalize = (value) => String(value).trim().replace(/\s+/gu, ' ').toLowerCase();
     const byName = new Map();
-    const byLabel = new Map();
-    const labelsById = new Map();
+    const byId = new Map();
     data.items.forEach((item) => {
         const key = normalize(item.name);
         if (!byName.has(key)) byName.set(key, []);
         byName.get(key).push(item);
+        byId.set(item.id, item);
     });
     const options = document.createDocumentFragment();
     for (const entries of byName.values()) {
-        entries.forEach((item) => {
-            const label = entries.length === 1 ? item.name : item.name + ' — ' + item.category + ' / ' + item.type + ' (#' + item.id + ')';
-            byLabel.set(normalize(label), item);
-            labelsById.set(item.id, label);
-            options.append(new Option(label, label));
-        });
+        const name = entries[0].name;
+        options.append(new Option(name, name));
     }
     list.append(options);
 
     let rows = [];
     let uploading = false;
 
-    function match(name) {
-        return byLabel.get(normalize(name));
-    }
-
     function itemForRow(row) {
-        if (row.id && row.name.value === row.initialName) return { id: row.initialItem };
-        return match(row.name.value);
+        if (row.selectedItem) return row.selectedItem;
+        const entries = byName.get(normalize(row.name.value)) || [];
+        return entries.length === 1 ? entries[0] : undefined;
     }
 
     function sync() {
@@ -61,7 +54,7 @@ if (boqForm) {
         const element = table.insertRow();
         const number = element.insertCell();
         const inputs = {};
-        const initialName = labelsById.get(values.item) || values.name || '';
+        const initialName = byId.get(values.item)?.name || values.name || '';
         for (const [key, title] of [['name', 'Item Name'], ['qty', 'Quantity'], ['unit', 'Unit']]) {
             const input = document.createElement('input');
             input.type = key === 'qty' ? 'number' : 'text';
@@ -90,8 +83,43 @@ if (boqForm) {
         selectItem.type = 'button';
         selectItem.textContent = 'Select Item';
         selectItem.addEventListener('click', () => {
-            inputs.name.focus();
-            inputs.name.select();
+            const entries = byName.get(normalize(inputs.name.value));
+            if (!entries) {
+                inputs.name.focus();
+                inputs.name.select();
+                return;
+            }
+            const dialog = document.createElement('dialog');
+            dialog.className = 'frontier-indent-dialog';
+            dialog.setAttribute('aria-label', 'Select Item');
+            const heading = document.createElement('h2');
+            heading.textContent = 'Select Item';
+            dialog.append(heading);
+            for (const item of entries) {
+                const line = document.createElement('p');
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'button';
+                option.textContent = item.name + ' (Item ID ' + item.id + ')';
+                option.addEventListener('click', () => {
+                    row.selectedItem = item;
+                    inputs.name.value = item.name;
+                    dialog.close();
+                    sync();
+                    inputs.name.focus();
+                });
+                line.append(option);
+                dialog.append(line);
+            }
+            const back = document.createElement('button');
+            back.type = 'button';
+            back.className = 'button';
+            back.textContent = 'Back';
+            back.addEventListener('click', () => dialog.close());
+            dialog.append(back);
+            dialog.addEventListener('close', () => dialog.remove(), { once: true });
+            boqForm.append(dialog);
+            dialog.showModal();
         });
         actions.append(selectItem);
         const remove = document.createElement('button');
@@ -105,13 +133,16 @@ if (boqForm) {
             actions.append(' ', remove);
         }
         const row = { element, number, status, selectItem, id: values.id || 0,
-            initialName, initialItem: values.item || 0, locked: !!values.locked, ...inputs };
+            selectedItem: values.item ? { id: values.item } : undefined, locked: !!values.locked, ...inputs };
         remove.addEventListener('click', () => {
             element.remove();
             rows = rows.filter((entry) => entry !== row);
             sync();
         });
-        inputs.name.addEventListener('input', sync);
+        inputs.name.addEventListener('input', () => {
+            row.selectedItem = undefined;
+            sync();
+        });
         rows.push(row);
     }
 
