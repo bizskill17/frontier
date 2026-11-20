@@ -141,6 +141,19 @@
     loadSite();
 })();
 
+document.addEventListener('input', (event) => {
+    const field = event.target;
+    if (!field.matches('[name="approval_status"], [name="approval_remarks"]')) return;
+    const dialog = field.closest('.frontier-indent-dialog');
+    if (!dialog) return;
+
+    const rejected = dialog.querySelector('[name="approval_status"][value="rejected"]').checked;
+    const remarks = dialog.querySelector('[name="approval_remarks"]');
+    remarks.required = rejected;
+    remarks.setCustomValidity(rejected && !remarks.value.trim() ? 'Enter remarks when rejecting an indent.' : '');
+    dialog.querySelector('[data-indent-remarks-required]').hidden = !rejected;
+});
+
 document.addEventListener('click', (event) => {
     const dialog = event.target.closest('.frontier-indent-dialog');
     if (dialog) {

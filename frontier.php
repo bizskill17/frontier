@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.166
+ * Version: 1.9.167
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -839,7 +839,7 @@ CSS
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.154',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.9.155');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.151',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
             wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.151');
@@ -4827,7 +4827,7 @@ HTML;
         }
         echo '</div></fieldset>';
         echo '<p><label>Update By <input readonly value="'.esc_attr(wp_get_current_user()->display_name).'"></label></p>';
-        echo '<p><label>Remarks <textarea name="approval_remarks" rows="3" maxlength="2000"></textarea></label></p>';
+        echo '<p><label><span>Remarks <span class="frontier-required" data-indent-remarks-required hidden aria-hidden="true">*</span></span><textarea name="approval_remarks" rows="3" maxlength="2000"></textarea></label></p>';
         echo '<div class="frontier-indent-dialog-actions"><button type="button" class="button" data-indent-close>Cancel</button>';
         self::submitButton('Save Update',true);
         echo '</div></form></dialog>';
@@ -6241,6 +6241,7 @@ HTML;
         $status = self::input('approval_status');
         $remarks = self::input('approval_remarks');
         self::requireRule(in_array($status,['approved','rejected'],true),'Choose Approved or Rejected.');
+        self::requireRule($status !== 'rejected' || trim($remarks) !== '','Enter remarks when rejecting an indent.');
         self::requireRule(strlen($remarks) <= 2000,'Enter remarks of up to 2,000 bytes.');
         $actor = wp_get_current_user()->display_name;
         $time = current_time('mysql');
