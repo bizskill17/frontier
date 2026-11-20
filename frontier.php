@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.105
+ * Version: 1.9.106
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3792,7 +3792,6 @@ HTML;
         ];
         $orders = [];
         $quotes = [];
-        $past = self::lastIssuedPurchase($rows,$boq,$id);
         $already = 0;
         $selected = null;
         foreach ($rows as $record) {
@@ -3814,6 +3813,7 @@ HTML;
                 $already += $recordData['qty'];
             }
         }
+        $past = $quotes ? self::lastIssuedPurchase($rows,$boq,$id) : [];
         $received = 0;
         foreach ($rows as $record) {
             $po = $record['data']['po'] ?? 0;
