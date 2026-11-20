@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.127
+ * Version: 1.9.128
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1456,6 +1456,10 @@ CSS
         if ($kind === 'settings' && isset($_GET['transactions_cleared']) && current_user_can('manage_options')) {
             echo '<div class="notice notice-success" role="status"><p>Transaction data cleared.</p></div>';
         }
+        if ($kind === 'item' && isset($_GET['duplicates_removed']) && self::can('item')) {
+            echo '<div class="notice notice-success" role="status"><p>'
+                .esc_html(sprintf('%d duplicate item records removed.',absint($_GET['duplicates_removed']))).'</p></div>';
+        }
         if (isset($_GET['saved']) || isset($_GET['deleted'])) {
             $message = isset($_GET['deleted']) ? 'Record deleted.' : 'Saved.';
             echo '<div class="notice notice-success" role="status"><p>'.esc_html($message).'</p></div>';
@@ -1590,6 +1594,9 @@ CSS
             $addUrl = add_query_arg('add',1,self::url($formScreen));
             if (isset(self::IMPORT_TEMPLATES[$kind])) {
                 self::templateControls($kind,$addUrl);
+                if ($kind === 'item') {
+                    self::duplicateItemControls($rows);
+                }
             } else {
                 echo '<p><a class="button frontier-add" href="'.esc_url($addUrl).'">Add</a>';
                 echo '</p>';
@@ -3026,6 +3033,49 @@ HTML;
             }
         }
         return $last;
+    }
+
+    private static function removableDuplicateItems($rows) {
+        $linked = [];
+        $groups = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'boq' && !empty($row['data']['item_id'])) {
+                $linked[(int)$row['data']['item_id']] = true;
+            } elseif ($row['kind'] === 'item') {
+                $groups[self::itemNameKey($row['data']['name'])][] = (int)$row['id'];
+            }
+        }
+        $duplicates = [];
+        foreach ($groups as $ids) {
+            if (count($ids) < 2) {
+                continue;
+            }
+            $keep = array_filter($ids,static function ($id) use ($linked) {
+                return isset($linked[$id]);
+            });
+            if (!$keep) {
+                $keep = [min($ids)];
+            }
+            array_push($duplicates,...array_diff($ids,$keep));
+        }
+        sort($duplicates,SORT_NUMERIC);
+        return $duplicates;
+    }
+
+    private static function duplicateItemControls($rows) {
+        $duplicates = self::removableDuplicateItems($rows);
+        if (!$duplicates) {
+            return;
+        }
+        echo '<p><button type="button" class="button" onclick="this.closest(\'p\').nextElementSibling.showModal()">Clear Duplicates</button></p>';
+        echo '<dialog class="frontier-indent-dialog" aria-labelledby="frontier-clear-duplicates-title">';
+        echo '<h2 id="frontier-clear-duplicates-title">Clear Duplicate Items</h2>';
+        echo '<p>'.esc_html(sprintf('Delete %d duplicate records? Items linked to BOQs are kept. For each name with no BOQ link, the oldest item is kept.',count($duplicates))).'</p>';
+        self::formStart('item','clear_item_duplicates');
+        echo '<input type="hidden" name="duplicate_plan" value="'.esc_attr(hash('sha256',implode(',',$duplicates))).'">';
+        echo '<div class="frontier-indent-dialog-actions"><button type="button" class="button" onclick="this.closest(\'dialog\').close()" autofocus>Back</button>';
+        echo '<button type="submit" class="button button-primary" style="background:#b42318;border-color:#b42318">Confirm Delete</button>';
+        echo '</div></form></dialog>';
     }
 
     private static function itemNameKey($name) {
@@ -5837,7 +5887,7 @@ HTML;
         try {
             $rows = self::rows();
             if (($kind === 'employee' && in_array($action,['create','edit','import'],true))
-                || ($kind === 'item' && $action === 'import_items')
+                || ($kind === 'item' && in_array($action,['import_items','clear_item_duplicates'],true))
                 || ($kind === 'match' && $action === 'link_po_invoice')
                 || ($kind === 'grn' && in_array($action,['create','create_goods_receipt','approve_grn'],true))
                 || ($kind === 'po' && in_array($action,['create_purchase_orders','issue','delete','cancel_po'],true))
@@ -5850,7 +5900,18 @@ HTML;
                 }
                 $transaction = true;
             }
-            if ($kind === 'quote' && in_array($action,['delete_quotation_comparison','undo_supplier_selection'],true)) {
+            if ($kind === 'item' && $action === 'clear_item_duplicates') {
+                $duplicates = self::removableDuplicateItems($rows);
+                self::requireRule(hash_equals(hash('sha256',implode(',',$duplicates)),self::input('duplicate_plan')),
+                    'The duplicate records changed. Reload Item Master before confirming.');
+                foreach ($duplicates as $id) {
+                    if ($wpdb->delete(self::table(),['id'=>$id,'kind'=>'item']) !== 1) {
+                        throw new RuntimeException('Duplicate items could not be cleared.');
+                    }
+                }
+                $duplicatesRemoved = count($duplicates);
+                $result = true;
+            } elseif ($kind === 'quote' && in_array($action,['delete_quotation_comparison','undo_supplier_selection'],true)) {
                 $indentId = absint(self::input('id'));
                 $selection = $action === 'undo_supplier_selection';
                 self::requireRule(self::canChangeSupplierRegister($rows,$indentId,$selection),'This item can no longer be changed.');
@@ -6025,6 +6086,9 @@ HTML;
             $destination = 'choose_master';
         }
         $query = $imported === null ? [in_array($action,['delete_master','delete_boq','delete_quotation_comparison'],true) ? 'deleted' : 'saved'=>1] : ['imported'=>$imported];
+        if (isset($duplicatesRemoved)) {
+            $query = ['duplicates_removed'=>$duplicatesRemoved];
+        }
         if ($kind === 'indent' && isset($row) && ($screen === 'indent_items' || $action === 'edit')) {
             $destination = 'indent_items';
             $query['indent_group'] = self::indentGroup($row);
