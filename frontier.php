@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.213
+ * Version: 1.9.214
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -28,7 +28,6 @@ final class Frontier {
         'Purchase Order' => ['pending_po'=>'Pending Purchase Order', 'po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items'],
         'Goods Receipt' => ['pending_grn'=>'Pending Goods Receipt', 'grn_form'=>'Goods Receipt Form', 'grn'=>'Goods Receipt Notes', 'grn_items'=>'Goods Receipt Items', 'grn_slip'=>'Upload GRN Slip'],
         'Invoice' => ['invoice'=>'Upload Invoice', 'match'=>'Link PO Items With Invoice', 'po_invoice_master'=>'PO Item Invoice Master'],
-        'Training' => ['training'=>'Workflow Guide'],
         'Reports' => ['site_report'=>'Sitewise Report','indent_tracker'=>'Indent Tracker'],
     ];
 
@@ -77,9 +76,8 @@ final class Frontier {
         'invoice'=>['supplier'=>'Supplier Name', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.9.211';
+    private const PAGE_VERSION = '1.9.214';
     private const PAGE_SLUGS = [
-        'training'=>'training',
         'settings'=>'settings', 'site_report'=>'sitewise-report', 'indent_tracker'=>'indent-tracker',
         'pending_indent'=>'pending-approve-indent', 'pending_quote'=>'pending-supplier-quotation',
         'pending_choose'=>'pending-choose-supplier', 'pending_po'=>'pending-purchase-order',
@@ -247,6 +245,16 @@ final class Frontier {
         }
         $pages = (array)get_option('frontier_pages', []);
         $ready = true;
+        $trainingPage = absint($pages['training'] ?? 0);
+        if ($trainingPage && get_post_type($trainingPage) === 'page'
+            && get_post_meta($trainingPage,'_frontier_view',true) === 'training'
+            && get_post_status($trainingPage) !== 'trash') {
+            $ready = EMPTY_TRASH_DAYS ? (bool)wp_trash_post($trainingPage)
+                : (bool)wp_update_post(['ID'=>$trainingPage,'post_status'=>'draft']);
+        }
+        if ($ready) {
+            unset($pages['training']);
+        }
         foreach (self::views() as $kind=>$title) {
             if ($kind !== 'home' && empty($pages['home'])) {
                 $ready = false;
@@ -684,7 +692,6 @@ body.frontier-workspace {
 .frontier-sidebar .frontier-section-invoice { --frontier-section-bg: #f6dbe9; }
 .frontier-sidebar .frontier-section-reports { --frontier-section-bg: #dbebf3; }
 .frontier-sidebar .frontier-section-master { --frontier-section-bg: #dce1ff; }
-.frontier-sidebar .frontier-section-training { --frontier-section-bg: #e4efdf; }
 .frontier-sidebar ul {
     margin-inline-end: 4px;
     border-left-color: #91a4ba;
@@ -798,32 +805,6 @@ body.frontier-workspace {
         --frontier-menu-icon: '↪';
     }
 }
-
-.frontier-training-index,
-.frontier-training-step {
-    background: #fff;
-    border: 1px solid #cbd6e4;
-    border-radius: 8px;
-    margin-bottom: 14px;
-    padding: 16px 20px;
-    scroll-margin-top: 90px;
-}
-.frontier-training-index h2,
-.frontier-training-step h2 { margin: 0 0 8px; color: #17345c; }
-.frontier-training-index ol { margin-bottom: 0; padding-inline-start: 24px; }
-.frontier-training-index li + li { margin-top: 4px; }
-.frontier-training-step h3 { margin: 12px 0 4px; font-size: 1em; }
-.frontier-training-step p { margin: 0 0 8px; }
-.frontier-training-example {
-    background: #edf4fc;
-    border-inline-start: 3px solid #557da9;
-    border-radius: 4px;
-    margin: 12px 0;
-    padding: 10px 12px;
-}
-.frontier-training-example h3,
-.frontier-training-example p { margin-block: 0 4px; }
-.frontier-training-step .frontier-row-actions { flex-wrap: wrap; }
 
 .frontier-sidebar a.frontier-sidebar-signout {
     background: #b42318;
@@ -1614,9 +1595,8 @@ JS
         echo '<a class="frontier-sidebar-brand" href="'.esc_url(self::url('home')).'">'.esc_html($brand).'</a></div>';
         self::workspaceNavigationLink('home','Dashboard',$current);
         $groups = self::GROUPS;
-        unset($groups['Master'],$groups['Training']);
+        unset($groups['Master']);
         $groups['Master'] = self::GROUPS['Master'];
-        $groups['Training'] = self::GROUPS['Training'];
         foreach ($groups as $group=>$views) {
             $visible = array_filter($views,[self::class,'canView'],ARRAY_FILTER_USE_KEY);
             if (!$visible) {
@@ -1673,7 +1653,7 @@ JS
                 if (($access['status'] ?? '') === 'inactive') {
                     return false;
                 }
-                return isset(self::views()[$kind]) && (in_array($kind,['home','training'],true) || $access['role'] === 'admin'
+                return isset(self::views()[$kind]) && ($kind === 'home' || $access['role'] === 'admin'
                     || in_array($kind,$access['views'] ?? [],true));
             }
         }
@@ -1859,66 +1839,6 @@ JS
         self::render(isset(self::views()[$kind]) ? $kind : 'home');
     }
 
-    private static function renderTraining() {
-        $steps = [
-            ['Set up the site','Site administrator',
-                'Add the project in Site Master. Check that the required items, suppliers, and employees are available in their masters.',
-                'The site and master records are available in procurement forms.',
-                'Add Riverside Site and check that 2 in Bib Cock is listed in Item Master in boxes.',
-                ['site'=>'Site Master','item'=>'Item Master','supplier'=>'Supplier Master','employee'=>'Employee Master']],
-            ['Create the BOQ','BOQ preparer',
-                'Choose the site and enter each material, its unit, and the total quantity planned for the project. Save the BOQ.',
-                'The site team can select the planned items when raising an indent.',
-                'Plan 150 boxes of 2 in Bib Cock for Riverside Site.',
-                ['boq_form'=>'Create BOQ']],
-            ['Raise and approve an indent','Site requester and approver',
-                'Select the site and BOQ items, enter the quantity needed now, and submit. The approver reviews the request and either approves it or rejects it with remarks.',
-                'Approved items become available for supplier quotations.',
-                'The site requests 50 of the 150 planned boxes. The approver approves the 50-box request.',
-                ['indent'=>'Indents Form','pending_indent'=>'Pending Approve Indent']],
-            ['Record supplier quotations','Purchase team',
-                'Open the approved indent and enter the supplier names and quoted rates for each item. Record up to three suppliers per item and save.',
-                'The rates are available for comparison in Choose Supplier.',
-                'Supplier A quotes ₹340 per box, Supplier B ₹350, and Supplier C ₹360.',
-                ['pending_quote'=>'Pending Supplier Quotation']],
-            ['Choose a supplier','Purchase team',
-                'Compare the quotations and save the chosen supplier and rate for each item. You can choose different suppliers for different items on the same indent.',
-                'The selected items are available for purchase ordering at the saved rates.',
-                'Choose Supplier A at ₹340 per box after confirming the delivery timing.',
-                ['pending_choose'=>'Pending Choose Supplier']],
-            ['Create the purchase order','Purchase team',
-                'Enter the quantity to order and generate the PO PDF. Split the requirement across POs if needed. An authorised user can cancel an outstanding quantity from Purchase Orders Items.',
-                'The PO quantity is tracked for receipt, and any remaining requirement stays available to order.',
-                'Create two POs for 25 boxes each. Each PO has a line amount of ₹8,500 before applicable charges.',
-                ['po_form'=>'Create Purchase Order','po'=>'Purchase Orders','po_items'=>'Purchase Orders Items']],
-            ['Record the goods receipt','Receiving team',
-                'Select the PO, enter the quantity that arrived, and save the GRN. Upload the GRN slip separately when available.',
-                'Saving the GRN records the receipt immediately and reduces the pending receipt quantity.',
-                'Receive 20 boxes against the first PO. Five boxes remain pending on that PO, and 25 remain pending on the second.',
-                ['grn_form'=>'Goods Receipt Form','grn_slip'=>'Upload GRN Slip']],
-        ];
-        echo '<nav class="frontier-training-index" aria-label="SOP contents"><h2>Procurement SOP</h2><ol>';
-        foreach ($steps as $index=>[$title]) {
-            echo '<li><a href="#frontier-sop-'.($index+1).'">'.esc_html($title).'</a></li>';
-        }
-        echo '</ol></nav>';
-        foreach ($steps as $index=>[$title,$role,$action,$result,$example,$links]) {
-            echo '<section class="frontier-training-step" id="frontier-sop-'.($index+1).'">';
-            echo '<h2>'.($index+1).'. '.esc_html($title).'</h2>';
-            echo '<p><strong>Who</strong> · '.esc_html($role).'</p>';
-            echo '<h3>What to do</h3><p>'.esc_html($action).'</p>';
-            echo '<h3>Expected result</h3><p>'.esc_html($result).'</p>';
-            echo '<div class="frontier-training-example"><h3>Example</h3><p>'.esc_html($example).'</p></div>';
-            echo '<div class="frontier-row-actions">';
-            foreach ($links as $view=>$label) {
-                if (self::canView($view)) {
-                    echo '<a class="button" href="'.esc_url(self::url($view)).'">'.esc_html($label).'</a>';
-                }
-            }
-            echo '</div></section>';
-        }
-    }
-
     private static function render($kind,$rows=null,$counts=null) {
         if (!self::canView($kind)) {
             wp_die('Access denied.', '', ['response'=>403]);
@@ -1927,11 +1847,6 @@ JS
         echo '<div class="wrap frontier-pages">';
         if (!self::$front) {
             echo '<h1>'.esc_html($tabs[$kind]).'</h1>';
-        }
-        if ($kind === 'training') {
-            self::renderTraining();
-            echo '</div>';
-            return;
         }
         if ($kind === 'home') {
             if (!self::$front && ($frontUrl = self::frontUrl('home'))) {
@@ -4664,7 +4579,7 @@ HTML;
         $access = self::assignedViewAccess(absint($data['wp_user_id'] ?? 0));
         echo '<section data-frontier-view-access'.(($access['role'] ?? '') === 'admin' ? ' hidden' : '').'><h2>View Access</h2>';
         echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;margin-bottom:16px">';
-        foreach (array_diff_key(self::GROUPS,['Training'=>true]) as $group=>$views) {
+        foreach (self::GROUPS as $group=>$views) {
             echo '<fieldset style="min-width:0;border:1px solid #cbd6e4;border-radius:8px;padding:10px"><legend>'.esc_html($group).'</legend>';
             echo '<div class="frontier-row-actions">';
             echo '<button type="button" class="button" data-view-bulk="select" aria-label="'.esc_attr('Select all '.$group.' views').'">Select all</button>';
