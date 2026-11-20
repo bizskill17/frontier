@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.136
+ * Version: 1.9.137
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3904,7 +3904,9 @@ HTML;
             echo '<input type="hidden" name="site" value="'.esc_attr($siteId).'"><p><label>Site Number with Name <input readonly value="';
             echo esc_attr(self::siteNumberWithName($rows[$siteId]['data'] ?? [])).'"></label></p>';
         } else {
-            self::field($rows,'boq','site','Site Number with Name',$header['site'] ?? '');
+            $occupied = self::boqSites($rows);
+            unset($occupied[$header['site'] ?? 0]);
+            self::field(array_diff_key($rows,$occupied),'boq','site','Site Number with Name',$header['site'] ?? '');
         }
         self::field($rows,'boq','employee','Prepared By',$header['prepared_by'] ?? '');
         echo '</div>';
@@ -4014,6 +4016,16 @@ HTML;
         return array_values(array_unique($units));
     }
 
+    private static function boqSites($rows) {
+        $sites = [];
+        foreach ($rows as $row) {
+            if ($row['kind'] === 'boq') {
+                $sites[(int)($row['data']['site'] ?? 0)] = true;
+            }
+        }
+        return $sites;
+    }
+
     private static function saveBoq($rows,$id=0) {
         global $wpdb;
         $existing = $id ? self::boqLines($rows,$id) : [];
@@ -4045,6 +4057,8 @@ HTML;
             }
             $last = max($last,(int)($row['data']['boq_number'] ?? 0));
         }
+        self::requireRule(($id && (int)$site['id'] === (int)($previous['site'] ?? 0))
+            || !isset(self::boqSites($rows)[$site['id']]),'This site already has a BOQ. Edit the existing BOQ from the BOQ register.');
         $header = ['site'=>(int)$site['id'],'prepared_by'=>(int)$employee['id'],'prepared_name'=>$employee['data']['name'],
             'group_id'=>$site['data']['telegram'] ?? '', 'boq_date'=>$dateText,'boq_number'=>$previous['boq_number'] ?? self::nextNumber('boq',$last),
             'boq_token'=>$previous['boq_token'] ?? $token,'boq_timestamp'=>$id ? ($previous['boq_timestamp'] ?? '') : current_time('mysql')];
