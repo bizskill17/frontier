@@ -29,13 +29,10 @@ function enhanceDropdown(select) {
     list.hidden = true;
     input.setAttribute('aria-controls', list.id);
 
-    const searchIcon = document.createElement('span');
-    searchIcon.className = 'frontier-combobox-search';
-    searchIcon.setAttribute('aria-hidden', 'true');
     const arrow = document.createElement('span');
     arrow.className = 'frontier-combobox-arrow';
     arrow.setAttribute('aria-hidden', 'true');
-    root.append(input, searchIcon, arrow, list);
+    root.append(input, arrow, list);
     const wrap = select.hasAttribute('data-dropdown-wrap');
     const selection = document.createElement('span');
     if (wrap) {
