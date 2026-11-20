@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.152
+ * Version: 1.9.153
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -556,7 +556,7 @@ body.frontier-workspace {
         border-radius: 10px;
         background: #f3f7fc;
     }
-    .frontier-pages .frontier-main form.frontier-indent-form :where(.frontier-table) tbody td {
+    .frontier-main .frontier-pages form.frontier-indent-form .frontier-table tbody td {
         display: block;
         min-width: 0;
         border: 0;
@@ -566,16 +566,16 @@ body.frontier-workspace {
     .frontier-indent-form .frontier-indent-mobile-label { display: block; font-weight: 650; }
     .frontier-main .frontier-indent-form .frontier-indent-date,
     .frontier-main .frontier-indent-form .frontier-indent-toolbar,
-    .frontier-pages .frontier-main form.frontier-indent-form tbody td.frontier-indent-number,
-    .frontier-pages .frontier-main form.frontier-indent-form tbody td.frontier-indent-unit,
-    .frontier-pages .frontier-main form.frontier-indent-form tr:not(.frontier-indent-selected) td:is(.frontier-indent-detail,.frontier-indent-qty,:last-child):not(:nth-child(2)) { display: none; }
+    .frontier-main .frontier-pages form.frontier-indent-form .frontier-table tbody td.frontier-indent-number,
+    .frontier-main .frontier-pages form.frontier-indent-form .frontier-table tbody td.frontier-indent-unit,
+    .frontier-main .frontier-pages form.frontier-indent-form .frontier-table tbody tr:not(.frontier-indent-selected) > td:is(.frontier-indent-detail,.frontier-indent-qty,:last-child) { display: none; }
     .frontier-indent-form tbody td:nth-child(2),
     .frontier-indent-form tbody td:nth-child(n+8) { grid-column: 1 / -1; }
     .frontier-main .frontier-indent-form .frontier-indent-detail { line-height: 1.25; }
     .frontier-indent-form .frontier-indent-detail .frontier-indent-mobile-label { font-size: .8rem; font-weight: 500; }
     .frontier-indent-form .frontier-indent-detail > :last-child { font-size: 1rem; font-weight: 700; }
     .frontier-indent-form .frontier-indent-detail:nth-child(7) > :last-child { color: #164f8a; }
-    .frontier-pages .frontier-main form.frontier-indent-form tbody td.frontier-indent-qty {
+    .frontier-main .frontier-pages form.frontier-indent-form .frontier-table tbody td.frontier-indent-qty {
         display: grid;
         grid-template-columns: auto minmax(0,1fr) auto;
         align-items: center;
