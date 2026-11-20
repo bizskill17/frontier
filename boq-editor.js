@@ -49,7 +49,13 @@ if (boqForm) {
             if (ambiguous && !row.locked) row.status.append(' ', row.selectItem);
             if (row.locked) row.status.textContent = 'Used in indent';
             row.status.classList.toggle('frontier-boq-matched', !!item);
-            if (!item || !row.unit.value) unresolved++;
+            const quantityValid = /^\d{1,10}(?:\.\d{1,3})?$/.test(row.qty.value) && Number(row.qty.value) > 0;
+            const fields = [[row.name, !!item], [row.qty, quantityValid], [row.unit, !!row.unit.value]];
+            for (const [field, valid] of fields) {
+                field.closest('td').classList.toggle('frontier-boq-invalid', !valid);
+                field.setAttribute('aria-invalid', String(!valid));
+            }
+            if (fields.some(([, valid]) => !valid)) unresolved++;
         });
         save.disabled = uploading || !rows.length || unresolved > 0;
         message.textContent = '';
@@ -175,6 +181,7 @@ if (boqForm) {
             rows = rows.filter((entry) => entry !== row);
             sync();
         });
+        inputs.qty.addEventListener('input', sync);
         inputs.unit.addEventListener('change', sync);
         inputs.name.addEventListener('input', () => {
             row.selectedItem = undefined;
