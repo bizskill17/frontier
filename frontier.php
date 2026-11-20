@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.155
+ * Version: 1.9.156
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -22,7 +22,7 @@ final class Frontier {
     private const GROUPS = [
         'Master' => self::MASTERS + ['site'=>'Site Master','settings'=>'Settings'],
         'BOQ' => ['boq_form'=>'Create BOQ', 'boq'=>'BOQ', 'boq_items'=>'BOQ Item Master'],
-        'Indent' => ['pending_indent'=>'Pending Approve Indent', 'indent'=>'Indents Form', 'indent_master'=>'Indent Master', 'indent_items'=>'Indents Item Master'],
+        'Indent' => ['indent'=>'Indents Form', 'pending_indent'=>'Pending Approve Indent', 'indent_master'=>'Indent Master', 'indent_items'=>'Indents Item Master'],
         'Supplier Quotation' => ['pending_quote'=>'Pending Supplier Quotation', 'quote_form'=>'Supplier Quotation Form', 'quote'=>'Supplier Quotation Master'],
         'Choose Supplier' => ['pending_choose'=>'Pending Choose Supplier', 'choose_form'=>'Choose Supplier Form', 'choose_master'=>'Choose Supplier Master'],
         'Purchase Order' => ['pending_po'=>'Pending Purchase Order', 'po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items'],
