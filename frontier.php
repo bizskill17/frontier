@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.125
+ * Version: 1.9.126
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,6 +445,9 @@ final class Frontier {
         remove_action('wp_head', '_admin_bar_bump_cb');
         wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.93');
         wp_add_inline_style('frontier-pages', <<<'CSS'
+.frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
+    background: #ffdfb3;
+}
 .frontier-topbar {
     position: sticky;
     top: 0;
@@ -1979,10 +1982,10 @@ CSS
             $url = add_query_arg('frontier_search',$search,$url);
         }
         $sort = $field === $active ? ($direction === 'asc' ? 'ascending' : 'descending') : '';
-        $indicator = $sort === 'ascending' ? ' ↑' : ($sort === 'descending' ? ' ↓' : ' ↕');
+        $indicator = $sort === 'ascending' ? ' ↑' : ($sort === 'descending' ? ' ↓' : '');
         echo '<th scope="col"'.($sort !== '' ? ' aria-sort="'.$sort.'"' : '').'>';
         echo '<a href="'.esc_url($url).'" aria-label="'.esc_attr('Sort by '.$label.' '.($next === 'asc' ? 'ascending' : 'descending')).'">';
-        echo self::tableHeading($label).'<span aria-hidden="true">'.$indicator.'</span></a></th>';
+        echo self::tableHeading($label).($indicator !== '' ? '<span aria-hidden="true">'.$indicator.'</span>' : '').'</a></th>';
     }
 
     private static function pagedRows($rows,$columns,$values) {
@@ -2394,9 +2397,19 @@ HTML;
             echo '<th scope="col"'.$actionClass.'>Actions</th>';
         }
         echo '</tr></thead><tbody>';
+        $itemNameCounts = [];
+        if (self::$screen === 'item') {
+            foreach ($rows as $record) {
+                if ($record['kind'] === 'item') {
+                    $key = self::itemNameKey($record['data']['name']);
+                    $itemNameCounts[$key] = ($itemNameCounts[$key] ?? 0) + 1;
+                }
+            }
+        }
         foreach ($pageRows as $row) {
             [$values,$status] = $rowValues($row);
-            echo '<tr>';
+            $duplicate = self::$screen === 'item' && ($itemNameCounts[self::itemNameKey($row['data']['name'])] ?? 0) > 1;
+            echo $duplicate ? '<tr class="frontier-duplicate-item">' : '<tr>';
             foreach ($fields as $field=>$label) {
                 echo '<td'.($stageClasses[$field] ?? '').'>';
                 if ($field === 'grn_pdf' || ($field === 'pdf' && $poRegister)) {
