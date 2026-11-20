@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.126
+ * Version: 1.9.127
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1982,10 +1982,9 @@ CSS
             $url = add_query_arg('frontier_search',$search,$url);
         }
         $sort = $field === $active ? ($direction === 'asc' ? 'ascending' : 'descending') : '';
-        $indicator = $sort === 'ascending' ? ' ↑' : ($sort === 'descending' ? ' ↓' : '');
         echo '<th scope="col"'.($sort !== '' ? ' aria-sort="'.$sort.'"' : '').'>';
         echo '<a href="'.esc_url($url).'" aria-label="'.esc_attr('Sort by '.$label.' '.($next === 'asc' ? 'ascending' : 'descending')).'">';
-        echo self::tableHeading($label).($indicator !== '' ? '<span aria-hidden="true">'.$indicator.'</span>' : '').'</a></th>';
+        echo self::tableHeading($label).'</a></th>';
     }
 
     private static function pagedRows($rows,$columns,$values) {
