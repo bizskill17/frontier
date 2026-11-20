@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.203
+ * Version: 1.9.204
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,7 +445,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.203');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.204');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -921,7 +921,7 @@ JS
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.203');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.204');
         }
     }
 
@@ -2186,15 +2186,24 @@ JS
 
         $timezone = new DateTimeZone('Asia/Kolkata');
         $storedTimezone = wp_timezone();
-        $dateInput = self::tableQuery('activity_date');
-        $day = DateTimeImmutable::createFromFormat('!d/m/Y',$dateInput,$timezone);
-        if (!$day || $day->format('d/m/Y') !== $dateInput) {
-            if ($dateInput !== '') {
-                wp_die('Enter a valid date in dd/mm/yyyy format.','Frontier',['response'=>400,'back_link'=>true]);
+        $today = new DateTimeImmutable('today',$timezone);
+        $legacyInput = self::tableQuery('activity_date');
+        $legacyDay = DateTimeImmutable::createFromFormat('!d/m/Y',$legacyInput,$timezone);
+        $default = $legacyDay && $legacyDay->format('d/m/Y') === $legacyInput ? $legacyDay : $today;
+        $range = [];
+        foreach (['activity_from','activity_to'] as $field) {
+            $input = self::tableQuery($field) ?: $default->format('Y-m-d');
+            $day = DateTimeImmutable::createFromFormat('!Y-m-d',$input,$timezone);
+            if (!$day || $day->format('Y-m-d') !== $input) {
+                wp_die('Select a valid From and To date.','Frontier',['response'=>400,'back_link'=>true]);
             }
-            $day = new DateTimeImmutable('today',$timezone);
+            $range[$field] = $day;
         }
-        $date = $day->format('Y-m-d');
+        $from = $range['activity_from']->format('Y-m-d');
+        $to = $range['activity_to']->format('Y-m-d');
+        if ($from > $to) {
+            wp_die('From date must be on or before To date.','Frontier',['response'=>400,'back_link'=>true]);
+        }
         $site = absint(self::tableQuery('activity_site'));
         $sites = array_filter($rows,static function ($row) { return $row['kind'] === 'site'; });
         uasort($sites,static function ($a,$b) { return strnatcasecmp(self::siteName($a['data']),self::siteName($b['data'])); });
@@ -2202,33 +2211,36 @@ JS
             wp_die('Select a valid site.','Frontier',['response'=>400,'back_link'=>true]);
         }
 
-        $records = self::dailyActivityRecords($rows,$definitions,$date,$site,$timezone,$storedTimezone);
-        $columns = ['Reference','Site Name','Time (IST)','Recorded By'];
+        $records = self::dailyActivityRecords($rows,$definitions,$from,$to,$site,$timezone,$storedTimezone);
+        $columns = ['Reference','Site Name','Date (IST)','Time (IST)','Recorded By'];
         if (self::$exportBuffer !== null) {
             $summary = $details = [];
             foreach ($definitions as $key=>[$label]) {
-                $summary[] = [$day->format('d/m/Y'),$site ? self::siteName($sites[$site]['data']) : 'All sites',$label,count($records[$key])];
+                $summary[] = [$range['activity_from']->format('d/m/Y'),$range['activity_to']->format('d/m/Y'),$site ? self::siteName($sites[$site]['data']) : 'All sites',$label,count($records[$key])];
                 foreach ($records[$key] as $record) {
                     $details[] = array_merge([$label],$record);
                 }
             }
             self::downloadReportWorkbook('',[
-                'Activity Summary'=>[['Date','Site Filter','Activity','Count'],$summary],
+                'Activity Summary'=>[['From Date','To Date','Site Filter','Activity','Count'],$summary],
                 'Activity Details'=>[array_merge(['Activity'],$columns),$details],
-            ],'daily-activity-'.$date.'.xlsx');
+            ],'activity-report-'.$from.($from === $to ? '' : '-to-'.$to).'.xlsx');
         }
 
         $url = self::url('home');
         parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$route);
-        $filters = ['activity_date'=>$day->format('d/m/Y'),'activity_site'=>$site];
+        $filters = ['activity_from'=>$from,'activity_to'=>$to,'activity_site'=>$site];
         $export = add_query_arg($filters + ['action'=>'frontier_table_excel','view'=>'home'],admin_url('admin-post.php'));
         echo '<section class="frontier-daily-activity" aria-labelledby="frontier-activity-heading">';
-        echo '<h2 id="frontier-activity-heading">Daily Activity Report</h2>';
+        echo '<h2 id="frontier-activity-heading">Activity Report</h2>';
         echo '<form method="get" action="'.esc_url(strtok($url,'?')).'" class="frontier-report-site">';
         foreach ($route as $key=>$value) {
             echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
         }
-        echo '<p><label>Date (dd/mm/yyyy)<input type="text" name="activity_date" maxlength="10" pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}" value="'.esc_attr($filters['activity_date']).'" required></label></p>';
+        foreach (['activity_from'=>'From','activity_to'=>'To'] as $field=>$label) {
+            echo '<p><label>'.esc_html($label).'<input type="date" name="'.esc_attr($field).'" value="'
+                .esc_attr($filters[$field]).'" required></label></p>';
+        }
         echo '<p><label>Site<select name="activity_site"><option value="0">All sites</option>';
         foreach ($sites as $id=>$row) {
             echo '<option value="'.esc_attr($id).'"'.selected($site,(int)$id,false).'>'.esc_html(self::siteName($row['data'])).'</option>';
@@ -2271,7 +2283,7 @@ JS
         echo '</section>';
     }
 
-    private static function dailyActivityRecords($rows,$definitions,$date,$site,$timezone,$storedTimezone) {
+    private static function dailyActivityRecords($rows,$definitions,$from,$to,$site,$timezone,$storedTimezone) {
         $records = array_fill_keys(array_keys($definitions),[]);
         $invoiceSites = [];
         if (isset($definitions['invoice'])) {
@@ -2286,8 +2298,8 @@ JS
             }
         }
 
-        $add = static function ($kind,$group,$stamp,$siteIds,$reference,$actor) use (&$records,$rows,$date,$site,$timezone,$storedTimezone) {
-            if (!isset($records[$kind]) || isset($records[$kind][$group]) || !$stamp
+        $add = static function ($kind,$group,$stamp,$siteIds,$reference,$actor) use (&$records,$rows,$from,$to,$site,$timezone,$storedTimezone) {
+            if (!isset($records[$kind]) || !$stamp
                 || ($site && !in_array($site,$siteIds,true))) {
                 return;
             }
@@ -2296,7 +2308,9 @@ JS
                 return;
             }
             $time = $time->setTimezone($timezone);
-            if ($time->format('Y-m-d') !== $date) {
+            $date = $time->format('Y-m-d');
+            $key = $date.'-'.$group;
+            if ($date < $from || $date > $to || isset($records[$kind][$key])) {
                 return;
             }
             $names = [];
@@ -2306,7 +2320,7 @@ JS
                 }
             }
             sort($names,SORT_NATURAL | SORT_FLAG_CASE);
-            $records[$kind][$group] = [$reference,implode(', ',$names),$time->format('H:i:s'),$actor];
+            $records[$kind][$key] = [$reference,implode(', ',$names),$time->format('d/m/Y'),$time->format('H:i:s'),$actor];
         };
         foreach ($rows as $id=>$row) {
             $data = $row['data'];
@@ -2357,7 +2371,9 @@ JS
             }
         }
         foreach ($records as &$group) {
-            uasort($group,static function ($a,$b) { return strcmp($b[2],$a[2]); });
+            uksort($group,static function ($a,$b) use ($group) {
+                return strcmp(substr($b,0,10),substr($a,0,10)) ?: strcmp($group[$b][3],$group[$a][3]);
+            });
         }
         return $records;
     }
