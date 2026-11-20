@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.195
+ * Version: 1.9.196
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2959,7 +2959,7 @@ HTML;
         'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Supplier Finalized','Rate Finalized','Compared By']],
         'po'=>['Purchase Order',['po_items'],['PO No.','PO Date','Indent No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice','PO PDF']],
         'grn'=>['GRN',['grn_items'],['GRN No.','GRN Date','PO No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Pending Before Receipt','Quantity Received','GRN Slip','GRN PDF','Slip Number']],
-        'invoice'=>['Invoice',['po_invoice_master'],['Invoice No.','Invoice Date','PO No.','Item Name','Supplier Name','Quantity Invoiced','Invoice Rate','Allocated Amount','Invoice Copy','Pending for Invoice']],
+        'invoice'=>['Invoice',['po_invoice_master'],['Invoice No.','Invoice Date','PO No.','Item Name','Supplier Name','PO Qty','Supplier Rate','Quantity Invoiced','Invoice Rate','Allocated Amount','Invoice Copy','Pending for Invoice']],
     ];
 
     private static function reportTabs() {
@@ -3167,7 +3167,8 @@ HTML;
                 $rate = (float)($data['rate'] ?? 0);
                 $ref = $order['ref'] ?? '#'.$po;
                 $add('invoice',$boq,[$invoice['data']['ref'] ?? '',self::indentDisplayDate($date),$ref,
-                    $boqs[$boq]['name'],$supplier,$qty,$rate,round($qty*$rate,2),
+                    $boqs[$boq]['name'],$supplier,$order['qty'] ?? '',
+                    $order['rate'] ?? ($rows[$order['quote'] ?? 0]['data']['rate'] ?? ''),$qty,$rate,round($qty*$rate,2),
                     !empty($invoice['filename']) && self::canFile('invoice') ?
                     self::exportLink('Invoice Copy','frontier_file',$invoice['id']) : '',
                     $rows[$po]['status'] === 'cancelled' ? 0 : max(0,round(($order['qty'] ?? 0)
@@ -3402,7 +3403,7 @@ HTML;
                 'supplier3','supplier3','selection','selection','selection'],
             'po'=>['order','order','indent','item','item','selection','order','order','cancel','receipt','receipt','invoice','invoice','document'],
             'grn'=>['receipt','receipt','order','item','item','selection','receipt','order','receipt','receipt','document','document','document'],
-            'invoice'=>['invoice','invoice','order','item','selection','invoice','invoice','invoice','document','invoice'],
+            'invoice'=>['invoice','invoice','order','item','selection','order','selection','invoice','invoice','invoice','document','invoice'],
         ][$tab];
         echo '<div class="frontier-table frontier-site-report-table" data-report-tab="'.esc_attr($tab).'" tabindex="0" role="region" aria-label="'.esc_attr($tabs[$tab][0]).'"><table class="widefat striped"><thead><tr>';
         foreach ($columns as $index=>$column) {
