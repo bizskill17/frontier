@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.178
+ * Version: 1.9.179
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -28,7 +28,7 @@ final class Frontier {
         'Purchase Order' => ['pending_po'=>'Pending Purchase Order', 'po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items'],
         'Goods Receipt' => ['pending_grn'=>'Pending Goods Receipt', 'grn_form'=>'Goods Receipt Form', 'grn'=>'Goods Receipt Notes', 'grn_items'=>'Goods Receipt Items', 'grn_slip'=>'Upload GRN Slip'],
         'Invoice' => ['invoice'=>'Upload Invoice', 'match'=>'Link PO Items With Invoice', 'po_invoice_master'=>'PO Item Invoice Master'],
-        'Reports' => ['site_report'=>'Sitewise Report'],
+        'Reports' => ['site_report'=>'Sitewise Report','indent_tracker'=>'Indent Tracker'],
     ];
 
     // Each screen uses the existing procurement record type and workflow.
@@ -76,9 +76,9 @@ final class Frontier {
         'invoice'=>['supplier'=>'Supplier Name', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.9.174';
+    private const PAGE_VERSION = '1.9.179';
     private const PAGE_SLUGS = [
-        'settings'=>'settings', 'site_report'=>'sitewise-report',
+        'settings'=>'settings', 'site_report'=>'sitewise-report', 'indent_tracker'=>'indent-tracker',
         'pending_indent'=>'pending-approve-indent', 'pending_quote'=>'pending-supplier-quotation',
         'pending_choose'=>'pending-choose-supplier', 'pending_po'=>'pending-purchase-order',
         'pending_grn'=>'pending-goods-receipt',
@@ -1596,6 +1596,9 @@ JS
     }
 
     private static function canView($kind) {
+        if ($kind === 'indent_tracker' && (!self::canView('indent_items') || !self::canView('po_items'))) {
+            return false;
+        }
         $user = wp_get_current_user();
         if (!user_can($user,'manage_options') && user_can($user,'frontier_read')) {
             $access = self::assignedViewAccess($user->ID);
@@ -1858,6 +1861,11 @@ JS
                 self::numberingSettings();
                 self::clearDataSettings();
             }
+            echo '</div>';
+            return;
+        }
+        if ($kind === 'indent_tracker') {
+            self::indentTracker($rows ?? self::rows());
             echo '</div>';
             return;
         }
@@ -2860,6 +2868,76 @@ HTML;
         }
         if (!$total) {
             echo '<tr><td colspan="'.(count($fields)+(int)$showStatus+(int)$showActions).'">No records yet.</td></tr>';
+        }
+        echo '</tbody></table></div>';
+        self::pagination($page,$pages,$total);
+    }
+
+    private static function indentTracker($rows) {
+        $columns = ['Indent Number / Site Name','Indent Date','Item Name','PO NO','PO Date',
+            'Quantity as per BOQ','Quantity Required Now','Order Quantity','Quantity Received',
+            'Pending to Receive GRN','Quantity Canceled','Quantity Invoiced','Pending for Invoice',
+            'Item Category','Item Type'];
+        $orders = $totals = [];
+        $invoiceAccess = self::canView('po_invoice_master');
+        foreach ($rows as $row) {
+            $data = $row['data'];
+            if ($row['kind'] === 'po') {
+                $orders[(int)($data['indent'] ?? 0)][] = $row;
+            } elseif (in_array($row['kind'],['grn','cancel','match'],true)) {
+                $po = (int)($data['po'] ?? ($row['kind'] === 'match' ? ($rows[$data['grn'] ?? 0]['data']['po'] ?? 0) : 0));
+                if (!$po || ($row['kind'] === 'match' && !$invoiceAccess)) {
+                    continue;
+                }
+                $kind = $row['kind'];
+                $qty = (float)($data['qty'] ?? 0);
+                $totals[$po][$kind] = ($totals[$po][$kind] ?? 0) + $qty;
+                if ($kind === 'grn' && $row['status'] === 'approved') {
+                    $totals[$po]['approved'] = ($totals[$po]['approved'] ?? 0) + $qty;
+                }
+            }
+        }
+        $records = [];
+        foreach ($rows as $id=>$row) {
+            if ($row['kind'] !== 'indent') {
+                continue;
+            }
+            $data = $row['data'];
+            $indent = self::supplierIndentDetails($row,$rows);
+            $boq = $rows[$data['boq'] ?? 0]['data'] ?? [];
+            $item = $rows[$boq['item_id'] ?? 0]['data'] ?? [];
+            $category = $rows[$item['category'] ?? 0]['data']['name'] ?? ($boq['item_category'] ?? '');
+            $type = $rows[$item['item_type'] ?? 0]['data']['name'] ?? '';
+            $reference = trim($indent['indent_number'].($indent['site_name'] !== '' ? ' · '.$indent['site_name'] : ''));
+            foreach ($orders[$id] ?? [null] as $po) {
+                $order = $po['data'] ?? [];
+                $summary = $totals[$po['id'] ?? 0] ?? [];
+                $ordered = (float)($order['qty'] ?? 0);
+                $cancelled = ($po['status'] ?? '') === 'cancelled' ? $ordered : round($summary['cancel'] ?? 0,3);
+                $invoiced = round($summary['match'] ?? 0,3);
+                $records[] = [$reference,$indent['indent_date'],$indent['item_name'],
+                    $order['ref'] ?? '',self::indentDisplayDate($order['po_date'] ?? ''),
+                    $boq['qty'] ?? '',$indent['qty'],$ordered,round($summary['approved'] ?? 0,3),
+                    max(0,round($ordered-$cancelled-($summary['grn'] ?? 0),3)),$cancelled,
+                    $invoiceAccess ? $invoiced : '',$invoiceAccess ? max(0,round($ordered-$cancelled-$invoiced,3)) : '',
+                    $category,$type];
+            }
+        }
+        [$pageRows,$page,$pages,$total] = self::pagedRows($records,$columns,static function ($row) { return $row; });
+        echo '<div class="frontier-table" tabindex="0" role="region" aria-label="Indent Tracker"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $column) {
+            echo '<th scope="col">'.self::tableHeading($column).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach ($pageRows as $row) {
+            echo '<tr>';
+            foreach ($row as $cell) {
+                echo '<td>'.esc_html((string)$cell).'</td>';
+            }
+            echo '</tr>';
+        }
+        if (!$total) {
+            echo '<tr><td colspan="'.count($columns).'">No indents match this report.</td></tr>';
         }
         echo '</tbody></table></div>';
         self::pagination($page,$pages,$total);
