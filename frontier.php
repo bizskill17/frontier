@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.197
+ * Version: 1.9.198
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1812,7 +1812,7 @@ JS
                 echo '<div class="frontier-overview">';
             }
             $counts = $counts ?? self::dashboardCounts($rows ?? self::rows());
-            foreach (self::GROUPS as $group=>$views) {
+            foreach ((array_diff_key(self::GROUPS,['Master'=>true])) as $group=>$views) {
                 $visible = array_filter(array_keys($views),[self::class,'canView']);
                 if (!$visible) {
                     continue;
