@@ -1,4 +1,18 @@
 .frontier-pages .frontier-table { overflow-x: auto; margin-block: 1.25rem; }
+/* Let users drag wide tables horizontally without scrolling the page. */
+@media (pointer: fine) {
+    .frontier-pages .frontier-table::-webkit-scrollbar:horizontal { height: 14px; }
+    .frontier-pages .frontier-table::-webkit-scrollbar-track:horizontal { background: #e3ecf6; }
+    .frontier-pages .frontier-table::-webkit-scrollbar-thumb:horizontal {
+        background: #234b75;
+        border: 2px solid #e3ecf6;
+        border-radius: 8px;
+    }
+    .frontier-pages .frontier-table::-webkit-scrollbar-thumb:horizontal:hover { background: #17345c; }
+    @supports not selector(::-webkit-scrollbar) {
+        .frontier-pages .frontier-table { scrollbar-color: #234b75 #e3ecf6; }
+    }
+}
 .frontier-pages table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 .frontier-pages th, .frontier-pages td { text-align: left; padding: .65rem; border-bottom: 1px solid #d9dee6; vertical-align: top; }
 .frontier-pages th { background: #eef2f6; color: #182537; }
