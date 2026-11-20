@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.142
+ * Version: 1.9.143
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -1604,7 +1604,7 @@ CSS
                 .esc_html(sprintf('%d duplicate item records removed.',absint($_GET['duplicates_removed']))).'</p></div>';
         }
         if (isset($_GET['saved']) || isset($_GET['deleted'])) {
-            $message = isset($_GET['deleted']) ? 'Record deleted.' : ($kind === 'indent' ? 'Indent submitted successfully.' : 'Saved.');
+            $message = isset($_GET['deleted']) ? 'Record deleted.' : (in_array($kind,['indent','indent_master'],true) ? 'Indent submitted successfully.' : 'Saved.');
             echo '<div class="notice notice-success" role="status"><p>'.esc_html($message).'</p></div>';
         }
         if (isset($_GET['document_telegram_failed'])) {
@@ -1774,12 +1774,14 @@ CSS
                 self::employeeViewAccessGroups($editing ? $edit['data'] : []);
             }
             self::submitButton($editing ? 'Save changes' : ($kind === 'indent' ? 'Save draft' : 'Save'),true);
-            echo ' <a class="button" href="'.esc_url(self::url(self::$screen)).'">Cancel</a></form></div>';
+            echo ' <a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a></form></div>';
             return;
         }
         if ($mode === 'form') {
-            $register = $kind === 'indent' ? 'indent_master' : $kind;
-            echo '<p><a href="'.esc_url(self::url($register)).'">'.esc_html($tabs[$register]).'</a></p>';
+            $register = self::formDestination(self::$screen);
+            if ($register !== self::$screen) {
+                echo '<p><a href="'.esc_url(self::url($register)).'">'.esc_html($tabs[$register]).'</a></p>';
+            }
         }
         $receiptsWithSlips = [];
         if (self::$screen === 'grn_slip') {
@@ -2668,6 +2670,18 @@ HTML;
         return get_permalink($id);
     }
 
+    private static function formDestination($screen,$preferred='') {
+        $registers = [
+            'boq_form'=>'boq','indent'=>'indent_master','quote_form'=>'quote',
+            'choose_form'=>'choose_master','po_form'=>'po','grn_form'=>'grn',
+        ];
+        $preferred = $preferred ?: ($registers[$screen] ?? $screen);
+        if (self::canView($preferred)) {
+            return $preferred;
+        }
+        return self::canView($screen) ? $screen : 'home';
+    }
+
     private static function url($kind) {
         if (self::$front && ($url = self::frontUrl($kind))) {
             return $url;
@@ -3546,7 +3560,7 @@ HTML;
         self::formStart($kind,$operation);
         echo '<p><label>'.self::requiredLabel('CSV file').' <input type="file" name="import_template" accept=".csv,text/csv" required></label></p>';
         self::submitButton('Import',true);
-        echo ' <a class="button" href="'.esc_url(self::url($kind)).'">Cancel</a></form>';
+        echo ' <a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a></form>';
     }
 
     public static function downloadTemplate() {
@@ -4040,7 +4054,7 @@ HTML;
         echo '<script type="application/json" class="frontier-boq-data">'.wp_json_encode(['items'=>$items,'lines'=>$initialRows,'units'=>self::boqUnits($rows)],
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
         echo '<p><button type="submit" class="button button-primary frontier-boq-save" disabled>Save BOQ</button> ';
-        echo '<a class="button" href="'.esc_url(self::url('boq')).'">Cancel</a></p>';
+        echo '<a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a></p>';
         echo '<noscript><p>Enable JavaScript to add or upload BOQ items.</p></noscript></form>';
         if (self::can('item') && self::canView('item')) {
             echo '<dialog class="frontier-indent-dialog" id="frontier-boq-add-item" aria-labelledby="frontier-boq-add-item-title">';
@@ -4740,7 +4754,7 @@ HTML;
         echo '</tr></thead><tbody></tbody></table></div>';
         echo '<script type="application/json" class="frontier-indent-data">'.wp_json_encode($catalog,
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
-        echo '<p><a class="button" href="'.esc_url(self::url('indent_master')).'">Cancel</a> ';
+        echo '<p><a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a> ';
         echo '<button class="button button-primary frontier-indent-submit" type="submit" disabled>Submit Indent</button></p>';
         echo '<noscript><p>Enable JavaScript to add indent items.</p></noscript></form>';
     }
@@ -5107,7 +5121,7 @@ HTML;
                 echo '<small data-grn-warning hidden>Exceeds Pending to Receive</small></td></tr>';
             }
         }
-        echo '</tbody></table></div><p><a class="button" href="'.esc_url(self::url('pending_grn')).'">Cancel</a> ';
+        echo '</tbody></table></div><p><a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a> ';
         echo '<button type="submit" class="button button-primary" data-grn-save disabled>Create GRN</button></p>';
         echo <<<'HTML'
 <script>
@@ -5311,7 +5325,7 @@ HTML;
             echo '</tr>';
         }
         echo '</tbody></table></div><p><strong>Total Amount <output data-po-total aria-live="polite"></output></strong></p>';
-        echo '<p><a class="button" href="'.esc_url(self::url('pending_po')).'">Cancel</a> <button type="submit" class="button button-primary" data-po-save disabled>Create Purchase Order</button></p>';
+        echo '<p><a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a> <button type="submit" class="button button-primary" data-po-save disabled>Create Purchase Order</button></p>';
         echo '<section data-po-terms hidden><h2>Supplier Terms</h2><div class="frontier-po-terms-grid">';
         foreach ($suppliers as $key=>$supplier) {
             echo '<p data-po-terms-supplier="'.esc_attr($key).'" hidden><label>'.esc_html($supplier['label']);
@@ -5834,7 +5848,7 @@ HTML;
                 echo '</select></td><td><output aria-label="Rate finalized"></output></td></tr>';
             }
         }
-        echo '</tbody></table></div><p><a class="button" href="'.esc_url(self::url('pending_choose')).'">Cancel</a> ';
+        echo '</tbody></table></div><p><a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a> ';
         echo '<button type="submit" class="button button-primary" data-save-choice disabled>Save Supplier Selection</button></p>';
         echo <<<'HTML'
 <script>
@@ -5970,7 +5984,7 @@ HTML;
         echo '</tr></thead><tbody></tbody></table></div><datalist id="frontier-quote-suppliers"></datalist>';
         echo '<script type="application/json" class="frontier-quotation-data">'.wp_json_encode(['groups'=>$groups,'suppliers'=>$suppliers],
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
-        echo '<p><a class="button" href="'.esc_url(self::url('quote')).'">Cancel</a> ';
+        echo '<p><a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a> ';
         echo '<button type="submit" class="button button-primary frontier-quotation-save" disabled>Save Quotations</button></p>';
         echo '<noscript><p>Enable JavaScript to enter supplier rates.</p></noscript></form>';
     }
@@ -6292,11 +6306,11 @@ HTML;
         self::$front = self::input('surface') === 'front';
         $screen = sanitize_key(self::input('screen'));
         $sameKind = $screen === $kind || (self::SCREENS[$screen][0] ?? '') === $kind;
-        $destination = $action !== 'create_boq' && $sameKind && self::canView($screen) ? $screen : $kind;
+        $destination = self::formDestination($sameKind ? $screen : $kind);
         if ($rowPoCancellation) {
             $destination = 'po_items';
         } elseif ($action === 'create_indent') {
-            $destination = 'indent';
+            $destination = self::formDestination('indent');
         } elseif ($action === 'save_quotations') {
             $destination = 'quote';
         } elseif ($action === 'save_supplier_selection') {
@@ -6342,6 +6356,7 @@ HTML;
                 $query['indent_telegram_failed'] = 1;
             }
         }
+        $destination = self::formDestination($sameKind ? $screen : $kind,$destination);
         wp_safe_redirect(add_query_arg($query,self::url($destination)));
         exit;
     }
