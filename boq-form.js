@@ -54,7 +54,7 @@ if (boqForm) {
             if (!item) unresolved++;
         });
         save.disabled = uploading || !rows.length || unresolved > 0;
-        message.textContent = unresolved ? unresolved + ' item row(s) need a match before saving.' : rows.length + ' item row(s) matched.';
+        message.textContent = '';
     }
 
     function addRow(values = {}) {
