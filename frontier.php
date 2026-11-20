@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.159
+ * Version: 1.9.160
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -697,6 +697,103 @@ body.frontier-workspace {
     color: #432b00;
 }
 
+.frontier-drawer-header { display: contents; }
+@media (max-width: 760px) {
+    .frontier-shell .frontier-sidebar:not([hidden]) {
+        width: min(390px, 88vw);
+        padding: 10px 12px;
+        gap: 0;
+        background: #f9fbff;
+        color: #17243b;
+    }
+    .frontier-sidebar .frontier-drawer-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #dce4ee;
+    }
+    .frontier-sidebar .frontier-drawer-header .frontier-sidebar-brand {
+        padding: 4px 0;
+        margin: 0;
+        border: 0;
+        color: #17243b;
+        font-weight: 750;
+        overflow-wrap: anywhere;
+    }
+    .frontier-shell .frontier-sidebar .frontier-drawer-close {
+        order: 1;
+        align-self: center;
+        flex-shrink: 0;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: #173756;
+        font-size: 24px;
+    }
+    .frontier-sidebar details {
+        margin: 0;
+        border-bottom: 1px solid #dce4ee;
+        border-radius: 0;
+        background: transparent;
+    }
+    .frontier-sidebar details > summary,
+    .frontier-sidebar .frontier-sidebar-dashboard,
+    .frontier-sidebar .frontier-sidebar-signout {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 44px;
+        padding: 4px 6px;
+        color: #17243b;
+        font-weight: 650;
+    }
+    .frontier-sidebar .frontier-sidebar-dashboard:not([aria-current="page"]) { background: transparent; }
+    .frontier-sidebar .frontier-sidebar-dashboard > span { margin-right: auto; }
+    .frontier-sidebar summary::-webkit-details-marker { display: none; }
+    .frontier-sidebar details > summary::after {
+        content: '';
+        width: 7px;
+        height: 7px;
+        margin-inline: auto 5px;
+        border: solid currentColor;
+        border-width: 0 2px 2px 0;
+        transform: rotate(-45deg);
+    }
+    .frontier-sidebar details[open] > summary::after { transform: rotate(45deg); }
+    .frontier-sidebar details > summary::before,
+    .frontier-sidebar .frontier-sidebar-dashboard::before,
+    .frontier-sidebar .frontier-sidebar-signout::before {
+        content: var(--frontier-menu-icon, '▦');
+        display: grid;
+        place-items: center;
+        flex: 0 0 28px;
+        height: 28px;
+        border-radius: 7px;
+        background: var(--frontier-section-bg, #d9e7fb);
+        color: #173756;
+        font-size: 17px;
+    }
+    .frontier-sidebar .frontier-section-boq { --frontier-menu-icon: '▤'; }
+    .frontier-sidebar .frontier-section-indent { --frontier-menu-icon: '▧'; }
+    .frontier-sidebar .frontier-section-supplier-quotation { --frontier-menu-icon: '≡'; }
+    .frontier-sidebar .frontier-section-choose-supplier { --frontier-menu-icon: '✓'; }
+    .frontier-sidebar .frontier-section-purchase-order { --frontier-menu-icon: '▣'; }
+    .frontier-sidebar .frontier-section-goods-receipt { --frontier-menu-icon: '↓'; }
+    .frontier-sidebar .frontier-section-invoice { --frontier-menu-icon: '₹'; }
+    .frontier-sidebar .frontier-section-master { --frontier-menu-icon: '⚙'; }
+    .frontier-sidebar ul { margin: 0 0 6px 19px; padding-left: 7px; border-left-color: #c6d3e2; }
+    .frontier-sidebar li > a { min-height: 44px; padding: 4px 6px; }
+    .frontier-sidebar a[aria-current="page"] { background: #17345c; color: #fff; }
+    .frontier-sidebar .frontier-sidebar-signout {
+        margin-top: auto;
+        border-top-color: #dce4ee;
+        --frontier-menu-icon: '↪';
+        --frontier-section-bg: #f6dbe9;
+    }
+}
+
 .frontier-main .frontier-table > table.widefat th,
 .frontier-main .frontier-table > table.widefat td {
     padding: 4px 7px;
@@ -1365,10 +1462,10 @@ CSS
 
     private static function workspaceNavigation($current,$counts) {
         echo '<nav id="frontier-sidebar" class="frontier-sidebar" aria-label="Frontier navigation">';
-        echo '<button type="button" class="button frontier-drawer-close" aria-label="Close menu">×</button>';
+        echo '<div class="frontier-drawer-header"><button type="button" class="button frontier-drawer-close" aria-label="Close menu">×</button>';
         $orgName = trim((string)get_option('frontier_org_name',''));
         $brand = $orgName === '' ? 'Frontier' : $orgName;
-        echo '<a class="frontier-sidebar-brand" href="'.esc_url(self::url('home')).'">'.esc_html($brand).'</a>';
+        echo '<a class="frontier-sidebar-brand" href="'.esc_url(self::url('home')).'">'.esc_html($brand).'</a></div>';
         self::workspaceNavigationLink('home','Dashboard',$current);
         $groups = self::GROUPS;
         unset($groups['Master']);
