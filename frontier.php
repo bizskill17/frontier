@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.102
+ * Version: 1.9.103
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -374,7 +374,41 @@ final class Frontier {
         }
     }
 
+    private static function serveLogin($loginUrl) {
+        global $pagenow, $wp_query;
+
+        $pagenow = 'wp-login.php';
+        $wp_query->is_404 = false;
+        status_header(200);
+        if (!defined('DONOTCACHEPAGE')) {
+            define('DONOTCACHEPAGE', true);
+        }
+        nocache_headers();
+
+        if (!isset($_REQUEST['redirect_to'])) {
+            $dashboard = self::frontUrl('home') ?: home_url('/');
+            $_REQUEST['redirect_to'] = $_GET['redirect_to'] = wp_slash($dashboard);
+        }
+
+        remove_action('template_redirect', 'redirect_canonical');
+        remove_action('template_redirect', 'wp_redirect_admin_locations', 1000);
+        add_filter('site_url', static function ($url, $path, $scheme) use ($loginUrl) {
+            return $path === 'wp-login.php' && $scheme === 'login_post'
+                ? set_url_scheme($loginUrl, $scheme) : $url;
+        }, 99, 3);
+        add_filter('template_include', static function () {
+            return ABSPATH.'wp-login.php';
+        }, PHP_INT_MAX);
+    }
+
     public static function protectPage() {
+        $loginUrl = home_url('/login/');
+        $requestPath = wp_parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+        $loginPath = wp_parse_url($loginUrl, PHP_URL_PATH);
+        if (is_string($requestPath) && rtrim($requestPath, '/') === rtrim($loginPath, '/')) {
+            self::serveLogin($loginUrl);
+            return;
+        }
         $kind = self::requestedFrontView();
         if ($kind === 'follow' && ($orders = self::frontUrl('po'))) {
             wp_safe_redirect($orders);
@@ -388,6 +422,13 @@ final class Frontier {
         }
         nocache_headers();
         if (!is_user_logged_in()) {
+            add_filter('login_url', static function ($defaultUrl, $redirect, $reauth) use ($loginUrl) {
+                $args = ['redirect_to' => $redirect];
+                if ($reauth) {
+                    $args['reauth'] = '1';
+                }
+                return add_query_arg($args, $loginUrl);
+            }, 99, 3);
             auth_redirect();
         }
         if (!self::canView($kind)) {
