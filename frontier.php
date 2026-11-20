@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.173
+ * Version: 1.9.174
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -28,6 +28,7 @@ final class Frontier {
         'Purchase Order' => ['pending_po'=>'Pending Purchase Order', 'po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items'],
         'Goods Receipt' => ['pending_grn'=>'Pending Goods Receipt', 'grn_form'=>'Goods Receipt Form', 'grn'=>'Goods Receipt Notes', 'grn_items'=>'Goods Receipt Items', 'grn_slip'=>'Upload GRN Slip'],
         'Invoice' => ['invoice'=>'Upload Invoice', 'match'=>'Link PO Items With Invoice', 'po_invoice_master'=>'PO Item Invoice Master'],
+        'Reports' => ['site_report'=>'Sitewise Report'],
     ];
 
     // Each screen uses the existing procurement record type and workflow.
@@ -75,9 +76,9 @@ final class Frontier {
         'invoice'=>['supplier'=>'Supplier Name', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.9.55';
+    private const PAGE_VERSION = '1.9.174';
     private const PAGE_SLUGS = [
-        'settings'=>'settings',
+        'settings'=>'settings', 'site_report'=>'sitewise-report',
         'pending_indent'=>'pending-approve-indent', 'pending_quote'=>'pending-supplier-quotation',
         'pending_choose'=>'pending-choose-supplier', 'pending_po'=>'pending-purchase-order',
         'pending_grn'=>'pending-goods-receipt',
@@ -679,6 +680,7 @@ body.frontier-workspace {
 .frontier-sidebar .frontier-section-purchase-order { --frontier-section-bg: #d2eaff; }
 .frontier-sidebar .frontier-section-goods-receipt { --frontier-section-bg: #d7efd9; }
 .frontier-sidebar .frontier-section-invoice { --frontier-section-bg: #f6dbe9; }
+.frontier-sidebar .frontier-section-reports { --frontier-section-bg: #dbebf3; }
 .frontier-sidebar .frontier-section-master { --frontier-section-bg: #dce1ff; }
 .frontier-sidebar ul {
     margin-inline-end: 4px;
@@ -1859,6 +1861,11 @@ JS
             echo '</div>';
             return;
         }
+        if ($kind === 'site_report') {
+            self::siteReport($rows ?? self::rows());
+            echo '</div>';
+            return;
+        }
         [$kind,$mode] = self::SCREENS[$kind] ?? [$kind,'combined'];
         $rows = $rows ?? self::rows();
         if (isset(self::PENDING_VIEWS[self::$screen])) {
@@ -2856,6 +2863,450 @@ HTML;
         }
         echo '</tbody></table></div>';
         self::pagination($page,$pages,$total);
+    }
+
+    private const REPORT_TABS = [
+        'summary'=>['Site Final Summary',['boq_items','grn_items'],['BOQ Item Ref.','Item Name','Unit','BOQ Quantity','Quantity Received','Excess Received','Yet to Receive','Item Type']],
+        'boq'=>['BOQ',['boq_items'],['BOQ No.','BOQ Date','BOQ Item Ref.','Item Name','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent','BOQ PDF']],
+        'indent'=>['Indent',['indent_items'],['Indent No.','Indent Date','BOQ Item Ref.','Item Name','Unit','Requested By','Status','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive','Indent PDF']],
+        'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier Name','Quoted Rate','Status','Quotation File']],
+        'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier Finalized','Rate Finalized','Compared By','Selection Reason','Compared Quotations']],
+        'po'=>['Purchase Order',['po_items'],['PO No.','PO Date','Indent No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice','PO PDF']],
+        'grn'=>['GRN',['grn_items'],['GRN No.','GRN Date','PO No.','PO Item Ref.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Pending Before Receipt','Quantity Received','GRN Slip','GRN PDF','Slip Number']],
+        'invoice'=>['Invoice',['po_invoice_master'],['Invoice No.','Invoice Date','PO No.','PO Item Ref.','Item Name','Supplier Name','Quantity Invoiced','Invoice Rate','Allocated Amount','Invoice Copy','Pending for Invoice']],
+    ];
+
+    private static function reportTabs() {
+        return array_filter(self::REPORT_TABS,static function ($tab) {
+            foreach ($tab[1] as $view) {
+                if (!self::canView($view)) {
+                    return false;
+                }
+            }
+            return true;
+        });
+    }
+
+    private static function siteReportRows($rows,$site,$tabs) {
+        $result = array_fill_keys(array_keys($tabs),[]);
+        $boqs = $indents = $orders = $receipts = $totals = [];
+        $index = [];
+        $documentAccess = ['boq'=>self::canView('boq'),'indent'=>self::canView('indent_master'),
+            'po'=>self::canView('po'),'grn'=>self::canView('grn')];
+        $pdf = static function ($kind,$action,$id) use ($documentAccess) {
+            return $documentAccess[$kind] ? self::exportLink('PDF',$action,$id) : '';
+        };
+        foreach ($rows as $row) {
+            $index[$row['kind']][$row['id']] = $row;
+        }
+        foreach ($index['boq'] ?? [] as $id=>$row) {
+            if ((int)($row['data']['site'] ?? 0) === $site) {
+                $boqs[$id] = $row['data'];
+            }
+        }
+        foreach ($index['indent'] ?? [] as $id=>$row) {
+            $boq = (int)($row['data']['boq'] ?? 0);
+            if (!isset($boqs[$boq])) {
+                continue;
+            }
+            $indents[$id] = $boq;
+            if ($row['status'] === 'approved') {
+                $totals['indented'][$boq] = ($totals['indented'][$boq] ?? 0) + (float)$row['data']['qty'];
+            }
+        }
+        foreach ($index['po'] ?? [] as $id=>$row) {
+            $indent = (int)($row['data']['indent'] ?? 0);
+            if (isset($indents[$indent])) {
+                $orders[$id] = $indent;
+            }
+        }
+        foreach (['cancel'=>'cancelled','grn'=>'received','match'=>'invoiced'] as $kind=>$bucket) {
+            foreach ($index[$kind] ?? [] as $id=>$row) {
+                $po = (int)($row['data']['po'] ?? ($kind === 'match' ? ($rows[$row['data']['grn'] ?? 0]['data']['po'] ?? 0) : 0));
+                if (!isset($orders[$po])) {
+                    continue;
+                }
+                if ($kind === 'grn') {
+                    $receipts[$id] = $po;
+                    if ($row['status'] !== 'approved') {
+                        continue;
+                    }
+                }
+                $totals[$bucket][$po] = ($totals[$bucket][$po] ?? 0) + (float)($row['data']['qty'] ?? 0);
+            }
+        }
+        $boqReceived = $indentReceived = $indentOrdered = [];
+        foreach ($orders as $id=>$indent) {
+            $quantity = $totals['received'][$id] ?? 0;
+            $boq = $indents[$indent];
+            $boqReceived[$boq] = ($boqReceived[$boq] ?? 0) + $quantity;
+            $indentReceived[$indent] = ($indentReceived[$indent] ?? 0) + $quantity;
+            $order = $rows[$id];
+            if ($order['status'] !== 'cancelled') {
+                $indentOrdered[$indent] = ($indentOrdered[$indent] ?? 0)
+                    + max(0,(float)$order['data']['qty'] - ($totals['cancelled'][$id] ?? 0));
+            }
+        }
+
+        $add = static function ($tab,$boq,$cells,$date='',$supplier='',$status='',$group='') use (&$result) {
+            if (isset($result[$tab])) {
+                $result[$tab][] = ['boq'=>$boq,'cells'=>$cells,'date'=>$date,'supplier'=>$supplier,'status'=>$status,'group'=>$group];
+            }
+        };
+        foreach ($boqs as $id=>$data) {
+            $number = $data['boq_number'] ?? '#'.$id;
+            $ref = $number.'('.($data['line_number'] ?? 1).')';
+            $date = $data['boq_date'] ?? '';
+            $qty = (float)($data['qty'] ?? 0);
+            $used = round($totals['indented'][$id] ?? 0,3);
+            $received = round($boqReceived[$id] ?? 0,3);
+            $item = $rows[$data['item_id'] ?? 0]['data'] ?? [];
+            $type = $rows[$item['item_type'] ?? 0]['data']['name'] ?? '';
+            $add('summary',$id,[$ref,$data['name'],$data['unit'],$qty,$received,
+                max(0,round($received-$qty,3)),max(0,round($qty-$received,3)),$type]);
+            $add('boq',$id,[$number,self::indentDisplayDate($date),$ref,$data['name'],$data['unit'],$qty,
+                $used,max(0,round($qty-$used,3)),$pdf('boq','frontier_boq_print',$id)],$date,'','',self::boqGroup($rows[$id]));
+        }
+        foreach ($indents as $id=>$boq) {
+            $row = $rows[$id];
+            $data = $row['data'];
+            $line = $boqs[$boq];
+            $date = $data['indent_date'] ?? '';
+            $status = ucfirst($row['status']);
+            $ordered = round($indentOrdered[$id] ?? 0,3);
+            $received = round($indentReceived[$id] ?? 0,3);
+            $ref = ($line['boq_number'] ?? '#'.$boq).'('.($line['line_number'] ?? 1).')';
+            $add('indent',$boq,[$data['indent_number'] ?? '#'.$id,self::indentDisplayDate($date),$ref,$line['name'],
+                $data['unit'] ?? $line['unit'],$data['requested_name'] ?? '',$status,(float)$data['qty'],$ordered,
+                $row['status'] === 'approved' ? max(0,round(self::indentNetQuantity($row)-$ordered,3)) : 0,
+                $received,max(0,round($ordered-$received,3)),$pdf('indent','frontier_indent_pdf',$id)],$date,'',$status,self::indentGroup($row));
+        }
+        if (isset($tabs['quote']) || isset($tabs['choose'])) {
+            $comparisons = [];
+            if (isset($tabs['choose'])) {
+                foreach ($index['quote'] ?? [] as $quote) {
+                    $data = $quote['data'];
+                    $indent = (int)($data['indent'] ?? 0);
+                    if (isset($indents[$indent])) {
+                        $comparisons[$indent][] = self::supplierDisplay($data,$rows).' · '.($data['rate'] ?? '');
+                    }
+                }
+            }
+            foreach ($index['quote'] ?? [] as $id=>$row) {
+                $data = $row['data'];
+                $indent = (int)($data['indent'] ?? 0);
+                if (!isset($indents[$indent])) {
+                    continue;
+                }
+                $boq = $indents[$indent];
+                $number = $rows[$indent]['data']['indent_number'] ?? '#'.$indent;
+                $supplier = self::supplierDisplay($data,$rows);
+                $date = $data['quote_date'] ?? substr($data['quote_timestamp'] ?? '',0,10);
+                $add('quote',$boq,[$number,self::indentDisplayDate($date),$boqs[$boq]['name'],$supplier,$data['rate'] ?? '',
+                    ucfirst($row['status']),!empty($row['filename']) && self::canFile('quote') ?
+                    self::exportLink('Quotation','frontier_file',$id) : ''],$date,$supplier,ucfirst($row['status']));
+                if (isset($tabs['choose']) && $row['status'] === 'selected') {
+                    $past = self::lastIssuedPurchase($rows,$boqs[$boq],$indent);
+                    $date = $data['selection_date'] ?? substr($data['compared_at'] ?? '',0,10);
+                    $add('choose',$boq,[$number,self::indentDisplayDate($date),$boqs[$boq]['name'],
+                        $past ? self::supplierDisplay($past,$rows) : '',$past['rate'] ?? '',$supplier,$data['rate'] ?? '',
+                        $data['comparison_name'] ?? '',$data['reason'] ?? '',implode(' | ',$comparisons[$indent])],$date,$supplier);
+                }
+            }
+        }
+        if (isset($tabs['po'])) {
+            foreach ($orders as $id=>$indent) {
+                $row = $rows[$id];
+                $data = $row['data'];
+                $boq = $indents[$indent];
+                $date = $data['po_date'] ?? '';
+                $supplier = self::supplierDisplay($data,$rows);
+                $status = ucfirst($row['status']);
+                $qty = (float)$data['qty'];
+                $cancelled = $row['status'] === 'cancelled' ? $qty : round($totals['cancelled'][$id] ?? 0,3);
+                $received = round($totals['received'][$id] ?? 0,3);
+                $invoiced = round($totals['invoiced'][$id] ?? 0,3);
+                $add('po',$boq,[$data['ref'] ?? '#'.$id,self::indentDisplayDate($date),
+                    $rows[$indent]['data']['indent_number'] ?? '#'.$indent,$boqs[$boq]['name'],$boqs[$boq]['unit'],
+                    $supplier,$status,$qty,$cancelled,$received,max(0,round($qty-$cancelled-$received,3)),
+                    $invoiced,max(0,round($qty-$cancelled-$invoiced,3)),$pdf('po','frontier_po_pdf',$id)],$date,$supplier,$status,
+                    $data['po_group_id'] ?? ($data['ref'] ?? $id));
+            }
+        }
+        if (isset($tabs['grn'])) {
+            $slips = [];
+            if (self::canFile('grn')) {
+                foreach (array_keys($receipts) as $id) {
+                    if (!empty($rows[$id]['filename'])) {
+                        $slips[self::goodsReceiptNumberId($rows[$id])] = self::exportLink('GRN Slip','frontier_file',$id);
+                    }
+                }
+            }
+            foreach ($receipts as $id=>$po) {
+                $row = $rows[$id];
+                $data = self::goodsReceiptValues($rows,$row);
+                $boq = $indents[$orders[$po]];
+                $status = ucfirst($row['status']);
+                $groupId = self::goodsReceiptNumberId($row);
+                $add('grn',$boq,[$data['grn_no'],$data['grn_date'],$data['po_no'],$data['po_no'].'('.$data['sl'].')',
+                    $data['item_name'],$data['unit'],$data['supplier'],$status,$data['ordered'],$data['pending'],
+                    $data['received'],$slips[$groupId] ?? '',$pdf('grn','frontier_grn_pdf',$id),$data['slip_no']],
+                    $row['data']['due'] ?? '',$data['supplier'],$status,$groupId);
+            }
+        }
+        if (isset($tabs['invoice'])) {
+            foreach ($index['match'] ?? [] as $row) {
+                $data = $row['data'];
+                $po = (int)($data['po'] ?? ($rows[$data['grn'] ?? 0]['data']['po'] ?? 0));
+                $invoice = $rows[$data['invoice'] ?? 0] ?? [];
+                if (!isset($orders[$po]) || ($invoice['kind'] ?? '') !== 'invoice') {
+                    continue;
+                }
+                $order = $rows[$po]['data'];
+                $boq = $indents[$orders[$po]];
+                $date = $invoice['data']['due'] ?? '';
+                $supplier = self::supplierDisplay($invoice['data'],$rows);
+                $qty = (float)($data['qty'] ?? 0);
+                $rate = (float)($data['rate'] ?? 0);
+                $ref = $order['ref'] ?? '#'.$po;
+                $add('invoice',$boq,[$invoice['data']['ref'] ?? '',self::indentDisplayDate($date),$ref,
+                    $ref.'('.($rows[$orders[$po]]['data']['line_number'] ?? 1).')',$boqs[$boq]['name'],$supplier,$qty,$rate,round($qty*$rate,2),
+                    !empty($invoice['filename']) && self::canFile('invoice') ?
+                    self::exportLink('Invoice Copy','frontier_file',$invoice['id']) : '',
+                    $rows[$po]['status'] === 'cancelled' ? 0 : max(0,round(($order['qty'] ?? 0)
+                        - ($totals['cancelled'][$po] ?? 0) - ($totals['invoiced'][$po] ?? 0),3))],$date,$supplier);
+            }
+        }
+        return [$result,$boqs];
+    }
+
+    private const REPORT_GROUPS = [
+        'boq'=>['BOQ Summary',[0,1,4],[5,6,7],['BOQ No.','BOQ Date','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent']],
+        'indent'=>['Indent Summary',[0,1,5,4],[7,8,9,10,11],['Indent No.','Indent Date','Requested By','Unit','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive']],
+        'po'=>['PO Summary',[0,1,5,4],[7,8,9,10,11,12],['PO No.','PO Date','Supplier Name','Unit','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice']],
+        'grn'=>['GRN Summary',[0,1,6,13,7,5],[10],['GRN No.','GRN Date','Supplier Name','Slip Number','Status','Unit','Recorded Receipt Quantity']],
+    ];
+
+    private static function reportGroupRows($records,$definition) {
+        [, $dimensions,$measures] = $definition;
+        $groups = [];
+        foreach ($records as $record) {
+            $cells = $record['cells'];
+            $dimensionsValues = array_map(static function ($index) use ($cells) { return $cells[$index]; },$dimensions);
+            $key = wp_json_encode([$record['group'],$dimensionsValues]);
+            if (!isset($groups[$key])) {
+                $groups[$key] = array_merge($dimensionsValues,array_fill(0,count($measures),0));
+            }
+            foreach ($measures as $offset=>$index) {
+                $groups[$key][count($dimensions)+$offset] += (float)$cells[$index];
+            }
+        }
+        return array_map(static function ($row) {
+            return array_map(static function ($value) {
+                return is_float($value) ? round($value,3) : $value;
+            },$row);
+        },array_values($groups));
+    }
+
+    private static function siteReport($rows) {
+        $tabs = self::reportTabs();
+        if (!$tabs) {
+            echo '<p>No procurement report views are assigned.</p>';
+            return;
+        }
+        $sites = array_filter($rows,static function ($row) { return $row['kind'] === 'site'; });
+        uasort($sites,static function ($a,$b) { return strnatcasecmp($a['data']['name'],$b['data']['name']); });
+        $site = absint(self::tableQuery('report_site'));
+        $tab = self::tableQuery('report_tab');
+        $tab = isset($tabs[$tab]) ? $tab : array_key_first($tabs);
+        $line = absint(self::tableQuery('report_line'));
+        $group = isset(self::REPORT_GROUPS[$tab]) && self::tableQuery('report_mode') === 'summary';
+        $filters = [];
+        foreach (['item','type','supplier','status','from','to'] as $field) {
+            $filters[$field] = self::tableQuery('report_'.$field);
+        }
+        $exportAll = self::$exportBuffer !== null && self::tableQuery('report_export') === 'site';
+        [$data,$boqs] = isset($sites[$site]) ? self::siteReportRows($rows,$site,$exportAll ? $tabs : [$tab=>$tabs[$tab]]) : [[$tab=>[]],[]];
+        $line = isset($boqs[$line]) ? $line : 0;
+
+        $options = ['item'=>[],'type'=>[],'supplier'=>[],'status'=>[]];
+        $filtered = [];
+        foreach ($data[$tab] as $record) {
+            $boq = $boqs[$record['boq']];
+            $item = $rows[$boq['item_id'] ?? 0]['data'] ?? [];
+            $values = ['item'=>$boq['name'],'type'=>$rows[$item['item_type'] ?? 0]['data']['name'] ?? '',
+                'supplier'=>$record['supplier'],'status'=>$record['status']];
+            $matches = !$line || $line === $record['boq'];
+            foreach ($values as $field=>$value) {
+                if ($value !== '') {
+                    $options[$field][$value] = $value;
+                }
+                if ($filters[$field] !== '' && $filters[$field] !== $value) {
+                    $matches = false;
+                }
+            }
+            $date = $record['date'];
+            if ($tab !== 'summary' && (($filters['from'] !== '' && ($date === '' || $date < $filters['from']))
+                || ($filters['to'] !== '' && ($date === '' || $date > $filters['to'])))) {
+                $matches = false;
+            }
+            if ($matches) {
+                $filtered[] = $record;
+            }
+        }
+        $columns = $group ? self::REPORT_GROUPS[$tab][3] : $tabs[$tab][2];
+        $displayRows = $group ? self::reportGroupRows($filtered,self::REPORT_GROUPS[$tab]) : array_column($filtered,'cells');
+
+        if (self::$exportBuffer !== null) {
+            if (!isset($sites[$site])) {
+                wp_die('Select a site to export.','Frontier',['response'=>400]);
+            }
+            $sheets = [$tabs[$tab][0]=>[$columns,$displayRows]];
+            if ($exportAll) {
+                $sheets = [];
+                foreach ($data as $key=>$records) {
+                    $sheets[$tabs[$key][0]] = [$tabs[$key][2],array_column($records,'cells')];
+                    if (isset(self::REPORT_GROUPS[$key])) {
+                        $definition = self::REPORT_GROUPS[$key];
+                        $sheets[$definition[0]] = [$definition[3],self::reportGroupRows($records,$definition)];
+                    }
+                }
+            }
+            self::downloadReportWorkbook($sites[$site]['data']['name'],$sheets);
+        }
+
+        $url = self::url('site_report');
+        $formAction = strtok($url,'?');
+        parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$route);
+        echo '<form method="get" action="'.esc_url($formAction).'"><div class="frontier-fields">';
+        foreach ($route + ['report_tab'=>$tab,'report_mode'=>$group ? 'summary' : 'items','report_line'=>$line] as $key=>$value) {
+            echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
+        }
+        echo '<p><label>Site Name<select name="report_site" required><option value="">Select Site</option>';
+        foreach ($sites as $id=>$row) {
+            echo '<option value="'.esc_attr($id).'"'.selected($site,(int)$id,false).'>'.esc_html($row['data']['name']).'</option>';
+        }
+        echo '</select></label></p>';
+        foreach (['item'=>'Item','type'=>'Item Type','supplier'=>'Supplier Name','status'=>'Status'] as $field=>$label) {
+            if (!$options[$field]) {
+                continue;
+            }
+            natcasesort($options[$field]);
+            echo '<p><label>'.esc_html($label).'<select name="report_'.esc_attr($field).'"><option value="">All</option>';
+            foreach ($options[$field] as $value) {
+                echo '<option value="'.esc_attr($value).'"'.selected($filters[$field],$value,false).'>'.esc_html($value).'</option>';
+            }
+            echo '</select></label></p>';
+        }
+        if ($tab !== 'summary' && isset($sites[$site])) {
+            foreach (['from'=>'From','to'=>'To'] as $field=>$label) {
+                echo '<p><label>'.esc_html($tabs[$tab][2][1].' '.$label).'<input type="date" name="report_'.esc_attr($field)
+                    .'" value="'.esc_attr($filters[$field]).'"></label></p>';
+            }
+        }
+        echo '</div>';
+        self::submitButton('View Report',true);
+        echo '</form>';
+        if (!isset($sites[$site])) {
+            return;
+        }
+
+        $context = ['report_site'=>$site,'report_line'=>$line];
+        echo '<nav class="frontier-settings-nav" aria-label="Site report views">';
+        foreach ($tabs as $key=>$spec) {
+            echo '<a class="button" '.($key === $tab ? 'aria-current="page" ' : '').'href="'
+                .esc_url(add_query_arg($context + ['report_tab'=>$key,'report_item'=>$filters['item'],'report_type'=>$filters['type']],$url)).'">'.esc_html($spec[0]).'</a>';
+        }
+        echo '</nav>';
+        $query = $context + ['report_tab'=>$tab,'report_mode'=>$group ? 'summary' : 'items'];
+        foreach ($filters as $field=>$value) {
+            $query['report_'.$field] = $value;
+        }
+        if ($line) {
+            echo '<p>BOQ item '.esc_html($boqs[$line]['name']).' · <a href="'
+                .esc_url(add_query_arg(array_replace($query,['report_line'=>0]),$url)).'">Show all items</a></p>';
+        }
+        if (isset(self::REPORT_GROUPS[$tab])) {
+            echo '<nav class="frontier-settings-nav" aria-label="Report detail level">';
+            foreach (['items'=>'Item Detail','summary'=>'Document Summary'] as $mode=>$label) {
+                echo '<a class="button" '.($query['report_mode'] === $mode ? 'aria-current="page" ' : '').'href="'
+                    .esc_url(add_query_arg(array_replace($query,['report_mode'=>$mode]),$url)).'">'.esc_html($label).'</a>';
+            }
+            echo '</nav>';
+        }
+        $endpoint = add_query_arg($query + ['action'=>'frontier_table_excel','view'=>'site_report'],admin_url('admin-post.php'));
+        foreach (['view'=>'Download Current View','site'=>'Download Full Site Report'] as $mode=>$label) {
+            echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url(add_query_arg('report_export',$mode,$endpoint),
+                'frontier_table_excel_site_report')).'">'.esc_html($label).'</a> ';
+        }
+
+        $total = count($displayRows);
+        $pages = max(1,(int)ceil($total/25));
+        $page = max(1,min($pages,absint(self::tableQuery('report_page'))));
+        $offset = ($page-1)*25;
+        echo '<div class="frontier-table" tabindex="0" role="region" aria-label="'.esc_attr($tabs[$tab][0]).'"><table class="widefat striped"><thead><tr>';
+        foreach ($columns as $column) {
+            echo '<th scope="col">'.self::tableHeading($column).'</th>';
+        }
+        echo '</tr></thead><tbody>';
+        foreach (array_slice($displayRows,$offset,25,true) as $index=>$cells) {
+            echo '<tr>';
+            foreach ($cells as $column=>$cell) {
+                echo '<td>';
+                if ($tab === 'summary' && $column === 0) {
+                    $detail = add_query_arg(['report_site'=>$site,'report_tab'=>'boq','report_line'=>$filtered[$index]['boq']],$url);
+                    echo '<a href="'.esc_url($detail).'">'.esc_html($cell).'</a>';
+                } elseif (is_array($cell)) {
+                    echo '<a href="'.esc_url($cell['url']).'">'.esc_html($cell['text']).'</a>';
+                } else {
+                    echo esc_html((string)$cell);
+                }
+                echo '</td>';
+            }
+            echo '</tr>';
+        }
+        if (!$total) {
+            echo '<tr><td colspan="'.count($columns).'">No records match this report.</td></tr>';
+        }
+        echo '</tbody></table></div><nav class="frontier-settings-nav" aria-label="Report pages">';
+        foreach (['Previous'=>$page-1,'Next'=>$page+1] as $label=>$target) {
+            if ($target >= 1 && $target <= $pages) {
+                echo '<a class="button" href="'.esc_url(add_query_arg($query + ['report_page'=>$target],$url)).'">'.esc_html($label).'</a> ';
+            }
+        }
+        echo '<span>'.esc_html($total.' records · Page '.$page.' of '.$pages).'</span></nav>';
+    }
+
+    private static function downloadReportWorkbook($site,$sheets) {
+        while (ob_get_level() > self::$exportBuffer) {
+            ob_end_clean();
+        }
+        if (!class_exists('ZipArchive')) {
+            wp_die('Excel export requires PHP ZipArchive.','Frontier',['response'=>503]);
+        }
+        $path = tempnam(sys_get_temp_dir(),'frontier-report-');
+        try {
+            if (!$path || !Frontier_Boq_Workbook::exportSheets($path,$sheets)) {
+                throw new RuntimeException('Could not create the site report workbook.');
+            }
+            $name = sanitize_file_name($site.'-sitewise-report-'.current_time('Y-m-d').'.xlsx');
+            nocache_headers();
+            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            header('Content-Disposition: attachment; filename="'.$name.'"');
+            header('Content-Length: '.filesize($path));
+            readfile($path);
+        } catch (Throwable $error) {
+            if ($path) {
+                unlink($path);
+                $path = false;
+            }
+            wp_die('Could not create the site report workbook.','Frontier',['response'=>500]);
+        } finally {
+            if ($path) {
+                unlink($path);
+            }
+        }
+        exit;
     }
 
     private static function stock($rows) {
