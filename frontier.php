@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.210
+ * Version: 1.9.211
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -28,6 +28,7 @@ final class Frontier {
         'Purchase Order' => ['pending_po'=>'Pending Purchase Order', 'po_form'=>'Create Purchase Order', 'po'=>'Purchase Orders', 'po_items'=>'Purchase Orders Items', 'cancel'=>'Cancel PO Items'],
         'Goods Receipt' => ['pending_grn'=>'Pending Goods Receipt', 'grn_form'=>'Goods Receipt Form', 'grn'=>'Goods Receipt Notes', 'grn_items'=>'Goods Receipt Items', 'grn_slip'=>'Upload GRN Slip'],
         'Invoice' => ['invoice'=>'Upload Invoice', 'match'=>'Link PO Items With Invoice', 'po_invoice_master'=>'PO Item Invoice Master'],
+        'Training' => ['training'=>'Workflow Guide'],
         'Reports' => ['site_report'=>'Sitewise Report','indent_tracker'=>'Indent Tracker'],
     ];
 
@@ -76,8 +77,9 @@ final class Frontier {
         'invoice'=>['supplier'=>'Supplier Name', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
     ];
-    private const PAGE_VERSION = '1.9.179';
+    private const PAGE_VERSION = '1.9.211';
     private const PAGE_SLUGS = [
+        'training'=>'training',
         'settings'=>'settings', 'site_report'=>'sitewise-report', 'indent_tracker'=>'indent-tracker',
         'pending_indent'=>'pending-approve-indent', 'pending_quote'=>'pending-supplier-quotation',
         'pending_choose'=>'pending-choose-supplier', 'pending_po'=>'pending-purchase-order',
@@ -682,6 +684,7 @@ body.frontier-workspace {
 .frontier-sidebar .frontier-section-invoice { --frontier-section-bg: #f6dbe9; }
 .frontier-sidebar .frontier-section-reports { --frontier-section-bg: #dbebf3; }
 .frontier-sidebar .frontier-section-master { --frontier-section-bg: #dce1ff; }
+.frontier-sidebar .frontier-section-training { --frontier-section-bg: #e4efdf; }
 .frontier-sidebar ul {
     margin-inline-end: 4px;
     border-left-color: #91a4ba;
@@ -1575,8 +1578,9 @@ JS
         echo '<a class="frontier-sidebar-brand" href="'.esc_url(self::url('home')).'">'.esc_html($brand).'</a></div>';
         self::workspaceNavigationLink('home','Dashboard',$current);
         $groups = self::GROUPS;
-        unset($groups['Master']);
+        unset($groups['Master'],$groups['Training']);
         $groups['Master'] = self::GROUPS['Master'];
+        $groups['Training'] = self::GROUPS['Training'];
         foreach ($groups as $group=>$views) {
             $visible = array_filter($views,[self::class,'canView'],ARRAY_FILTER_USE_KEY);
             if (!$visible) {
@@ -1633,7 +1637,7 @@ JS
                 if (($access['status'] ?? '') === 'inactive') {
                     return false;
                 }
-                return isset(self::views()[$kind]) && ($kind === 'home' || $access['role'] === 'admin'
+                return isset(self::views()[$kind]) && (in_array($kind,['home','training'],true) || $access['role'] === 'admin'
                     || in_array($kind,$access['views'] ?? [],true));
             }
         }
@@ -1819,6 +1823,37 @@ JS
         self::render(isset(self::views()[$kind]) ? $kind : 'home');
     }
 
+    private static function renderTraining() {
+        $steps = [
+            ['Set up the site','Add the project in Site Master and maintain the item, supplier, and employee details used throughout the process.',
+                ['site'=>'Site Master','item'=>'Item Master','supplier'=>'Supplier Master','employee'=>'Employee Master']],
+            ['Create the BOQ','List the materials planned for the site and the total quantity required for each item.',
+                ['boq_form'=>'Create BOQ']],
+            ['Raise an indent','Select the items the site needs and enter the quantities needed now. The approver approves the request or rejects it with remarks.',
+                ['indent'=>'Indents Form','pending_indent'=>'Pending Approve Indent']],
+            ['Collect supplier quotations','Record up to three suppliers and their rates for each approved indent item.',
+                ['pending_quote'=>'Pending Supplier Quotation']],
+            ['Choose a supplier','Compare quotations and save the selected supplier and agreed rate for each item. Different items on the same indent can go to different suppliers.',
+                ['pending_choose'=>'Pending Choose Supplier']],
+            ['Create the purchase order','Enter the quantity to order and generate the PO PDF. An approved requirement can be fulfilled through more than one PO. An authorised user can cancel an outstanding quantity from Purchase Orders Items.',
+                ['po_form'=>'Create Purchase Order','po'=>'Purchase Orders','po_items'=>'Purchase Orders Items']],
+            ['Record the goods receipt','Enter the quantity actually received against the PO. Saving the GRN records the receipt immediately and reduces the pending quantity. You can upload the GRN slip separately.',
+                ['grn_form'=>'Goods Receipt Form','grn_slip'=>'Upload GRN Slip']],
+        ];
+        echo '<ol class="frontier-training-steps">';
+        foreach ($steps as [$title,$description,$links]) {
+            echo '<li><h2>'.esc_html($title).'</h2><p>'.esc_html($description).'</p>';
+            echo '<div class="frontier-row-actions">';
+            foreach ($links as $view=>$label) {
+                if (self::canView($view)) {
+                    echo '<a class="button" href="'.esc_url(self::url($view)).'">'.esc_html($label).'</a>';
+                }
+            }
+            echo '</div></li>';
+        }
+        echo '</ol>';
+    }
+
     private static function render($kind,$rows=null,$counts=null) {
         if (!self::canView($kind)) {
             wp_die('Access denied.', '', ['response'=>403]);
@@ -1827,6 +1862,11 @@ JS
         echo '<div class="wrap frontier-pages">';
         if (!self::$front) {
             echo '<h1>'.esc_html($tabs[$kind]).'</h1>';
+        }
+        if ($kind === 'training') {
+            self::renderTraining();
+            echo '</div>';
+            return;
         }
         if ($kind === 'home') {
             if (!self::$front && ($frontUrl = self::frontUrl('home'))) {
@@ -4559,7 +4599,7 @@ HTML;
         $access = self::assignedViewAccess(absint($data['wp_user_id'] ?? 0));
         echo '<section data-frontier-view-access'.(($access['role'] ?? '') === 'admin' ? ' hidden' : '').'><h2>View Access</h2>';
         echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;margin-bottom:16px">';
-        foreach (self::GROUPS as $group=>$views) {
+        foreach (array_diff_key(self::GROUPS,['Training'=>true]) as $group=>$views) {
             echo '<fieldset style="min-width:0;border:1px solid #cbd6e4;border-radius:8px;padding:10px"><legend>'.esc_html($group).'</legend>';
             echo '<div class="frontier-row-actions">';
             echo '<button type="button" class="button" data-view-bulk="select" aria-label="'.esc_attr('Select all '.$group.' views').'">Select all</button>';
