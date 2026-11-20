@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.103
+ * Version: 1.9.104
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -406,6 +406,12 @@ final class Frontier {
         $requestPath = wp_parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
         $loginPath = wp_parse_url($loginUrl, PHP_URL_PATH);
         if (is_string($requestPath) && rtrim($requestPath, '/') === rtrim($loginPath, '/')) {
+            if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET' && $_GET
+                && !array_diff(array_keys($_GET), ['redirect_to', 'reauth'])) {
+                nocache_headers();
+                wp_safe_redirect($loginUrl);
+                exit;
+            }
             self::serveLogin($loginUrl);
             return;
         }
@@ -422,13 +428,9 @@ final class Frontier {
         }
         nocache_headers();
         if (!is_user_logged_in()) {
-            add_filter('login_url', static function ($defaultUrl, $redirect, $reauth) use ($loginUrl) {
-                $args = ['redirect_to' => $redirect];
-                if ($reauth) {
-                    $args['reauth'] = '1';
-                }
-                return add_query_arg($args, $loginUrl);
-            }, 99, 3);
+            add_filter('login_url', static function () use ($loginUrl) {
+                return $loginUrl;
+            }, 99);
             auth_redirect();
         }
         if (!self::canView($kind)) {
