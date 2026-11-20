@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.99
+ * Version: 1.9.100
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -400,6 +400,31 @@ final class Frontier {
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
         wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.93');
+        wp_add_inline_style('frontier-pages', <<<'CSS'
+.frontier-sidebar .frontier-dashboard-link {
+    display: flex;
+    align-items: center;
+}
+.frontier-sidebar .frontier-dashboard-link > :first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.frontier-sidebar .frontier-dashboard-count {
+    margin-inline-start: auto;
+    background: #48617e;
+    color: #fff;
+    white-space: nowrap;
+}
+.frontier-sidebar .frontier-dashboard-count-pending {
+    background: #ffd78a;
+    color: #432b00;
+}
+.frontier-sidebar [aria-current="page"] .frontier-dashboard-count {
+    background: #d4e9ff;
+    color: #173756;
+}
+CSS
+        );
         self::enqueueDropdownSearch();
     }
 
@@ -996,7 +1021,8 @@ final class Frontier {
         $active = $view === $current ? ' aria-current="page"' : '';
         echo '<a class="frontier-dashboard-link" href="'.esc_url(self::url($view)).'"'.$active.'><span>'.esc_html($label).'</span>';
         if ($count !== null) {
-            echo '<span class="frontier-dashboard-count">'.esc_html(number_format_i18n($count)).'</span>';
+            $pending = isset(self::PENDING_VIEWS[$view]) ? ' frontier-dashboard-count-pending' : '';
+            echo '<span class="frontier-dashboard-count'.$pending.'">'.esc_html(number_format_i18n($count)).'</span>';
         }
         echo '</a>';
     }
