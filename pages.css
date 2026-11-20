@@ -587,3 +587,25 @@ body.frontier-workspace {
 @media (max-width: 480px) {
     .frontier-dashboard-steps { grid-template-columns: minmax(0, 1fr); }
 }
+
+.frontier-daily-activity {
+    margin-top: 18px;
+    padding: 14px;
+    border: 1px solid #cbd6e4;
+    border-radius: 10px;
+    background: #fff;
+}
+.frontier-daily-activity h2 { margin: 0 0 12px; }
+.frontier-daily-activity .frontier-report-site > p { flex: 0 1 200px; }
+.frontier-daily-activity input[name="activity_date"] { width: 100%; }
+.frontier-pages .frontier-daily-activity .frontier-table { margin: 12px 0 0; }
+.frontier-daily-activity .frontier-site-report-table th:last-child,
+.frontier-daily-activity .frontier-site-report-table td:last-child {
+    width: 100px;
+    text-align: right;
+}
+.frontier-pages .frontier-daily-activity .frontier-site-report-table tbody td:last-child {
+    background: #fff;
+}
+#frontier-activity-details { scroll-margin-top: 90px; }
+.frontier-activity-details table { min-width: 460px; }

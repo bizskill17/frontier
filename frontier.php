@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.202
+ * Version: 1.9.203
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -445,7 +445,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.202');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.203');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -921,7 +921,7 @@ JS
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.157',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.202');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.203');
         }
     }
 
@@ -1811,7 +1811,8 @@ JS
             $steps = ['boq_form','site','pending_indent','pending_quote','pending_choose',
                 'pending_po','po_form','pending_grn','grn_slip'];
             $actions = ['boq_form'=>'boq','site'=>'sites','po_form'=>'po'];
-            $counts = $counts ?? self::dashboardCounts($rows ?? self::rows());
+            $rows = $rows ?? self::rows();
+            $counts = $counts ?? self::dashboardCounts($rows);
             echo '<nav class="frontier-dashboard-steps" aria-label="Dashboard steps">';
             foreach ($steps as $step) {
                 if (!self::canView($step) || (isset($actions[$step]) && !self::can($actions[$step]))) {
@@ -1828,7 +1829,9 @@ JS
                 }
                 echo '</a>';
             }
-            echo '</nav></div>';
+            echo '</nav>';
+            self::dailyActivity($rows);
+            echo '</div>';
             return;
         }
         if (!self::$front) {
@@ -2160,6 +2163,203 @@ JS
         }
         echo '</tbody></table></div>';
         self::pagination($page,$pages,$total);
+    }
+
+    private static function dailyActivity($rows) {
+        $definitions = [
+            'boq'=>['BOQs created','boq','boq'],
+            'indent'=>['Indents submitted','indent_master','indent'],
+            'approve'=>['Indents approved','indent_master','indent'],
+            'quote'=>['Supplier quotations recorded','quote','quote'],
+            'selection'=>['Supplier selections saved','choose_master','selection'],
+            'po'=>['Purchase orders created','po','order'],
+            'grn'=>['Goods receipts recorded','grn','receipt'],
+            'slip'=>['GRN slips uploaded','grn','cancel'],
+            'invoice'=>['Invoices uploaded','invoice','invoice'],
+        ];
+        $definitions = array_filter($definitions,static function ($definition) {
+            return self::canView($definition[1]);
+        });
+        if (!$definitions) {
+            return;
+        }
+
+        $timezone = new DateTimeZone('Asia/Kolkata');
+        $storedTimezone = wp_timezone();
+        $dateInput = self::tableQuery('activity_date');
+        $day = DateTimeImmutable::createFromFormat('!d/m/Y',$dateInput,$timezone);
+        if (!$day || $day->format('d/m/Y') !== $dateInput) {
+            if ($dateInput !== '') {
+                wp_die('Enter a valid date in dd/mm/yyyy format.','Frontier',['response'=>400,'back_link'=>true]);
+            }
+            $day = new DateTimeImmutable('today',$timezone);
+        }
+        $date = $day->format('Y-m-d');
+        $site = absint(self::tableQuery('activity_site'));
+        $sites = array_filter($rows,static function ($row) { return $row['kind'] === 'site'; });
+        uasort($sites,static function ($a,$b) { return strnatcasecmp(self::siteName($a['data']),self::siteName($b['data'])); });
+        if ($site && !isset($sites[$site])) {
+            wp_die('Select a valid site.','Frontier',['response'=>400,'back_link'=>true]);
+        }
+
+        $records = self::dailyActivityRecords($rows,$definitions,$date,$site,$timezone,$storedTimezone);
+        $columns = ['Reference','Site Name','Time (IST)','Recorded By'];
+        if (self::$exportBuffer !== null) {
+            $summary = $details = [];
+            foreach ($definitions as $key=>[$label]) {
+                $summary[] = [$day->format('d/m/Y'),$site ? self::siteName($sites[$site]['data']) : 'All sites',$label,count($records[$key])];
+                foreach ($records[$key] as $record) {
+                    $details[] = array_merge([$label],$record);
+                }
+            }
+            self::downloadReportWorkbook('',[
+                'Activity Summary'=>[['Date','Site Filter','Activity','Count'],$summary],
+                'Activity Details'=>[array_merge(['Activity'],$columns),$details],
+            ],'daily-activity-'.$date.'.xlsx');
+        }
+
+        $url = self::url('home');
+        parse_str((string)wp_parse_url($url,PHP_URL_QUERY),$route);
+        $filters = ['activity_date'=>$day->format('d/m/Y'),'activity_site'=>$site];
+        $export = add_query_arg($filters + ['action'=>'frontier_table_excel','view'=>'home'],admin_url('admin-post.php'));
+        echo '<section class="frontier-daily-activity" aria-labelledby="frontier-activity-heading">';
+        echo '<h2 id="frontier-activity-heading">Daily Activity Report</h2>';
+        echo '<form method="get" action="'.esc_url(strtok($url,'?')).'" class="frontier-report-site">';
+        foreach ($route as $key=>$value) {
+            echo '<input type="hidden" name="'.esc_attr($key).'" value="'.esc_attr($value).'">';
+        }
+        echo '<p><label>Date (dd/mm/yyyy)<input type="text" name="activity_date" maxlength="10" pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}" value="'.esc_attr($filters['activity_date']).'" required></label></p>';
+        echo '<p><label>Site<select name="activity_site"><option value="0">All sites</option>';
+        foreach ($sites as $id=>$row) {
+            echo '<option value="'.esc_attr($id).'"'.selected($site,(int)$id,false).'>'.esc_html(self::siteName($row['data'])).'</option>';
+        }
+        echo '</select></label></p>';
+        self::submitButton('View Report',true);
+        echo '<a class="button frontier-download" href="'.esc_url(wp_nonce_url($export,'frontier_table_excel_home')).'">Download Excel</a></form>';
+        echo '<div class="frontier-table"><table class="widefat frontier-site-report-table">';
+        echo '<thead><tr><th scope="col">Activity</th><th scope="col">Count</th></tr></thead><tbody>';
+        foreach ($definitions as $key=>[$label,,$color]) {
+            $count = count($records[$key]);
+            echo '<tr><td data-report-group="'.esc_attr($color).'">'.esc_html($label).'</td><td>';
+            if ($count) {
+                $link = add_query_arg($filters + ['activity_detail'=>$key],$url).'#frontier-activity-details';
+                echo '<a href="'.esc_url($link).'" aria-label="'.esc_attr($label.': '.number_format_i18n($count)).'">'
+                    .esc_html(number_format_i18n($count)).'</a>';
+            } else {
+                echo '0';
+            }
+            echo '</td></tr>';
+        }
+        echo '</tbody></table></div>';
+        $detail = self::tableQuery('activity_detail');
+        if (isset($definitions[$detail]) && $records[$detail]) {
+            echo '<h3 id="frontier-activity-details">'.esc_html($definitions[$detail][0]).'</h3>';
+            echo '<div class="frontier-table frontier-activity-details"><table class="widefat"><thead><tr>';
+            foreach ($columns as $column) {
+                echo '<th scope="col">'.esc_html($column).'</th>';
+            }
+            echo '</tr></thead><tbody>';
+            foreach ($records[$detail] as $record) {
+                echo '<tr>';
+                foreach ($record as $value) {
+                    echo '<td>'.esc_html((string)$value).'</td>';
+                }
+                echo '</tr>';
+            }
+            echo '</tbody></table></div>';
+        }
+        echo '</section>';
+    }
+
+    private static function dailyActivityRecords($rows,$definitions,$date,$site,$timezone,$storedTimezone) {
+        $records = array_fill_keys(array_keys($definitions),[]);
+        $invoiceSites = [];
+        if (isset($definitions['invoice'])) {
+            foreach ($rows as $row) {
+                if ($row['kind'] === 'match') {
+                    $data = $row['data'];
+                    $po = $rows[$data['po'] ?? ($rows[$data['grn'] ?? 0]['data']['po'] ?? 0)] ?? [];
+                    if ($poSite = self::procurementSite($rows,$po)) {
+                        $invoiceSites[(int)($data['invoice'] ?? 0)][$poSite] = $poSite;
+                    }
+                }
+            }
+        }
+
+        $add = static function ($kind,$group,$stamp,$siteIds,$reference,$actor) use (&$records,$rows,$date,$site,$timezone,$storedTimezone) {
+            if (!isset($records[$kind]) || isset($records[$kind][$group]) || !$stamp
+                || ($site && !in_array($site,$siteIds,true))) {
+                return;
+            }
+            $time = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$stamp,$storedTimezone);
+            if (!$time || $time->format('Y-m-d H:i:s') !== $stamp) {
+                return;
+            }
+            $time = $time->setTimezone($timezone);
+            if ($time->format('Y-m-d') !== $date) {
+                return;
+            }
+            $names = [];
+            foreach ($site ? [$site] : $siteIds as $id) {
+                if (isset($rows[$id])) {
+                    $names[] = self::siteName($rows[$id]['data']);
+                }
+            }
+            sort($names,SORT_NATURAL | SORT_FLAG_CASE);
+            $records[$kind][$group] = [$reference,implode(', ',$names),$time->format('H:i:s'),$actor];
+        };
+        foreach ($rows as $id=>$row) {
+            $data = $row['data'];
+            switch ($row['kind']) {
+                case 'boq':
+                    $add('boq',self::boqGroup($row),$data['boq_timestamp'] ?? '',[(int)($data['site'] ?? 0)],
+                        $data['boq_number'] ?? '#'.$id,$data['prepared_name'] ?? '');
+                    break;
+                case 'indent':
+                    $group = self::indentGroup($row);
+                    $sites = [(int)($data['site'] ?? ($rows[$data['boq'] ?? 0]['data']['site'] ?? 0))];
+                    $ref = $data['indent_number'] ?? '#'.$id;
+                    $add('indent',$group,$data['indent_timestamp'] ?? '',$sites,$ref,$data['requested_name'] ?? $data['submitted_by'] ?? '');
+                    if ($row['status'] === 'approved') {
+                        $add('approve',$group,$data['decision_at'] ?? '',$sites,$ref,$data['decision_by'] ?? '');
+                    }
+                    break;
+                case 'quote':
+                    $indentId = $data['indent'] ?? 0;
+                    $indent = $rows[$indentId]['data'] ?? [];
+                    $sites = [self::procurementSite($rows,$row)];
+                    $ref = 'Indent '.($indent['indent_number'] ?? '#'.$indentId);
+                    $supplier = self::supplierDisplay($data,$rows);
+                    $item = $rows[$indent['boq'] ?? 0]['data']['name'] ?? '';
+                    $ref = implode(' · ',array_filter([$ref,$item,$supplier]));
+                    $add('quote',$id,$data['quote_created_at'] ?? $data['quote_timestamp'] ?? '',$sites,$ref,$data['comparison_name'] ?? '');
+                    if ($row['status'] === 'selected') {
+                        $add('selection',$indentId,$data['compared_at'] ?? '',$sites,$ref,$data['compared_by'] ?? '');
+                    }
+                    break;
+                case 'po':
+                    $add('po',$data['po_group_id'] ?? $id,$data['po_timestamp'] ?? '',[self::procurementSite($rows,$row)],
+                        $data['ref'] ?? '#'.$id,$data['prepared_name'] ?? '');
+                    break;
+                case 'grn':
+                    $group = self::goodsReceiptNumberId($row);
+                    $sites = [self::procurementSite($rows,$rows[$data['po'] ?? 0] ?? [])];
+                    $ref = self::numberingPreview('grn',$data['grn_number'] ?? $group,0);
+                    $add('grn',$group,$data['grn_timestamp'] ?? '',$sites,$ref,$data['prepared_name'] ?? '');
+                    if ($row['filename'] !== '') {
+                        $add('slip',$group,$data['slip_uploaded_at'] ?? '',$sites,$ref,$data['slip_uploaded_by'] ?? '');
+                    }
+                    break;
+                case 'invoice':
+                    $add('invoice',$id,$data['invoice_uploaded_at'] ?? '',$invoiceSites[$id] ?? [],
+                        $data['ref'] ?? '#'.$id,$data['invoice_uploaded_by'] ?? '');
+                    break;
+            }
+        }
+        foreach ($records as &$group) {
+            uasort($group,static function ($a,$b) { return strcmp($b[2],$a[2]); });
+        }
+        return $records;
     }
 
     private static function dashboardCounts($rows) {
@@ -3442,7 +3642,7 @@ HTML;
         echo '<span>'.esc_html($total.' records · Page '.$page.' of '.$pages).'</span></nav>';
     }
 
-    private static function downloadReportWorkbook($site,$sheets) {
+    private static function downloadReportWorkbook($site,$sheets,$filename=null) {
         while (ob_get_level() > self::$exportBuffer) {
             ob_end_clean();
         }
@@ -3452,9 +3652,9 @@ HTML;
         $path = tempnam(sys_get_temp_dir(),'frontier-report-');
         try {
             if (!$path || !Frontier_Boq_Workbook::exportSheets($path,$sheets)) {
-                throw new RuntimeException('Could not create the site report workbook.');
+                throw new RuntimeException('Could not create the report workbook.');
             }
-            $name = sanitize_file_name($site.'-sitewise-report-'.current_time('Y-m-d').'.xlsx');
+            $name = sanitize_file_name($filename ?? ($site.'-sitewise-report-'.current_time('Y-m-d').'.xlsx'));
             nocache_headers();
             header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
             header('Content-Disposition: attachment; filename="'.$name.'"');
@@ -3465,7 +3665,7 @@ HTML;
                 unlink($path);
                 $path = false;
             }
-            wp_die('Could not create the site report workbook.','Frontier',['response'=>500]);
+            wp_die('Could not create the report workbook.','Frontier',['response'=>500]);
         } finally {
             if ($path) {
                 unlink($path);
@@ -4124,9 +4324,11 @@ HTML;
                 $data['name'] = $rows[$data['supplier']]['data']['name'];
                 if ($kind === 'quote') {
                     $data['quote_timestamp'] = current_time('mysql');
+                    $data['quote_created_at'] = $data['quote_timestamp'];
                 }
                 break;
             case 'po':
+                $data['po_timestamp'] = $data['po_timestamp'] ?? current_time('mysql');
                 $quote = $rows[$data['quote']]['data'];
                 $data['indent'] = $quote['indent'];
                 $data['name'] = $quote['name'];
@@ -4137,6 +4339,7 @@ HTML;
                 self::requireRule($data['qty'] <= self::available($rows,$rows[$data['indent']]),'The order exceeds the approved indent balance.');
                 break;
             case 'grn':
+                $data['grn_timestamp'] = $data['grn_timestamp'] ?? current_time('mysql');
                 $po = $rows[$data['po']];
                 self::requireRule($data['qty'] + $data['reject'] > 0,'Enter a received quantity.');
                 self::requireRule(round($data['qty'] + $data['reject'],3) <= self::balance($rows,$po),'Delivery exceeds the open PO quantity.');
@@ -4245,6 +4448,8 @@ HTML;
                 self::requireRule($kind === 'indent' && in_array($status,['draft','returned'],true),'This indent cannot be submitted.');
                 self::validateIndent($rows,$data,$row['id']);
                 $status = 'pending';
+                $data['indent_timestamp'] = $data['indent_timestamp'] ?? current_time('mysql');
+                $data['submitted_by'] = wp_get_current_user()->display_name;
                 break;
             case 'approve':
             case 'return':
@@ -4274,6 +4479,8 @@ HTML;
             case 'attach':
                 self::requireRule($kind === 'grn','Invalid GRN.');
                 $update = self::document(true);
+                $data['slip_uploaded_at'] = current_time('mysql');
+                $data['slip_uploaded_by'] = wp_get_current_user()->display_name;
                 break;
             default:
                 throw new DomainException('Unknown action.');
@@ -6915,6 +7122,8 @@ HTML;
             ];
             $data['quote_timestamp'] = $now;
             $existingId = $bySupplier[$supplierId] ?? 0;
+            $data['quote_created_at'] = $existing[$existingId]['data']['quote_created_at']
+                ?? $existing[$existingId]['data']['quote_timestamp'] ?? $now;
             if ($existingId) {
                 $result = $wpdb->update(self::table(),['details'=>wp_json_encode($data + $existing[$existingId]['data'])],['id'=>$existingId]);
                 unset($existing[$existingId]);
@@ -7108,6 +7317,13 @@ HTML;
                     $data['grn_number'] = self::nextNumber('grn',self::lastNumbers($rows,0)['grn']);
                 }
                 $document = isset(self::FILES[$kind]) ? self::document($kind === 'invoice') : [];
+                if ($kind === 'invoice') {
+                    $data['invoice_uploaded_at'] = current_time('mysql');
+                    $data['invoice_uploaded_by'] = wp_get_current_user()->display_name;
+                } elseif ($kind === 'grn' && !empty($document['filename'])) {
+                    $data['slip_uploaded_at'] = $data['grn_timestamp'];
+                    $data['slip_uploaded_by'] = wp_get_current_user()->display_name;
+                }
                 $result = $wpdb->insert(self::table(),$document + ['kind'=>$kind,'status'=>$status,'details'=>wp_json_encode($data)]);
                 if ($result === 1 && $kind === 'grn' && $rows[$data['po']]['status'] === 'draft') {
                     self::updatePurchaseOrderGroup($rows,$data['po'],'issue');
