@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.113
+ * Version: 1.9.114
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2233,14 +2233,19 @@ HTML;
             return $values;
         });
         $stageClasses = [];
-        if ($indentItems) {
-            $stages = [
+        if ($indentItems || $poItems) {
+            $stages = $indentItems ? [
                 'approval'=>['approval'],
                 'quotation'=>['last_supplier','last_rate','supplier_1','rate_1','supplier_2','rate_2','supplier_3','rate_3'],
                 'selection'=>['final_supplier','final_rate','quote_at','compared_by'],
                 'order'=>['ordered','pending_order'],
                 'receipt'=>['received','pending_receive'],
                 'cancel'=>['cancel_date','cancelled','cancel_reason','cancel_by'],
+            ] : [
+                'selection'=>['supplier','rate'],
+                'order'=>['timestamp','ref','po_date','qty','amount','po_supplier','brand','remarks'],
+                'receipt'=>['received','open'],
+                'cancel'=>['cancelled','cancel_date','cancel_reason','cancel_by'],
             ];
             $columnStages = [];
             foreach ($stages as $stage=>$columns) {
@@ -2252,7 +2257,10 @@ HTML;
             foreach ($fields as $field=>$label) {
                 $stage = $columnStages[$field] ?? 'indent';
                 $class = 'frontier-stage-'.$stage.($previousStage !== null && $previousStage !== $stage ? ' frontier-stage-start' : '');
-                $stageClasses[$field] = ' class="'.esc_attr($class.' frontier-indent-column-'.$field).'"';
+                if ($indentItems) {
+                    $class .= ' frontier-indent-column-'.$field;
+                }
+                $stageClasses[$field] = ' class="'.esc_attr($class).'"';
                 $previousStage = $stage;
             }
         }
