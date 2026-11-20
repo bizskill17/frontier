@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.169
+ * Version: 1.9.170
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -6019,7 +6019,7 @@ HTML;
             }
         }
         echo '</tbody></table></div><p><a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a> ';
-        echo '<button type="submit" class="button button-primary" data-save-choice disabled>Save Supplier Selection</button></p>';
+        echo '<button type="submit" class="button button-primary" data-save-choice disabled>Save</button></p>';
         echo <<<'HTML'
 <script>
 (() => {
