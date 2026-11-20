@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.121
+ * Version: 1.9.122
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2955,14 +2955,28 @@ HTML;
         return $last;
     }
 
+    private static function itemNameKey($name) {
+        $name = trim(preg_replace('/\s+/u',' ',$name) ?? $name);
+        return function_exists('mb_strtolower') ? mb_strtolower($name,'UTF-8') : strtolower($name);
+    }
+
     private static function validateMaster($rows,$kind,$data,$id=0) {
+        if ($kind === 'item') {
+            $nameKey = self::itemNameKey($data['name']);
+            if ($id && self::itemNameKey($rows[$id]['data']['name'] ?? '') === $nameKey) {
+                return;
+            }
+            foreach ($rows as $row) {
+                if ($row['kind'] === 'item' && (int)$row['id'] !== (int)$id) {
+                    self::requireRule(self::itemNameKey($row['data']['name']) !== $nameKey,
+                        'This item name already exists in Item Master.');
+                }
+            }
+            return;
+        }
         $key = $kind === 'employee' ? 'login' : (isset($data['ref']) ? 'ref' : 'name');
         foreach ($rows as $row) {
             if ($row['kind'] === $kind && (int)$row['id'] !== (int)$id) {
-                if ($kind === 'item' && ((int)($row['data']['category'] ?? 0) !== (int)$data['category']
-                    || (int)($row['data']['item_type'] ?? 0) !== (int)$data['item_type'])) {
-                    continue;
-                }
                 self::requireRule(strcasecmp($row['data'][$key] ?? '',$data[$key]) !== 0,
                     'This '.(['ref'=>'code or number','login'=>'user ID'][$key] ?? 'name').' already exists.');
             }
@@ -3438,11 +3452,15 @@ HTML;
             if (isset($lookup[$kind])) {
                 $lookup[$kind][strtolower(trim($data['name']))] = (int)$record['id'];
             } elseif ($kind === 'item') {
-                $existing[$data['category'] ?? 0][$data['item_type'] ?? 0][strtolower(trim($data['name']))] = true;
+                $existing[self::itemNameKey($data['name'])] = true;
             }
         }
         $added = 0;
         foreach ($items as [$name,$category,$type]) {
+            $nameKey = self::itemNameKey($name);
+            if (isset($existing[$nameKey])) {
+                continue;
+            }
             foreach (['category'=>$category,'item_type'=>$type] as $kind=>$label) {
                 $key = strtolower($label);
                 if (!isset($lookup[$kind][$key])) {
@@ -3452,12 +3470,8 @@ HTML;
             }
             $categoryId = $lookup['category'][strtolower($category)];
             $typeId = $lookup['item_type'][strtolower($type)];
-            $nameKey = strtolower($name);
-            if (isset($existing[$categoryId][$typeId][$nameKey])) {
-                continue;
-            }
             self::insertImportedRecord('item',['name'=>$name,'category'=>$categoryId,'item_type'=>$typeId]);
-            $existing[$categoryId][$typeId][$nameKey] = true;
+            $existing[$nameKey] = true;
             $added++;
         }
         return $added;
