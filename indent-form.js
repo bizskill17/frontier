@@ -7,7 +7,8 @@
     const tbody = form.querySelector('tbody');
     const detailLabels = Array.from(form.querySelectorAll('thead th'))
         .slice(2, 7).map((heading) => heading.dataset.label);
-    const add = form.querySelectorAll('.frontier-indent-add');
+    const add = form.querySelector('.frontier-indent-add');
+    const mobile = window.matchMedia('(max-width: 760px)');
     const submit = form.querySelector('.frontier-indent-submit');
     const message = form.querySelector('.frontier-indent-message');
     const payload = form.querySelector('[name="indent_lines"]');
@@ -50,7 +51,7 @@
             if (excess > 0) excessRows++;
             if (item && !duplicate && row.qty.validity.valid && qty > 0) valid++;
         });
-        add.forEach((button) => { button.disabled = !items.size || rows.length >= 100; });
+        add.disabled = !items.size || rows.length >= 100;
         submit.disabled = !rows.length || valid !== rows.length;
         message.textContent = !site.value ? '' :
             !items.size ? 'No BOQ items are available for this site.' :
@@ -58,7 +59,7 @@
     }
 
     function addRow(index = rows.length) {
-        if (!items.size || rows.length >= 100) return;
+        if (!items.size || rows.length >= 100 || (mobile.matches && rows.length > 0)) return;
         const element = tbody.insertRow(index);
         const number = element.insertCell();
         number.className = 'frontier-indent-number';
@@ -125,7 +126,7 @@
     }
 
     site.addEventListener('change', loadSite);
-    add.forEach((button) => button.addEventListener('click', () => addRow()));
+    add.addEventListener('click', () => addRow());
     form.addEventListener('submit', (event) => {
         if (submit.disabled) {
             event.preventDefault();

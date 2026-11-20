@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.148
+ * Version: 1.9.149
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -444,7 +444,7 @@ final class Frontier {
         }
         show_admin_bar(false);
         remove_action('wp_head', '_admin_bar_bump_cb');
-        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.148');
+        wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.149');
         wp_add_inline_style('frontier-pages', <<<'CSS'
 .frontier-pages .frontier-master-table tr.frontier-duplicate-item > td {
     background: #ffdfb3;
@@ -503,7 +503,7 @@ body.frontier-workspace {
         min-height: 230px;
     }
 }
-.frontier-indent-mobile-label, .frontier-main .frontier-indent-form .frontier-indent-mobile-add { display: none; }
+.frontier-indent-mobile-label { display: none; }
 .frontier-main .frontier-indent-form .frontier-indent-date input { background: #eef2f6; }
 @media (max-width: 760px) {
     .frontier-shell .frontier-sidebar:not([hidden]) {
@@ -563,7 +563,8 @@ body.frontier-workspace {
     .frontier-main .frontier-indent-form .frontier-indent-toolbar,
     .frontier-main .frontier-indent-form tbody td.frontier-indent-number,
     .frontier-main .frontier-indent-form tbody td.frontier-indent-unit,
-    .frontier-main .frontier-indent-form .frontier-indent-insert,
+    .frontier-main .frontier-indent-form .frontier-row-actions .frontier-indent-insert,
+    .frontier-main .frontier-indent-form tbody tr:only-child td:last-child,
     .frontier-main .frontier-indent-form tr:not(.frontier-indent-selected) .frontier-indent-detail { display: none; }
     .frontier-indent-form tbody td:nth-child(2),
     .frontier-indent-form tbody td:nth-child(n+8) { grid-column: 1 / -1; }
@@ -572,14 +573,6 @@ body.frontier-workspace {
     .frontier-indent-form .frontier-indent-detail > :last-child { font-size: 1rem; font-weight: 700; }
     .frontier-main .frontier-indent-form .frontier-table td:nth-child(2) .frontier-combobox input,
     .frontier-main .frontier-indent-form .frontier-table td:nth-child(2) select { min-height: 48px; }
-    .frontier-main .frontier-indent-form .frontier-indent-mobile-add {
-        display: inline-block;
-        margin-top: 4px;
-        border: 0;
-        padding-inline: 0;
-        background: transparent;
-        font-weight: 650;
-    }
     .frontier-main .frontier-indent-form input:not([type="hidden"]),
     .frontier-main .frontier-indent-form select {
         box-sizing: border-box;
@@ -591,12 +584,21 @@ body.frontier-workspace {
     .frontier-indent-form .frontier-indent-detail .frontier-indent-mobile-label { margin-bottom: 0; }
     .frontier-main .frontier-indent-form .frontier-row-actions { justify-content: flex-end; }
     .frontier-main .frontier-indent-form .frontier-row-actions button,
-    .frontier-main .frontier-indent-form .frontier-indent-add,
-    .frontier-main .frontier-indent-form .frontier-indent-submit {
+    .frontier-main .frontier-indent-form .frontier-indent-footer > .button {
         min-width: 44px;
         min-height: 44px;
     }
-    .frontier-main .frontier-indent-form .frontier-indent-submit { width: 100%; margin-top: 8px; }
+    .frontier-indent-form .frontier-indent-footer {
+        display: grid;
+        grid-template-columns: auto minmax(0,1fr);
+        gap: 8px;
+        align-items: stretch;
+    }
+    .frontier-main .frontier-indent-form .frontier-indent-footer > .button {
+        display: grid;
+        place-items: center;
+        text-align: center;
+    }
 }
 .frontier-topbar {
     position: sticky;
@@ -713,10 +715,10 @@ CSS
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.70',true);
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.8.3');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
-        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.148',true);
+        wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.149',true);
         wp_enqueue_script('frontier-boq-form',plugins_url('boq-editor.js',__FILE__),['frontier-dropdown-search'],'1.9.133',true);
         if (is_admin()) {
-            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.148');
+            wp_enqueue_style('frontier-pages',plugins_url('pages.css',__FILE__),[],'1.9.149');
         }
     }
 
@@ -4782,10 +4784,9 @@ HTML;
             echo '<th scope="col" data-label="'.esc_attr($label).'">'.self::tableHeading($label).'</th>';
         }
         echo '</tr></thead><tbody></tbody></table></div>';
-        echo '<button type="button" class="frontier-indent-add frontier-indent-mobile-add" disabled>Add item</button>';
         echo '<script type="application/json" class="frontier-indent-data">'.wp_json_encode($catalog,
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT).'</script>';
-        echo '<p><a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a> ';
+        echo '<p class="frontier-indent-footer"><a class="button" href="'.esc_url(self::url(self::formDestination(self::$screen))).'">Cancel</a> ';
         echo '<button class="button button-primary frontier-indent-submit" type="submit" disabled>Submit Indent</button></p>';
         echo '<noscript><p>Enable JavaScript to add indent items.</p></noscript></form>';
     }
