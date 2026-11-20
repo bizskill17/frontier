@@ -5,6 +5,6 @@
 .frontier-combobox-arrow::after { content: ''; display: block; width: 7px; height: 7px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg); margin: 6px; }
 .frontier-combobox-list { position: absolute; z-index: 20; inset: calc(100% + 3px) 0 auto; max-height: 220px; overflow: auto; background: #fff; border: 1px solid #aebed0; border-radius: 6px; box-shadow: 0 5px 15px #18253722; font-weight: 400; }
 .frontier-combobox-list[hidden], .frontier-pages select[hidden] { display: none; }
-.frontier-combobox-option, .frontier-combobox-empty { display: block; padding: 6px 10px; overflow-wrap: anywhere; }
+.frontier-combobox-option, .frontier-combobox-empty { display: block; padding: 10px 12px; font-size: 16px; line-height: 1.5; min-height: 44px; box-sizing: border-box; overflow-wrap: anywhere; }
 .frontier-combobox-option { cursor: pointer; }
 .frontier-combobox-option:hover, .frontier-combobox-option.is-active { background: #e2efff; color: #164f8a; }
