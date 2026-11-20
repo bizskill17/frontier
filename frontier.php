@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.171
+ * Version: 1.9.172
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -837,6 +837,26 @@ CSS
 
     private static function enqueueDropdownSearch() {
         wp_enqueue_script('frontier-dropdown-search',plugins_url('dropdown-search.js',__FILE__),[],'1.9.154',true);
+        wp_add_inline_script('frontier-dropdown-search', <<<'JS'
+document.addEventListener('wheel', (event) => {
+    if (!event.cancelable || event.defaultPrevented || event.ctrlKey || event.shiftKey ||
+        !event.deltaY || event.deltaX) return;
+    const table = event.target.closest?.('.frontier-pages .frontier-table');
+    if (!table || event.target.closest('input, textarea, select, [contenteditable], [role="listbox"], dialog')) return;
+
+    const overflow = getComputedStyle(table).overflowX;
+    const limit = table.scrollWidth - table.clientWidth;
+    if (limit < 1 || (overflow !== 'auto' && overflow !== 'scroll')) return;
+
+    // Keep vertical wheel scrolling for tables that have their own vertical scroll area.
+    if (table.scrollHeight - table.clientHeight > 1) return;
+    const scale = event.deltaMode === 1 ? 16 : (event.deltaMode === 2 ? table.clientWidth : 1);
+    const before = table.scrollLeft;
+    table.scrollLeft += event.deltaY * scale;
+    if (table.scrollLeft !== before) event.preventDefault();
+}, { passive: false });
+JS
+        );
         wp_enqueue_style('frontier-dropdown-search',plugins_url('dropdown-search.css',__FILE__),[],'1.9.155');
         wp_enqueue_script('frontier-quotation-form',plugins_url('quotation-form.js',__FILE__),['frontier-dropdown-search'],'1.9.70',true);
         wp_enqueue_script('frontier-indent-form',plugins_url('indent-form.js',__FILE__),['frontier-dropdown-search'],'1.9.167',true);
