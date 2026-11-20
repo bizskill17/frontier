@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.110
+ * Version: 1.9.111
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -70,7 +70,7 @@ final class Frontier {
         'quote'=>['indent'=>'Approved indent', 'supplier'=>'Supplier Name with Code', 'rate'=>'Unit rate', 'tax'=>'Tax %', 'freight'=>'Freight', 'due'=>'Delivery date', 'note'=>'Payment terms'],
         'po'=>['quote'=>'Selected quotation', 'qty'=>'Order quantity', 'ref'=>'PO number', 'due'=>'Expected delivery'],
         'follow'=>['po'=>'Purchase order', 'note'=>'Follow-up notes', 'due'=>'Next follow-up'],
-        'cancel'=>['po'=>'Purchase order', 'qty'=>'Quantity to cancel', 'note'=>'Reason', 'reorder'=>'Return to purchasing'],
+        'cancel'=>['po'=>'Purchase order', 'qty'=>'Quantity to cancel', 'note'=>'Reason'],
         'grn'=>['po'=>'Purchase order', 'ref'=>'GRN number', 'due'=>'Receipt date', 'qty'=>'Accepted quantity', 'reject'=>'Rejected quantity'],
         'invoice'=>['supplier'=>'Supplier Name with Code', 'ref'=>'Invoice number', 'due'=>'Invoice date', 'amount'=>'Invoice Amount'],
         'match'=>['invoice'=>'Supplier invoice', 'grn'=>'Approved GRN', 'qty'=>'Invoice quantity', 'rate'=>'Invoice unit rate', 'note'=>'Variance explanation'],
@@ -2437,7 +2437,7 @@ HTML;
     }
 
     private static function field($rows,$kind,$field,$label,$value,$hasLogin=false) {
-        $required = $field === 'password' ? !$hasLogin : ($field !== 'reorder' && !self::optionalField($kind,$field));
+        $required = $field === 'password' ? !$hasLogin : !self::optionalField($kind,$field);
         echo '<p><label>'.self::requiredLabel($label,$required);
         if ($kind === 'supplier' && isset(self::SUPPLIER_TEXT_LIMITS[$field])) {
             printf('<textarea name="%s" rows="4" maxlength="%d">%s</textarea>',
@@ -2454,8 +2454,6 @@ HTML;
                 echo '<option value="'.esc_attr($row['id']).'" '.selected($value,$row['id'],false).'>'.esc_html($optionLabel).'</option>';
             }
             echo '</select>';
-        } elseif ($field === 'reorder') {
-            echo '<input type="checkbox" name="reorder" value="1">';
         } else {
             $numeric = in_array($field,['qty','rate','tax','freight','reject','amount'],true);
             $type = $numeric ? 'number' : (['due'=>'date','email'=>'email','mobile'=>'tel','contact'=>'tel','alternate'=>'tel'][$field] ?? 'text');
@@ -2629,8 +2627,6 @@ HTML;
                 $value = in_array($field,['category','item_type','employee'],true) ? $linked['data']['name'] : self::label($linked,$rows);
             } elseif ($field === 'due') {
                 $value = implode('/',array_reverse(explode('-',$value)));
-            } elseif ($field === 'reorder') {
-                $value = $value ? 'Yes' : 'No';
             }
             $values[$field] = $value;
         }
@@ -2667,6 +2663,7 @@ HTML;
             $values['item_name'] = self::supplierIndentDetails($indent,$rows)['item_name'];
             $values['cancel_date'] = self::indentDisplayDate($data['cancel_date'] ?? '');
             $values['cancel_by'] = $data['cancel_by'] ?? '';
+            $values['reorder'] = !empty($data['released']) || !empty($data['reorder']) ? 'Yes' : 'No';
         }
         $values['reason'] = $data['reason'] ?? $data['selection_reason'] ?? '';
         if ($kind === 'quote') {
@@ -2791,8 +2788,6 @@ HTML;
             } elseif ($field === 'due') {
                 $date = DateTimeImmutable::createFromFormat('!Y-m-d',$value);
                 self::requireRule($date && $date->format('Y-m-d') === $value,'Enter a valid date.');
-            } elseif ($field === 'reorder') {
-                $value = $value === '1';
             } else {
                 $optional = self::optionalField($kind,$field);
                 if ($kind !== 'supplier' && $field === 'email' && $value !== '') {
@@ -2908,7 +2903,7 @@ HTML;
             case 'cancel':
                 $po = $rows[$data['po']];
                 self::requireRule($data['qty'] <= self::balance($rows,$po),'Cancellation exceeds the available PO quantity.');
-                $data['released'] = $data['reorder'] ? $data['qty'] : 0;
+                $data['released'] = $data['qty'];
                 $data['cancel_date'] = current_time('Y-m-d');
                 $data['cancel_by'] = wp_get_current_user()->display_name;
                 break;
@@ -4134,7 +4129,6 @@ HTML;
             .' <input type="number" name="qty" min="0.001" max="'.$limit.'" step="0.001" required></label></p>';
         echo '<p><label>'.self::requiredLabel('Cancel Reason')
             .' <textarea name="note" rows="3" maxlength="200" required></textarea></label></p>';
-        echo '<p><label><input type="checkbox" name="reorder" value="1"> Return to purchasing</label></p>';
         echo '<div class="frontier-indent-dialog-actions"><button type="button" class="button" onclick="this.closest(\'dialog\').close()">Back</button>';
         echo '<button type="submit" class="button button-primary" style="background:#b42318;border-color:#b42318;color:#fff">Confirm cancellation</button>';
         echo '</div></form></dialog>';
