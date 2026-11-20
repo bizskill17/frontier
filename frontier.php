@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.180
+ * Version: 1.9.181
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2947,8 +2947,8 @@ HTML;
         'summary'=>['Site Final Summary',['boq_items','grn_items'],['BOQ Number','Item Name','Unit','BOQ Quantity','Quantity Received','Excess Received','Yet to Receive','Item Type']],
         'boq'=>['BOQ',['boq_items'],['BOQ No.','BOQ Date','Item Name','Unit','BOQ Quantity','Approved Indented Quantity','Pending to Indent','BOQ PDF']],
         'indent'=>['Indent',['indent_items'],['Indent No.','Indent Date','Item Name','Unit','Requested By','Status','Requested Quantity','Ordered Quantity','Pending to Order','Quantity Received','Pending to Receive','Indent PDF']],
-        'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier Name','Quoted Rate','Status','Quotation File']],
-        'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier Finalized','Rate Finalized','Compared By','Selection Reason','Compared Quotations']],
+        'quote'=>['Supplier Quotation',['quote'],['Indent No.','Quotation Date','Item Name','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Status 1','Status 2','Status 3','Quotation File 1','Quotation File 2','Quotation File 3']],
+        'choose'=>['Choose Supplier',['choose_master'],['Indent No.','Selection Date','Item Name','Last Supplier','Last Rate','Supplier 1','Rate 1','Supplier 2','Rate 2','Supplier 3','Rate 3','Supplier Finalized','Rate Finalized','Compared By','Selection Reason']],
         'po'=>['Purchase Order',['po_items'],['PO No.','PO Date','Indent No.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Cancelled Quantity','Quantity Received','Pending to Receive','Quantity Invoiced','Pending for Invoice','PO PDF']],
         'grn'=>['GRN',['grn_items'],['GRN No.','GRN Date','PO No.','PO Item Ref.','Item Name','Unit','Supplier Name','Status','Ordered Quantity','Pending Before Receipt','Quantity Received','GRN Slip','GRN PDF','Slip Number']],
         'invoice'=>['Invoice',['po_invoice_master'],['Invoice No.','Invoice Date','PO No.','PO Item Ref.','Item Name','Supplier Name','Quantity Invoiced','Invoice Rate','Allocated Amount','Invoice Copy','Pending for Invoice']],
@@ -3026,9 +3026,9 @@ HTML;
             }
         }
 
-        $add = static function ($tab,$boq,$cells,$date='',$supplier='',$status='',$group='') use (&$result) {
+        $add = static function ($tab,$boq,$cells,$date='',$supplier='',$status='',$group='',$quotes=[]) use (&$result) {
             if (isset($result[$tab])) {
-                $result[$tab][] = ['boq'=>$boq,'cells'=>$cells,'date'=>$date,'supplier'=>$supplier,'status'=>$status,'group'=>$group];
+                $result[$tab][] = ['boq'=>$boq,'cells'=>$cells,'date'=>$date,'supplier'=>$supplier,'status'=>$status,'group'=>$group,'quotes'=>$quotes];
             }
         };
         foreach ($boqs as $id=>$data) {
@@ -3059,34 +3059,50 @@ HTML;
         }
         if (isset($tabs['quote']) || isset($tabs['choose'])) {
             $comparisons = [];
-            if (isset($tabs['choose'])) {
-                foreach ($index['quote'] ?? [] as $quote) {
-                    $data = $quote['data'];
-                    $indent = (int)($data['indent'] ?? 0);
-                    if (isset($indents[$indent])) {
-                        $comparisons[$indent][] = self::supplierDisplay($data,$rows).' · '.($data['rate'] ?? '');
-                    }
-                }
-            }
             foreach ($index['quote'] ?? [] as $id=>$row) {
                 $data = $row['data'];
                 $indent = (int)($data['indent'] ?? 0);
                 if (!isset($indents[$indent])) {
                     continue;
                 }
+                $comparisons[$indent][] = [
+                    'supplier'=>self::supplierDisplay($data,$rows),'rate'=>$data['rate'] ?? '',
+                    'date'=>$data['quote_date'] ?? substr($data['quote_timestamp'] ?? '',0,10),
+                    'status'=>ucfirst($row['status']),'row'=>$row,
+                ];
+            }
+            foreach ($comparisons as $indent=>$quotes) {
                 $boq = $indents[$indent];
                 $number = $rows[$indent]['data']['indent_number'] ?? '#'.$indent;
-                $supplier = self::supplierDisplay($data,$rows);
-                $date = $data['quote_date'] ?? substr($data['quote_timestamp'] ?? '',0,10);
-                $add('quote',$boq,[$number,self::indentDisplayDate($date),$boqs[$boq]['name'],$supplier,$data['rate'] ?? '',
-                    ucfirst($row['status']),!empty($row['filename']) && self::canFile('quote') ?
-                    self::exportLink('Quotation','frontier_file',$id) : ''],$date,$supplier,ucfirst($row['status']));
-                if (isset($tabs['choose']) && $row['status'] === 'selected') {
+                $pairs = $statuses = $files = [];
+                $canDownload = isset($tabs['quote']) && self::canFile('quote');
+                foreach (array_pad(array_slice($quotes,0,3),3,[]) as $quote) {
+                    $pairs[] = $quote['supplier'] ?? '';
+                    $pairs[] = $quote['rate'] ?? '';
+                    $statuses[] = $quote['status'] ?? '';
+                    $files[] = $canDownload && !empty($quote['row']['filename'])
+                        ? self::exportLink('Quotation','frontier_file',$quote['row']['id']) : '';
+                }
+                if (isset($tabs['quote'])) {
+                    $dates = array_unique(array_filter(array_column($quotes,'date')));
+                    $add('quote',$boq,array_merge([$number,implode(' / ',array_map([self::class,'indentDisplayDate'],$dates)),
+                        $boqs[$boq]['name']],$pairs,$statuses,$files),'','','','',$quotes);
+                }
+                if (!isset($tabs['choose'])) {
+                    continue;
+                }
+                foreach ($quotes as $quote) {
+                    if ($quote['row']['status'] !== 'selected') {
+                        continue;
+                    }
+                    $data = $quote['row']['data'];
                     $past = self::lastIssuedPurchase($rows,$boqs[$boq],$indent);
                     $date = $data['selection_date'] ?? substr($data['compared_at'] ?? '',0,10);
-                    $add('choose',$boq,[$number,self::indentDisplayDate($date),$boqs[$boq]['name'],
-                        $past ? self::supplierDisplay($past,$rows) : '',$past['rate'] ?? '',$supplier,$data['rate'] ?? '',
-                        $data['comparison_name'] ?? '',$data['reason'] ?? '',implode(' | ',$comparisons[$indent])],$date,$supplier);
+                    $add('choose',$boq,array_merge([$number,self::indentDisplayDate($date),$boqs[$boq]['name'],
+                        $past ? self::supplierDisplay($past,$rows) : '',$past['rate'] ?? ''],$pairs,
+                        [$quote['supplier'],$quote['rate'],$data['comparison_name'] ?? '',$data['reason'] ?? '']),
+                        $date,$quote['supplier']);
+                    break;
                 }
             }
         }
@@ -3216,9 +3232,31 @@ HTML;
                 if ($value !== '') {
                     $options[$field][$value] = $value;
                 }
-                if ($filters[$field] !== '' && $filters[$field] !== $value) {
+                if ($filters[$field] !== '' && $filters[$field] !== $value
+                    && !($tab === 'quote' && in_array($field,['supplier','status'],true))) {
                     $matches = false;
                 }
+            }
+            if ($tab === 'quote') {
+                $quoteMatches = false;
+                foreach ($record['quotes'] as $quote) {
+                    foreach (['supplier','status'] as $field) {
+                        if ($quote[$field] !== '') {
+                            $options[$field][$quote[$field]] = $quote[$field];
+                        }
+                    }
+                    $date = $quote['date'];
+                    if (($filters['supplier'] === '' || $filters['supplier'] === $quote['supplier'])
+                        && ($filters['status'] === '' || $filters['status'] === $quote['status'])
+                        && ($filters['from'] === '' || ($date !== '' && $date >= $filters['from']))
+                        && ($filters['to'] === '' || ($date !== '' && $date <= $filters['to']))) {
+                        $quoteMatches = true;
+                    }
+                }
+                if ($quoteMatches && $matches) {
+                    $filtered[] = $record;
+                }
+                continue;
             }
             $date = $record['date'];
             if ($tab !== 'summary' && (($filters['from'] !== '' && ($date === '' || $date < $filters['from']))
