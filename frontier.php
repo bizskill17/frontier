@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.122
+ * Version: 1.9.123
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -2657,10 +2657,21 @@ HTML;
     }
 
     private static function deleteAction($row,$operation,$label,$message) {
-        echo '<details class="frontier-delete-action"><summary class="button frontier-action-icon frontier-action-delete" aria-label="'.esc_attr($label).'" title="'.esc_attr($label).'"></summary>';
+        $title = 'frontier-delete-title-'.$operation.'-'.(int)$row['id'];
+        echo '<button type="button" class="button frontier-action-icon frontier-action-delete" aria-label="'
+            .esc_attr($label).'" title="'.esc_attr($label).'" onclick="this.nextElementSibling.showModal()"></button>';
+        echo '<dialog class="frontier-indent-dialog" aria-labelledby="'.esc_attr($title).'">';
+        echo '<div class="frontier-indent-dialog-header"><h2 id="'.esc_attr($title).'">'.esc_html($label).'</h2>';
+        echo '<button type="button" class="button frontier-dialog-close" onclick="this.closest(\'dialog\').close()" aria-label="Close">×</button></div>';
+        self::formStart($row['kind'],$operation,$row['id']);
+        if (!empty($row['data']['name'])) {
+            echo '<p><label>Name <input readonly value="'.esc_attr($row['data']['name']).'"></label></p>';
+        }
         echo '<p>'.esc_html($message).'</p>';
-        self::button($row,$operation,'Confirm Delete');
-        echo '</details>';
+        echo '<div class="frontier-indent-dialog-actions">';
+        echo '<button type="button" class="button" onclick="this.closest(\'dialog\').close()" autofocus>Back</button>';
+        echo '<button type="submit" class="button button-primary" style="background:#b42318;border-color:#b42318;color:#fff">Confirm Delete</button>';
+        echo '</div></form></dialog>';
     }
 
     private static function button($row,$operation,$label,$reason=false) {
