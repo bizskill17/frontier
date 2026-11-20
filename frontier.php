@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.209
+ * Version: 1.9.210
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -5859,10 +5859,7 @@ HTML;
     private static function indentPdfItem($rows,$row) {
         $data = $row['data'];
         $values = self::indentItemValues($row,$rows);
-        $boq = $rows[$data['boq']]['data'] ?? [];
-        $reference = isset($boq['boq_number'],$boq['line_number']) ?
-            $boq['boq_number'].'('.$boq['line_number'].') - ' : '';
-        return [$values['sl'],$reference.$values['item'],$values['unit'],$values['boq_qty'],
+        return [$values['sl'],$values['item'],$values['unit'],$values['boq_qty'],
             $data['already_indented'] ?? $values['already'],$values['qty'],$values['excess'],$values['type']];
     }
 
