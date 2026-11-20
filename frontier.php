@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.179
+ * Version: 1.9.180
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -5580,8 +5580,12 @@ HTML;
         $listing = array_filter($rows,static function ($row) use ($master) {
             return $master ? $row['kind'] === 'match' : $row['kind'] === 'po';
         });
-        $columns = ['PO No. with Supplier Name','PO Date',$master ? 'Indent Number with Site Name' : 'Indent Number',
+        $columns = ['PO Date',$master ? 'Indent Number with Site Name' : 'Indent Number',
             'PO No.','Indent Date','Site Name','Item Name','Order Quantity','Supplier Finalized','Rate Finalized','Pending for Invoice'];
+        if ($master) {
+            array_unshift($columns,'PO No. with Supplier Name');
+        }
+        $baseColumns = $columns;
         $columns = array_merge($columns,$master ? ['Quantity Invoiced','Rate as per Invoice','Invoice Identifier',
             'Invoice No.','Invoice Date','Invoice Copy','Invoice Amount'] : ['Invoice Qty','Invoice Rate','Invoice Identifier']);
         $invoiceValues = static function ($row) use ($rows,$master) {
@@ -5592,12 +5596,15 @@ HTML;
             if ($master) {
                 $indent = implode(' · ',array_filter([(string)$indent,$order['site_name'] ?? ''],'strlen'));
             }
-            $values = [$order['po_supplier'] ?? '',$order['po_date'] ?? '',$indent,$order['ref'] ?? '',
+            $values = [$order['po_date'] ?? '',$indent,$order['ref'] ?? '',
                 $order['indent_date'] ?? '',$order['site_name'] ?? '',$order['item_name'] ?? '',$order['qty'] ?? '',
                 $order['supplier'] ?? '',$order['rate'] ?? '',$po ? $pending : ''];
+            if ($master) {
+                array_unshift($values,$order['po_supplier'] ?? '');
+            }
             return [$values,$po,$pending];
         };
-        $searchColumns = $master ? $columns : array_slice($columns,0,11);
+        $searchColumns = $master ? $columns : $baseColumns;
         [$pageRows,$page,$pages,$total] = self::pagedRows($listing,$searchColumns,static function ($row) use ($invoiceValues,$rows,$master) {
             [$values] = $invoiceValues($row);
             if (!$master) {
