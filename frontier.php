@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.114
+ * Version: 1.9.115
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -472,6 +472,13 @@ final class Frontier {
 .frontier-sidebar .frontier-sidebar-brand,
 .frontier-sidebar .frontier-sidebar-signout {
     border-color: #a9bacf;
+}
+.frontier-sidebar .frontier-sidebar-dashboard:not([aria-current="page"]) {
+    background: #d9e7fb;
+    font-weight: 650;
+}
+.frontier-sidebar .frontier-sidebar-dashboard:not([aria-current="page"]):hover {
+    background: #cbdcf4;
 }
 .frontier-sidebar details {
     background: var(--frontier-section-bg, #edf3fa);
@@ -1131,7 +1138,8 @@ CSS
 
     private static function workspaceNavigationLink($view,$label,$current,$count=null) {
         $active = $view === $current ? ' aria-current="page"' : '';
-        echo '<a class="frontier-dashboard-link" href="'.esc_url(self::url($view)).'"'.$active.'><span>'.esc_html($label).'</span>';
+        $class = $view === 'home' ? 'frontier-dashboard-link frontier-sidebar-dashboard' : 'frontier-dashboard-link';
+        echo '<a class="'.$class.'" href="'.esc_url(self::url($view)).'"'.$active.'><span>'.esc_html($label).'</span>';
         if ($count !== null) {
             $pending = isset(self::PENDING_VIEWS[$view]) ? ' frontier-dashboard-count-pending' : '';
             echo '<span class="frontier-dashboard-count'.$pending.'">'.esc_html(number_format_i18n($count)).'</span>';
