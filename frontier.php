@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.208
+ * Version: 1.9.209
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -6173,8 +6173,7 @@ HTML;
         $items = [];
         foreach (array_values(self::goodsReceiptGroup($rows,$receipt)) as $index=>$line) {
             $item = self::goodsReceiptValues($rows,$line);
-            $poItem = $item['po_no'] !== '' && $item['sl'] !== '' ? $item['po_no'].'('.$item['sl'].')' : '';
-            $items[] = [$index+1,$poItem,$item['item_name'],$item['ordered'],$item['pending'],$item['received']];
+            $items[] = [$index+1,$item['item_name'],$item['ordered'],$item['pending'],$item['received']];
         }
         $number = $receipt['data']['grn_number'] ?? self::goodsReceiptNumberId($receipt);
         return Frontier_Boq_Pdf::buildGrn($number,[

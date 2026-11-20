@@ -95,8 +95,8 @@ final class Frontier_Boq_Pdf {
 
     public static function buildGrn($number,$details,$rows) {
         return self::landscapeRegister('GRN - '.(int)$number,$details,
-            ['Sl No.','PO Item No.','Item Name','Quantity Ordered','Quantity Pending to Receive','Quantity Received'],
-            [40,90,179,473,556,671,752],$rows);
+            ['Sl No.','Item Name','Quantity Ordered','Quantity Pending to Receive','Quantity Received'],
+            [40,90,473,556,671,752],$rows);
     }
 
     private static function landscapeRegister($reference,$details,$headings,$edges,$rows) {
