@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Frontier
  * Description: Site procurement from BOQ and indent to supplier invoice reconciliation.
- * Version: 1.9.139
+ * Version: 1.9.140
  * Requires PHP: 7.4
  */
 defined('ABSPATH') || exit;
@@ -3446,6 +3446,10 @@ HTML;
         echo '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;margin-bottom:16px">';
         foreach (self::GROUPS as $group=>$views) {
             echo '<fieldset style="min-width:0;border:1px solid #cbd6e4;border-radius:8px;padding:10px"><legend>'.esc_html($group).'</legend>';
+            echo '<div class="frontier-row-actions">';
+            echo '<button type="button" class="button" data-view-bulk="select" aria-label="'.esc_attr('Select all '.$group.' views').'">Select all</button>';
+            echo '<button type="button" class="button" data-view-bulk="clear" aria-label="'.esc_attr('Clear all '.$group.' views').'">Clear all</button>';
+            echo '</div>';
             foreach ($views as $view=>$label) {
                 $checked = ($access['role'] ?? '') !== 'employee' || in_array($view,$access['views'] ?? [],true);
                 echo '<label style="display:block;margin:4px 0"><input type="checkbox" name="frontier_employee_views[]" value="'
@@ -3461,6 +3465,14 @@ HTML;
     const role = form.elements.frontier_employee_role;
     const access = form.querySelector('[data-frontier-view-access]');
     const update = () => { access.hidden = role.value === 'admin'; };
+    access.addEventListener('click', (event) => {
+        const button = event.target.closest('button[data-view-bulk]');
+        if (!button) return;
+        const checked = button.dataset.viewBulk === 'select';
+        for (const input of button.closest('fieldset').querySelectorAll('input[type="checkbox"]')) {
+            input.checked = checked;
+        }
+    });
     role.addEventListener('change',update);
     update();
 })();
