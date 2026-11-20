@@ -61,8 +61,8 @@ if (boqForm) {
         message.textContent = '';
     }
 
-    function addRow(values = {}) {
-        const element = table.insertRow();
+    function addRow(values = {}, index = rows.length) {
+        const element = table.insertRow(index);
         const number = element.insertCell();
         const inputs = {};
         const namePreview = document.createElement('span');
@@ -174,6 +174,14 @@ if (boqForm) {
         } else {
             actions.append(' ', remove);
         }
+        const insert = document.createElement('button');
+        insert.type = 'button';
+        insert.className = 'button frontier-action-icon';
+        insert.textContent = '+';
+        insert.setAttribute('aria-label', 'Add row below');
+        insert.title = 'Add row below';
+        insert.addEventListener('click', () => insertRow(rows.indexOf(row) + 1));
+        actions.append(insert);
         const row = { element, number, status, namePreview, selectItem, addItem, id: values.id || 0,
             selectedItem: values.item ? { id: values.item } : undefined, locked: !!values.locked, ...inputs };
         remove.addEventListener('click', () => {
@@ -187,7 +195,8 @@ if (boqForm) {
             row.selectedItem = undefined;
             sync();
         });
-        rows.push(row);
+        rows.splice(index, 0, row);
+        return row;
     }
 
     if (addDialog) {
@@ -222,15 +231,17 @@ if (boqForm) {
         });
     }
 
-    boqForm.querySelector('.frontier-boq-add').addEventListener('click', () => {
+    function insertRow(index) {
         if (rows.length >= 500) {
             message.textContent = 'A BOQ can contain up to 500 item rows.';
             return;
         }
-        addRow();
+        const row = addRow({}, index);
         sync();
-        rows[rows.length - 1].name.focus();
-    });
+        row.name.focus();
+    }
+
+    boqForm.querySelector('.frontier-boq-add').addEventListener('click', () => insertRow(rows.length));
 
     file.addEventListener('change', async () => {
         if (!file.files.length || uploading) return;
@@ -253,7 +264,7 @@ if (boqForm) {
                 } else {
                     rows.filter((row) => !retained.includes(row)).forEach((row) => row.element.remove());
                     rows = retained;
-                    result.data.rows.forEach(addRow);
+                    result.data.rows.forEach((values) => addRow(values));
                 }
             }
         } catch (error) {
@@ -281,7 +292,7 @@ if (boqForm) {
         save.disabled = true;
     });
     if (data.lines.length) {
-        data.lines.forEach(addRow);
+        data.lines.forEach((values) => addRow(values));
     } else {
         addRow();
     }
